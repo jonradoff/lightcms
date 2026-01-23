@@ -68,7 +68,7 @@ func main() {
 	}
 
 	// Initialize handlers with config
-	h := handlers.New(db, authManager, cfg.BaseURL)
+	h := handlers.New(db, authManager, cfg.BaseURL, cfg.Env)
 
 	// Seed default data if needed
 	if err := h.SeedDefaults(context.Background()); err != nil {

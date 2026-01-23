@@ -30,10 +30,11 @@ type Handler struct {
 	db      *database.DB
 	auth    *auth.Manager
 	baseURL string
+	env     string
 }
 
-func New(db *database.DB, authManager *auth.Manager, baseURL string) *Handler {
-	return &Handler{db: db, auth: authManager, baseURL: baseURL}
+func New(db *database.DB, authManager *auth.Manager, baseURL string, env string) *Handler {
+	return &Handler{db: db, auth: authManager, baseURL: baseURL, env: env}
 }
 
 // SeedDefaults creates default templates and hello world page if they don't exist
@@ -2179,11 +2180,18 @@ func (h *Handler) SiteConfiguration(w http.ResponseWriter, r *http.Request) {
 	// Import build package for software version
 	softwareVersion := build.GetVersion()
 
+	// Determine environment label
+	envLabel := "Development"
+	if h.env == "production" || h.env == "prod" {
+		envLabel = "Production"
+	}
+
 	h.renderAdmin(w, r, "config", map[string]interface{}{
 		"Config":          config,
 		"SiteName":        theme.SiteName,
 		"SoftwareVersion": softwareVersion,
 		"DatabaseVersion": dbVersion,
+		"EnvLabel":        envLabel,
 	})
 }
 

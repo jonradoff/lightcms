@@ -2536,7 +2536,7 @@ var adminTemplates = map[string]string{
                 <div class="version-info">
                     <div class="version-row">
                         <span class="version-label">Software Version:</span>
-                        <span class="version-value">{{.SoftwareVersion}}</span>
+                        <span class="version-value">{{.SoftwareVersion}} ({{.EnvLabel}})</span>
                     </div>
                     <div class="version-row">
                         <span class="version-label">Database Version:</span>
