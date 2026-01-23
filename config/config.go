@@ -41,10 +41,15 @@ func DefaultProd() *Config {
 	}
 }
 
-// Load loads configuration from JSON config file
-// Uses config.dev.json for development, config.prod.json for production
+// Load loads configuration from JSON config file or environment variables
+// Priority: environment variables > config.prod.json > config.dev.json
 func Load() (*Config, error) {
-	// Determine environment - check for config.prod.json existence as indicator
+	// Check if running with environment variables (e.g., Fly.io)
+	if mongoURI := os.Getenv("MONGO_URI"); mongoURI != "" {
+		return loadFromEnv()
+	}
+
+	// Fall back to config files
 	var configPath string
 	var cfg *Config
 
@@ -61,6 +66,41 @@ func Load() (*Config, error) {
 
 	if err := loadFromFile(configPath, cfg); err != nil {
 		return nil, fmt.Errorf("failed to load config from %s: %w", configPath, err)
+	}
+
+	return cfg, nil
+}
+
+// loadFromEnv loads configuration from environment variables (for Fly.io deployment)
+func loadFromEnv() (*Config, error) {
+	cfg := DefaultProd()
+
+	cfg.MongoURI = os.Getenv("MONGO_URI")
+	if cfg.MongoURI == "" {
+		return nil, fmt.Errorf("MONGO_URI environment variable is required")
+	}
+
+	cfg.SessionSecret = os.Getenv("SESSION_SECRET")
+	if cfg.SessionSecret == "" {
+		return nil, fmt.Errorf("SESSION_SECRET environment variable is required")
+	}
+
+	cfg.BaseURL = os.Getenv("BASE_URL")
+	if cfg.BaseURL == "" {
+		cfg.BaseURL = "https://lightcms.fly.dev" // Default Fly.io URL
+	}
+
+	if port := os.Getenv("PORT"); port != "" {
+		cfg.Port = port
+	}
+
+	if env := os.Getenv("ENV"); env != "" {
+		cfg.Env = env
+	}
+
+	// SecureCookies defaults to true in production
+	if secure := os.Getenv("SECURE_COOKIES"); secure == "false" {
+		cfg.SecureCookies = false
 	}
 
 	return cfg, nil

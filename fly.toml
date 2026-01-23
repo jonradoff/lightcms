@@ -1,0 +1,25 @@
+app = 'metavert-cms'
+primary_region = 'ord'
+
+[build]
+
+[env]
+  PORT = "8082"
+
+[http_service]
+  internal_port = 8082
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ['app']
+
+[[vm]]
+  memory = '512mb'
+  cpu_kind = 'shared'
+  cpus = 1
+
+[mounts]
+  source = "lightcms_data"
+  destination = "/app/content"
+  initial_size = "1gb"
