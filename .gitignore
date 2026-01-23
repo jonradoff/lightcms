@@ -1,0 +1,35 @@
+# Binary
+lightcms
+
+# Uploads (user content)
+static/uploads/*
+!static/uploads/.gitkeep
+
+# Generated content (site-specific, not part of software)
+content/
+
+# Config files (contain secrets)
+config.dev.json
+config.prod.json
+.env
+.env.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+go.work

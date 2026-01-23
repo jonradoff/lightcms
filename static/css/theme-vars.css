@@ -1,0 +1,11 @@
+:root {
+    --primary: #6366f1;
+    --secondary: #8b5cf6;
+    --accent: #06b6d4;
+    --background: #0f172a;
+    --text: #f1f5f9;
+    --font-family: Inter, system-ui, sans-serif;
+    --heading-font: Space Grotesk, system-ui, sans-serif;
+    --border-radius: 12px;
+}
+

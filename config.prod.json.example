@@ -1,0 +1,23 @@
+{
+  "_comment1": "=== LightCMS Production Configuration ===",
+  "_comment2": "Copy this file to config.prod.json and fill in your values",
+  "_comment3": "Delete these _comment lines in your actual config file",
+
+  "_port_help": "Port to run the server on (typically 80 for production, or 443 for HTTPS)",
+  "port": "80",
+
+  "_mongo_uri_help": "MongoDB Atlas connection string - get this from Atlas Dashboard → Connect → Drivers",
+  "mongo_uri": "mongodb+srv://USERNAME:PASSWORD@cluster.mongodb.net/lightcms?retryWrites=true&w=majority",
+
+  "_env_help": "Environment mode - use 'production' for production deployments",
+  "env": "production",
+
+  "_session_secret_help": "Random string for session encryption - generate with: openssl rand -hex 32",
+  "session_secret": "GENERATE_A_RANDOM_64_CHARACTER_HEX_STRING",
+
+  "_base_url_help": "Public URL of your site (with https://) - used for sitemap and robots.txt",
+  "base_url": "https://your-domain.com",
+
+  "_secure_cookies_help": "Set to true for production - requires HTTPS to work properly",
+  "secure_cookies": true
+}
