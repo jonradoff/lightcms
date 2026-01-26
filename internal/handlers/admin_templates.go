@@ -212,7 +212,7 @@ var adminTemplates = map[string]string{
                             <a href="/cm/templates/{{.ID.Hex}}" class="btn btn-sm">Edit</a>
                             {{if not .IsSystem}}
                             <form method="POST" action="/cm/templates/{{.ID.Hex}}/delete" onsubmit="return confirmDelete(this, 'Are you sure you want to delete this template?')">
-            {{.CSRFField}}
+            {{$.CSRFField}}
                                 <button type="submit" class="btn btn-sm btn-danger">Delete</button>
                             </form>
                             {{end}}
@@ -372,18 +372,18 @@ var adminTemplates = map[string]string{
                             <a href="/cm/content/{{.ID.Hex}}/versions/latest/view" target="_blank" class="btn btn-sm btn-outline">View</a>
                             <a href="/cm/content/{{.ID.Hex}}" class="btn btn-sm">Edit</a>
                             <form method="POST" action="/cm/content/{{.ID.Hex}}/undelete" style="display:inline">
-            {{.CSRFField}}
+            {{$.CSRFField}}
                                 <button type="submit" class="btn btn-sm btn-primary">Restore</button>
                             </form>
                             {{else}}
                             <a href="{{if .FullPath}}{{.FullPath}}{{else}}/{{.Slug}}{{end}}" target="_blank" class="btn btn-sm btn-outline">View</a>
                             <a href="/cm/content/{{.ID.Hex}}" class="btn btn-sm">Edit</a>
                             <form method="POST" action="/cm/content/{{.ID.Hex}}/regenerate" style="display:inline">
-            {{.CSRFField}}
+            {{$.CSRFField}}
                                 <button type="submit" class="btn btn-sm btn-secondary" title="Regenerate static file">↻</button>
                             </form>
                             <form method="POST" action="/cm/content/{{.ID.Hex}}/delete" onsubmit="return confirmDelete(this, 'Are you sure you want to delete this content?')">
-            {{.CSRFField}}
+            {{$.CSRFField}}
                                 <button type="submit" class="btn btn-sm btn-danger">Delete</button>
                             </form>
                             {{end}}
@@ -1314,7 +1314,7 @@ var adminTemplates = map[string]string{
                                 <a href="/cm/content/{{.ContentID.Hex}}/versions/{{.Version}}/diff" class="btn btn-sm btn-outline">Diff</a>
                                 <a href="/cm/content/{{.ContentID.Hex}}/versions/{{.Version}}/view" target="_blank" class="btn btn-sm btn-outline">Preview</a>
                                 <form method="POST" action="/cm/content/{{.ContentID.Hex}}/versions/{{.Version}}/revert" style="display:inline" onsubmit="return confirmRevert(this, {{.Version}})">
-            {{.CSRFField}}
+            {{$.CSRFField}}
                                     <button type="submit" class="btn btn-sm btn-secondary">Revert</button>
                                 </form>
                             </td>
@@ -2609,7 +2609,7 @@ var adminTemplates = map[string]string{
                             <a href="/{{.Slug}}" target="_blank" class="btn btn-sm btn-outline">View</a>
                             <a href="/cm/collections/{{.ID.Hex}}" class="btn btn-sm">Edit</a>
                             <form method="POST" action="/cm/collections/{{.ID.Hex}}/delete" onsubmit="return confirmDelete(this, 'Are you sure you want to delete this collection?')">
-            {{.CSRFField}}
+            {{$.CSRFField}}
                                 <button type="submit" class="btn btn-sm btn-danger">Delete</button>
                             </form>
                         </td>
@@ -3235,7 +3235,7 @@ var adminTemplates = map[string]string{
                         <td class="actions">
                             <a href="/cm/folders/{{.Folder.ID.Hex}}" class="btn btn-sm">Edit</a>
                             <form method="POST" action="/cm/folders/{{.Folder.ID.Hex}}/delete" onsubmit="return confirmDelete(this, 'Are you sure you want to delete this folder?<br><br><span style=&quot;color: var(--text-muted); font-size: 0.9rem;&quot;>Make sure it has no content or subfolders.</span>')">
-                                {{.CSRFField}}
+                                {{$.CSRFField}}
                                 <button type="submit" class="btn btn-sm btn-danger">Delete</button>
                             </form>
                         </td>
@@ -3449,7 +3449,7 @@ var adminTemplates = map[string]string{
                         <td class="actions">
                             <a href="/cm/redirects/{{.ID.Hex}}" class="btn btn-sm">Edit</a>
                             <form method="POST" action="/cm/redirects/{{.ID.Hex}}/delete" style="display:inline" onsubmit="return confirmDelete(this, 'Are you sure you want to delete this redirect?&lt;br&gt;&lt;br&gt;Note: Browsers cache 301 redirects. After deletion, users may need to clear their browser cache.')">
-            {{.CSRFField}}
+            {{$.CSRFField}}
                                 <button type="submit" class="btn btn-sm btn-danger">Delete</button>
                             </form>
                         </td>
@@ -3530,7 +3530,7 @@ var adminTemplates = map[string]string{
                         <td class="actions">
                             <a href="/cm/messages/{{.ID.Hex}}" class="btn btn-sm">View</a>
                             <form method="POST" action="/cm/messages/{{.ID.Hex}}/delete" style="display:inline" onsubmit="return confirmDelete(this, 'Are you sure you want to delete this message?')">
-            {{.CSRFField}}
+            {{$.CSRFField}}
                                 <button type="submit" class="btn btn-sm btn-danger">Delete</button>
                             </form>
                         </td>
@@ -3653,7 +3653,7 @@ var adminTemplates = map[string]string{
                             <a href="{{.ServePath}}" target="_blank" class="btn btn-sm">View</a>
                             <button onclick="copyToClipboard('{{.ServePath}}')" class="btn btn-sm btn-secondary">Copy URL</button>
                             <form method="POST" action="/cm/assets/{{.ID.Hex}}/delete" style="display:inline" onsubmit="return confirmDelete(this, 'Are you sure you want to delete this asset?')">
-            {{.CSRFField}}
+            {{$.CSRFField}}
                                 <button type="submit" class="btn btn-sm btn-danger">Delete</button>
                             </form>
                         </td>

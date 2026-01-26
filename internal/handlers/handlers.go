@@ -531,24 +531,41 @@ func (h *Handler) ListContent(w http.ResponseWriter, r *http.Request) {
 	showDeleted := r.URL.Query().Get("deleted") == "true"
 	folderFilter := r.URL.Query().Get("folder")
 
-	// Build query filter
-	filter := bson.M{}
+	// Build query filter using $and to combine multiple conditions
+	var conditions []bson.M
+
+	// Deleted filter
 	if showDeleted {
-		filter["deleted"] = true
+		conditions = append(conditions, bson.M{"deleted": true})
 	} else {
-		filter["deleted"] = bson.M{"$ne": true}
+		// Match documents where deleted is false, null, or missing
+		// Using $or explicitly for compatibility with documents created before the deleted field existed
+		conditions = append(conditions, bson.M{"$or": []bson.M{
+			{"deleted": false},
+			{"deleted": nil},
+			{"deleted": bson.M{"$exists": false}},
+		}})
 	}
 
+	// Folder filter
 	if folderFilter != "" && folderFilter != "all" {
 		if folderFilter == "root" {
 			// Root level: no folder or empty folder path
-			filter["$or"] = []bson.M{
+			conditions = append(conditions, bson.M{"$or": []bson.M{
 				{"folder_path": ""},
 				{"folder_path": bson.M{"$exists": false}},
-			}
+			}})
 		} else {
-			filter["folder_path"] = folderFilter
+			conditions = append(conditions, bson.M{"folder_path": folderFilter})
 		}
+	}
+
+	// Combine all conditions with $and
+	filter := bson.M{}
+	if len(conditions) == 1 {
+		filter = conditions[0]
+	} else if len(conditions) > 1 {
+		filter["$and"] = conditions
 	}
 
 	cursor, err := h.db.FindMany(ctx, "content", filter, options.Find().SetSort(bson.D{{Key: "updated_at", Value: -1}}))
