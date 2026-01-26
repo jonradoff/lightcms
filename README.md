@@ -287,6 +287,8 @@ The MCP server provides 38 tools for complete content management:
 - **Assets**: Upload and manage images, documents, and other files
 - **Settings**: Theme customization, redirects, folders, collections
 
+For detailed API documentation, see [MCP.md](MCP.md).
+
 ## Development
 
 ```bash
