@@ -11,9 +11,14 @@ LightCMS is a lightweight, self-hosted content management system built in Go. It
 
 ## MCP Server Integration
 
-**IMPORTANT:** When the user asks about changing website content, templates, themes, assets, or site configuration, prefer using the LightCMS MCP server tools instead of making code changes. The MCP server provides 38 tools for content management operations.
+**IMPORTANT:** All website content operations MUST go through the MCP server. Do NOT:
+- Write scripts to directly modify the database
+- Use Go code to create/edit/delete content
+- Bypass the MCP server for any content management tasks
 
-### When to Use MCP Server:
+If the MCP server is not available or not working, ASK the user for permission before attempting any content changes through other means.
+
+### Content Operations (REQUIRE MCP or explicit user permission):
 - Creating, editing, publishing, or deleting content
 - Managing templates and their HTML layouts
 - Uploading or managing assets (images, CSS, JS, documents)
@@ -22,13 +27,35 @@ LightCMS is a lightweight, self-hosted content management system built in Go. It
 - Viewing or reverting content versions
 - Site configuration changes
 
-### When to Make Code Changes:
+### Code Changes (allowed without MCP):
 - Adding new features to LightCMS itself
 - Fixing bugs in the application
 - Changing application behavior or logic
 - Adding new MCP tools
 - Modifying database schemas or indexes
 - Security improvements
+
+### Setting Up MCP with Claude Code
+
+To use LightCMS with Claude Code, register the MCP server:
+
+```bash
+# Build the MCP server first
+go build -o bin/lightcms-mcp ./cmd/mcp
+
+# Register with Claude Code
+claude mcp add --transport stdio lightcms-mcp -- /path/to/lightcms/bin/lightcms-mcp
+```
+
+After registering, restart Claude Code. You can verify the server is connected:
+- Run `/mcp` in Claude Code to check status
+- Run `claude mcp list` in terminal to see registered servers
+
+Once connected, you can ask Claude to manage your content naturally:
+- "Create a new blog post about AI"
+- "List all my published content"
+- "Update the homepage hero image"
+- "Delete the /random page"
 
 ### MCP Server Location
 Binary: `bin/lightcms-mcp`

@@ -215,6 +215,68 @@ Fields: headline, subheadline, dateline, release_date, body, boilerplate, contac
 ### Explanatory Page
 Fields: title, subtitle, hero_image, intro, main_content, sidebar, cta_text, cta_link
 
+## Using with Claude Code (AI-Powered Content Management)
+
+LightCMS includes an MCP (Model Context Protocol) server that allows you to manage your website content using Claude Code. Instead of navigating the admin UI, you can simply ask Claude to create pages, update content, manage assets, and more.
+
+### Setup
+
+1. Build the MCP server:
+   ```bash
+   go build -o bin/lightcms-mcp ./cmd/mcp
+   ```
+
+2. Register the MCP server with Claude Code using the wrapper script:
+   ```bash
+   claude mcp add --transport stdio lightcms-mcp -- /path/to/lightcms/lightcms-mcp-wrapper.sh
+   ```
+
+   The wrapper script automatically sets `LIGHTCMS_CONFIG_DIR` so the MCP server can find your config files regardless of where Claude Code runs from.
+
+3. Restart Claude Code (or start a new session)
+
+4. Verify the connection by running `/mcp` in Claude Code
+
+### Alternative: Environment Variables
+
+Instead of using config files, you can configure via environment variables:
+
+```bash
+claude mcp add --transport stdio lightcms-mcp \
+  -e MONGO_URI="mongodb+srv://..." \
+  -e SESSION_SECRET="your-secret" \
+  -- /path/to/lightcms/bin/lightcms-mcp
+```
+
+### Configuration Options
+
+The MCP server supports these environment variables:
+- `LIGHTCMS_CONFIG_DIR` - Directory containing config.dev.json or config.prod.json
+- `MONGO_URI` - MongoDB connection string (bypasses config files)
+- `SESSION_SECRET` - Session encryption key (required with MONGO_URI)
+- `BASE_URL` - Public site URL (optional)
+
+### Example Commands
+
+Once connected, you can manage your site with natural language:
+
+- "Create a new blog post about machine learning"
+- "List all my draft content"
+- "Update the homepage title to 'Welcome to My Site'"
+- "Delete the /old-page content"
+- "Show me all templates"
+- "Upload an image for my latest blog post"
+- "Change the site's primary color to blue"
+
+### Available Tools
+
+The MCP server provides 38 tools for complete content management:
+
+- **Content**: Create, read, update, delete, publish, unpublish, versioning
+- **Templates**: Manage content templates and their fields
+- **Assets**: Upload and manage images, documents, and other files
+- **Settings**: Theme customization, redirects, folders, collections
+
 ## Development
 
 ```bash

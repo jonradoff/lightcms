@@ -43,6 +43,7 @@ func DefaultProd() *Config {
 
 // Load loads configuration from JSON config file or environment variables
 // Priority: environment variables > config.prod.json > config.dev.json
+// Set LIGHTCMS_CONFIG_DIR to specify a custom config directory
 func Load() (*Config, error) {
 	// Check if running with environment variables (e.g., Fly.io)
 	if mongoURI := os.Getenv("MONGO_URI"); mongoURI != "" {
@@ -53,15 +54,24 @@ func Load() (*Config, error) {
 	var configPath string
 	var cfg *Config
 
+	// Check for custom config directory
+	configDir := os.Getenv("LIGHTCMS_CONFIG_DIR")
+	if configDir == "" {
+		configDir = "."
+	}
+
 	// Check for production config first
-	if _, err := os.Stat("config.prod.json"); err == nil {
-		configPath = "config.prod.json"
+	prodPath := filepath.Join(configDir, "config.prod.json")
+	devPath := filepath.Join(configDir, "config.dev.json")
+
+	if _, err := os.Stat(prodPath); err == nil {
+		configPath = prodPath
 		cfg = DefaultProd()
-	} else if _, err := os.Stat("config.dev.json"); err == nil {
-		configPath = "config.dev.json"
+	} else if _, err := os.Stat(devPath); err == nil {
+		configPath = devPath
 		cfg = DefaultDev()
 	} else {
-		return nil, fmt.Errorf("no config file found (expected config.dev.json or config.prod.json)")
+		return nil, fmt.Errorf("no config file found (expected config.dev.json or config.prod.json in %s)", configDir)
 	}
 
 	if err := loadFromFile(configPath, cfg); err != nil {
