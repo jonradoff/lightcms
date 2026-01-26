@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"html/template"
+	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -15,6 +16,7 @@ import (
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
@@ -29,7 +31,7 @@ func NewContentService(db *database.DB) *ContentService {
 }
 
 // CreateContent creates new content and saves the initial version
-func (s *ContentService) CreateContent(ctx context.Context, content *models.Content) error {
+func (s *ContentService) CreateContent(ctx context.Context, content *models.Content, versionComment ...string) error {
 	now := time.Now()
 	content.CreatedAt = now
 	content.UpdatedAt = now
@@ -53,8 +55,12 @@ func (s *ContentService) CreateContent(ctx context.Context, content *models.Cont
 	}
 	content.ID = id
 
-	// Save initial version
-	if err := s.saveVersion(ctx, content, nil); err != nil {
+	// Save initial version with optional comment
+	comment := ""
+	if len(versionComment) > 0 {
+		comment = versionComment[0]
+	}
+	if err := s.saveVersion(ctx, content, nil, comment); err != nil {
 		return fmt.Errorf("failed to save initial version: %w", err)
 	}
 
@@ -69,8 +75,8 @@ func (s *ContentService) CreateContent(ctx context.Context, content *models.Cont
 	return nil
 }
 
-// UpdateContent updates content and saves a new version
-func (s *ContentService) UpdateContent(ctx context.Context, content *models.Content) error {
+// UpdateContent updates content and saves a new version with an optional comment
+func (s *ContentService) UpdateContent(ctx context.Context, content *models.Content, versionComment ...string) error {
 	// Get the original content for versioning
 	var original models.Content
 	if err := s.db.FindOne(ctx, "content", bson.M{"_id": content.ID}, &original); err != nil {
@@ -121,7 +127,11 @@ func (s *ContentService) UpdateContent(ctx context.Context, content *models.Cont
 	}
 
 	// Save version with original for first-time versioning
-	if err := s.saveVersion(ctx, content, &original); err != nil {
+	comment := ""
+	if len(versionComment) > 0 {
+		comment = versionComment[0]
+	}
+	if err := s.saveVersion(ctx, content, &original, comment); err != nil {
 		return fmt.Errorf("failed to save version: %w", err)
 	}
 
@@ -291,8 +301,8 @@ func (s *ContentService) GetVersion(ctx context.Context, contentID primitive.Obj
 	return &v, nil
 }
 
-// RevertToVersion reverts content to a previous version
-func (s *ContentService) RevertToVersion(ctx context.Context, contentID primitive.ObjectID, version int) error {
+// RevertToVersion reverts content to a previous version with an optional comment
+func (s *ContentService) RevertToVersion(ctx context.Context, contentID primitive.ObjectID, version int, versionComment ...string) error {
 	// Get the version to revert to
 	v, err := s.GetVersion(ctx, contentID, version)
 	if err != nil {
@@ -324,11 +334,12 @@ func (s *ContentService) RevertToVersion(ctx context.Context, contentID primitiv
 	content.UseTheme = v.UseTheme
 	content.RawMode = v.RawMode
 
-	return s.UpdateContent(ctx, &content)
+	// Pass through the version comment if provided
+	return s.UpdateContent(ctx, &content, versionComment...)
 }
 
-// saveVersion saves a new version of the content
-func (s *ContentService) saveVersion(ctx context.Context, content *models.Content, original *models.Content) error {
+// saveVersion saves a new version of the content with an optional comment
+func (s *ContentService) saveVersion(ctx context.Context, content *models.Content, original *models.Content, comment string) error {
 	// Get the current version count
 	count, err := s.db.Count(ctx, "content_versions", bson.M{"content_id": content.ID})
 	if err != nil {
@@ -370,6 +381,7 @@ func (s *ContentService) saveVersion(ctx context.Context, content *models.Conten
 	contentVersion := models.ContentVersion{
 		ContentID:       content.ID,
 		Version:         version,
+		Comment:         comment,
 		TemplateID:      content.TemplateID,
 		TemplateName:    content.TemplateName,
 		Title:           content.Title,
@@ -514,4 +526,92 @@ func (s *ContentService) RegenerateAllContent(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// WatchForChanges starts a MongoDB change stream to watch for content updates
+// and automatically regenerates static pages when content is modified.
+// This enables real-time sync when the database is modified externally (e.g., via MCP).
+// The function blocks until the context is cancelled or an error occurs.
+func (s *ContentService) WatchForChanges(ctx context.Context) {
+	// Watch for update and replace operations on the content collection
+	pipeline := mongo.Pipeline{
+		bson.D{{Key: "$match", Value: bson.D{
+			{Key: "operationType", Value: bson.M{"$in": []string{"update", "replace"}}},
+		}}},
+	}
+
+	for {
+		// Check if context is cancelled before starting/restarting stream
+		select {
+		case <-ctx.Done():
+			log.Println("Content change watcher stopped")
+			return
+		default:
+		}
+
+		stream, err := s.db.WatchCollection(ctx, "content", pipeline)
+		if err != nil {
+			log.Printf("Failed to start content change stream: %v", err)
+			// Wait before retrying to avoid tight loop on persistent errors
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(10 * time.Second):
+				continue
+			}
+		}
+
+		log.Println("Content change stream started - watching for database updates")
+
+		// Process change events
+		for stream.Next(ctx) {
+			var event bson.M
+			if err := stream.Decode(&event); err != nil {
+				log.Printf("Failed to decode change event: %v", err)
+				continue
+			}
+
+			// Extract the document ID from the change event
+			docKey, ok := event["documentKey"].(bson.M)
+			if !ok {
+				continue
+			}
+			id, ok := docKey["_id"].(primitive.ObjectID)
+			if !ok {
+				continue
+			}
+
+			// Fetch the updated content and regenerate if published
+			content, err := s.GetContent(ctx, id)
+			if err != nil {
+				log.Printf("Failed to get content %s for regeneration: %v", id.Hex(), err)
+				continue
+			}
+
+			if content.Published && !content.Deleted {
+				if err := s.GenerateStaticPage(ctx, content); err != nil {
+					log.Printf("Failed to regenerate %s: %v", content.FullPath, err)
+				} else {
+					log.Printf("Regenerated static page: %s", content.FullPath)
+				}
+			} else if content.Deleted || !content.Published {
+				// Remove static page if content was unpublished or deleted
+				s.removeStaticPage(content.FullPath)
+				log.Printf("Removed static page: %s", content.FullPath)
+			}
+		}
+
+		// Stream ended - check for errors
+		if err := stream.Err(); err != nil {
+			log.Printf("Content change stream error: %v", err)
+		}
+		stream.Close(ctx)
+
+		// Brief pause before reconnecting
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(1 * time.Second):
+		}
+	}
 }

@@ -18,6 +18,16 @@ LightCMS is a lightweight, self-hosted content management system built in Go. It
 
 If the MCP server is not available or not working, ASK the user for permission before attempting any content changes through other means.
 
+### Starting the MCP Server
+
+If the user requests a content operation and the MCP server is not yet running, start it using the convenience script:
+
+```bash
+./bin/lightcms-mcp-wrapper.sh
+```
+
+This wrapper script sets up the required environment variables (LIGHTCMS_CONFIG_DIR) and launches the MCP server. The MCP server uses stdio transport, so it will be connected automatically once started.
+
 ### Content Operations (REQUIRE MCP or explicit user permission):
 - Creating, editing, publishing, or deleting content
 - Managing templates and their HTML layouts
@@ -37,14 +47,21 @@ If the MCP server is not available or not working, ASK the user for permission b
 
 ### Setting Up MCP with Claude Code
 
-To use LightCMS with Claude Code, register the MCP server:
+Run the setup script from the lightcms directory:
 
 ```bash
-# Build the MCP server first
+./setup-mcp.sh
+```
+
+This builds the MCP server, creates the wrapper script, and registers it with Claude Code.
+
+**Manual setup** (if needed):
+```bash
+# Build the MCP server
 go build -o bin/lightcms-mcp ./cmd/mcp
 
-# Register with Claude Code
-claude mcp add --transport stdio lightcms-mcp -- /path/to/lightcms/bin/lightcms-mcp
+# Register with Claude Code (use the wrapper script, not the binary directly)
+claude mcp add --transport stdio lightcms-mcp -- /path/to/lightcms/lightcms-mcp-wrapper.sh
 ```
 
 After registering, restart Claude Code. You can verify the server is connected:
@@ -61,7 +78,7 @@ Once connected, you can ask Claude to manage your content naturally:
 Binary: `bin/lightcms-mcp`
 Config: Uses same `config.dev.json` or environment variables as main server
 
-### Available MCP Tools (38 total):
+### Available MCP Tools (41 total):
 
 **Content (12 tools):** list_content, get_content, create_content, update_content, publish_content, unpublish_content, delete_content, restore_content, get_content_versions, get_content_version, revert_to_version
 
@@ -69,7 +86,31 @@ Config: Uses same `config.dev.json` or environment variables as main server
 
 **Assets (5 tools):** list_assets, list_asset_folders, get_asset, upload_asset, delete_asset
 
+**Search (3 tools):** search_content, search_replace_preview, search_replace_execute
+
 **Settings (16 tools):** get_theme, update_theme, get_site_config, update_site_config, list_redirects, create_redirect, update_redirect, delete_redirect, list_folders, create_folder, get_folder, delete_folder, list_collections, create_collection, get_collection, update_collection, delete_collection, regenerate_all_content
+
+### ⚠️ CRITICAL: Search & Replace Safety
+
+The `search_replace_execute` tool is **destructive** and modifies content permanently. Before using it, you MUST:
+
+1. **ALWAYS run `search_replace_preview` first** to see exactly what will be changed
+2. **Show the user the preview results**, including:
+   - Number of pages affected
+   - Which pages are published vs drafts
+   - Sample excerpts showing what will change
+3. **Explicitly ask for user confirmation** before running `search_replace_execute`
+4. **Never execute search/replace without user consent**, even if the user asked for a "quick fix"
+
+Example interaction:
+```
+User: "Update all links from http to https"
+Assistant: "Let me preview what would change..."
+[Run search_replace_preview]
+Assistant: "This would affect 15 pages (12 published, 3 drafts) with 47 total replacements. Here are the affected pages: [list]. Should I proceed with these changes?"
+User: "Yes, go ahead"
+[Run search_replace_execute]
+```
 
 ## Build Commands
 
@@ -120,6 +161,15 @@ All business logic goes through services in `internal/services/`:
 
 ### Content Versioning
 Every content update automatically creates a version. Versions are stored in `content_versions` collection. Use `revert_to_version` to restore previous versions.
+
+**IMPORTANT:** When updating content via MCP, ALWAYS include a `version_comment` parameter with a concise description of what changed, even if the user doesn't explicitly provide one. This makes version history useful for tracking changes over time.
+
+Examples:
+- "Updated page title"
+- "Revised introduction paragraph"
+- "Added new section on security"
+- "Fixed typo in heading"
+- "Replaced hero image"
 
 ### Static Page Generation
 Published content is rendered to `content/generated/{path}.html` using template HTML + theme header/footer. Regeneration happens automatically on:

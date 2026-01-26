@@ -904,74 +904,74 @@ var adminTemplates = map[string]string{
 
         <div class="diff-container">
             <!-- Title -->
-            <div class="diff-section">
-                <h3>Title</h3>
+            <div class="diff-section" data-field="title">
+                <h3>Title <span class="diff-badge"></span></h3>
                 <div class="diff-row">
                     <div class="diff-col diff-old">
                         <div class="diff-label">Version {{.Version.Version}}</div>
-                        <div class="diff-content">{{.Version.Title}}</div>
+                        <div class="diff-content" data-old="{{.Version.Title}}">{{.Version.Title}}</div>
                     </div>
                     <div class="diff-col diff-new">
                         <div class="diff-label">Current</div>
-                        <div class="diff-content">{{.Current.Title}}</div>
+                        <div class="diff-content" data-new="{{.Current.Title}}">{{.Current.Title}}</div>
                     </div>
                 </div>
             </div>
 
             <!-- Slug -->
-            <div class="diff-section">
-                <h3>Slug</h3>
+            <div class="diff-section" data-field="slug">
+                <h3>Slug <span class="diff-badge"></span></h3>
                 <div class="diff-row">
                     <div class="diff-col diff-old">
                         <div class="diff-label">Version {{.Version.Version}}</div>
-                        <div class="diff-content"><code>{{.Version.Slug}}</code></div>
+                        <div class="diff-content" data-old="{{.Version.Slug}}"><code>{{.Version.Slug}}</code></div>
                     </div>
                     <div class="diff-col diff-new">
                         <div class="diff-label">Current</div>
-                        <div class="diff-content"><code>{{.Current.Slug}}</code></div>
+                        <div class="diff-content" data-new="{{.Current.Slug}}"><code>{{.Current.Slug}}</code></div>
                     </div>
                 </div>
             </div>
 
             <!-- Full Path -->
-            <div class="diff-section">
-                <h3>Full Path</h3>
+            <div class="diff-section" data-field="full_path">
+                <h3>Full Path <span class="diff-badge"></span></h3>
                 <div class="diff-row">
                     <div class="diff-col diff-old">
                         <div class="diff-label">Version {{.Version.Version}}</div>
-                        <div class="diff-content"><code>{{.Version.FullPath}}</code></div>
+                        <div class="diff-content" data-old="{{.Version.FullPath}}"><code>{{.Version.FullPath}}</code></div>
                     </div>
                     <div class="diff-col diff-new">
                         <div class="diff-label">Current</div>
-                        <div class="diff-content"><code>{{.Current.FullPath}}</code></div>
+                        <div class="diff-content" data-new="{{.Current.FullPath}}"><code>{{.Current.FullPath}}</code></div>
                     </div>
                 </div>
             </div>
 
             <!-- Content Data Fields -->
             {{range $key, $value := .Version.Data}}
-            <div class="diff-section">
-                <h3>{{$key}}</h3>
+            <div class="diff-section diff-field-section" data-field="{{$key}}">
+                <h3>{{$key}} <span class="diff-badge"></span></h3>
                 <div class="diff-row">
                     <div class="diff-col diff-old">
                         <div class="diff-label">Version {{$.Version.Version}}</div>
-                        <div class="diff-content diff-html">{{$value}}</div>
+                        <div class="diff-content diff-html" data-old="{{$value}}"></div>
                     </div>
                     <div class="diff-col diff-new">
                         <div class="diff-label">Current</div>
-                        <div class="diff-content diff-html">{{index $.Current.Data $key}}</div>
+                        <div class="diff-content diff-html" data-new="{{index $.Current.Data $key}}"></div>
                     </div>
                 </div>
             </div>
             {{end}}
 
             <!-- Settings -->
-            <div class="diff-section">
-                <h3>Settings</h3>
+            <div class="diff-section" data-field="settings">
+                <h3>Settings <span class="diff-badge"></span></h3>
                 <div class="diff-row">
                     <div class="diff-col diff-old">
                         <div class="diff-label">Version {{.Version.Version}}</div>
-                        <div class="diff-content">
+                        <div class="diff-content" data-old="published:{{.Version.Published}};header:{{.Version.UseHeader}};footer:{{.Version.UseFooter}};theme:{{.Version.UseTheme}}">
                             <p>Published: {{if .Version.Published}}Yes{{else}}No{{end}}</p>
                             <p>Use Header: {{if .Version.UseHeader}}Yes{{else}}No{{end}}</p>
                             <p>Use Footer: {{if .Version.UseFooter}}Yes{{else}}No{{end}}</p>
@@ -980,7 +980,7 @@ var adminTemplates = map[string]string{
                     </div>
                     <div class="diff-col diff-new">
                         <div class="diff-label">Current</div>
-                        <div class="diff-content">
+                        <div class="diff-content" data-new="published:{{.Current.Published}};header:{{.Current.UseHeader}};footer:{{.Current.UseFooter}};theme:{{.Current.UseTheme}}">
                             <p>Published: {{if .Current.Published}}Yes{{else}}No{{end}}</p>
                             <p>Use Header: {{if .Current.UseHeader}}Yes{{else}}No{{end}}</p>
                             <p>Use Footer: {{if .Current.UseFooter}}Yes{{else}}No{{end}}</p>
@@ -1012,12 +1012,36 @@ var adminTemplates = map[string]string{
                 border-radius: var(--radius);
                 padding: 1rem;
             }
+            .diff-section.has-changes {
+                border-color: #f59e0b;
+            }
+            .diff-section.no-changes {
+                opacity: 0.6;
+            }
             .diff-section h3 {
                 margin: 0 0 1rem 0;
                 font-size: 1rem;
                 color: var(--accent);
                 border-bottom: 1px solid var(--border);
                 padding-bottom: 0.5rem;
+                display: flex;
+                align-items: center;
+                gap: 0.75rem;
+            }
+            .diff-badge {
+                font-size: 0.7rem;
+                padding: 0.15rem 0.5rem;
+                border-radius: 4px;
+                text-transform: uppercase;
+                font-weight: 600;
+            }
+            .diff-badge.changed {
+                background: rgba(245, 158, 11, 0.2);
+                color: #f59e0b;
+            }
+            .diff-badge.unchanged {
+                background: rgba(107, 114, 128, 0.2);
+                color: #6b7280;
             }
             .diff-row {
                 display: grid;
@@ -1068,12 +1092,235 @@ var adminTemplates = map[string]string{
                 padding: 0.25rem 0.5rem;
                 border-radius: 4px;
             }
+            /* Inline diff highlighting */
+            .diff-added {
+                background: rgba(16, 185, 129, 0.3);
+                color: #10b981;
+                padding: 0 2px;
+                border-radius: 2px;
+            }
+            .diff-removed {
+                background: rgba(239, 68, 68, 0.3);
+                color: #ef4444;
+                padding: 0 2px;
+                border-radius: 2px;
+                text-decoration: line-through;
+            }
+            .diff-current {
+                outline: 2px solid #6366f1;
+                outline-offset: 2px;
+                background: rgba(99, 102, 241, 0.2) !important;
+            }
+            /* Navigation controls */
+            .diff-nav {
+                display: flex;
+                align-items: center;
+                gap: 0.5rem;
+                margin-bottom: 0.5rem;
+                padding: 0.5rem;
+                background: var(--bg-tertiary);
+                border-radius: 4px;
+                font-size: 0.8rem;
+            }
+            .diff-nav-btn {
+                padding: 0.25rem 0.5rem;
+                background: var(--primary);
+                color: white;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 0.75rem;
+                font-weight: 500;
+            }
+            .diff-nav-btn:hover {
+                opacity: 0.9;
+            }
+            .diff-nav-btn:disabled {
+                opacity: 0.5;
+                cursor: not-allowed;
+            }
+            .diff-nav-count {
+                color: var(--muted);
+                margin-left: auto;
+            }
             @media (max-width: 768px) {
                 .diff-row {
                     grid-template-columns: 1fr;
                 }
             }
         </style>
+
+        <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Process each diff section
+            document.querySelectorAll('.diff-section').forEach(function(section) {
+                var oldEl = section.querySelector('[data-old]');
+                var newEl = section.querySelector('[data-new]');
+                var badge = section.querySelector('.diff-badge');
+
+                if (!oldEl || !newEl || !badge) return;
+
+                var oldVal = oldEl.getAttribute('data-old') || '';
+                var newVal = newEl.getAttribute('data-new') || '';
+
+                if (oldVal === newVal) {
+                    badge.textContent = 'Unchanged';
+                    badge.className = 'diff-badge unchanged';
+                    section.classList.add('no-changes');
+                } else {
+                    badge.textContent = 'Changed';
+                    badge.className = 'diff-badge changed';
+                    section.classList.add('has-changes');
+
+                    // For content fields, show inline diff with navigation
+                    if (section.classList.contains('diff-field-section')) {
+                        showInlineDiff(section, oldEl, newEl, oldVal, newVal);
+                    }
+                }
+            });
+
+            // Line-level diff with navigation for long content
+            function showInlineDiff(section, oldEl, newEl, oldText, newText) {
+                // Escape HTML for display
+                function escapeHtml(str) {
+                    return str.replace(/&/g, '&amp;')
+                              .replace(/</g, '&lt;')
+                              .replace(/>/g, '&gt;')
+                              .replace(/"/g, '&quot;');
+                }
+
+                // Find the differences using a simple line-based approach
+                var oldLines = oldText.split('\n');
+                var newLines = newText.split('\n');
+
+                // Build a map of lines for quick lookup
+                var oldLineSet = new Set(oldLines);
+                var newLineSet = new Set(newLines);
+
+                // Track change indices for pairing old/new
+                var changeIdx = 0;
+
+                // Highlight changed/removed lines in old version
+                var oldHighlighted = oldLines.map(function(line, idx) {
+                    var escaped = escapeHtml(line);
+                    if (!newLineSet.has(line)) {
+                        return '<span class="diff-removed" data-diff-idx="' + (changeIdx++) + '" data-line="' + idx + '">' + escaped + '</span>';
+                    }
+                    return '<span data-line="' + idx + '">' + escaped + '</span>';
+                }).join('\n');
+
+                // Reset for new side - track which change we're on
+                var newChangeIdx = 0;
+
+                // Highlight changed/added lines in new version
+                var newHighlighted = newLines.map(function(line, idx) {
+                    var escaped = escapeHtml(line);
+                    if (!oldLineSet.has(line)) {
+                        return '<span class="diff-added" data-diff-idx="' + (newChangeIdx++) + '" data-line="' + idx + '">' + escaped + '</span>';
+                    }
+                    return '<span data-line="' + idx + '">' + escaped + '</span>';
+                }).join('\n');
+
+                oldEl.innerHTML = oldHighlighted;
+                newEl.innerHTML = newHighlighted;
+
+                // Get all change elements from both sides
+                var oldChanges = oldEl.querySelectorAll('.diff-removed');
+                var newChanges = newEl.querySelectorAll('.diff-added');
+                var totalChanges = Math.max(oldChanges.length, newChanges.length);
+
+                // Only add navigation if there are changes
+                if (totalChanges > 0) {
+                    var currentIndex = 0;
+
+                    // Create navigation controls
+                    var nav = document.createElement('div');
+                    nav.className = 'diff-nav';
+                    nav.innerHTML =
+                        '<button type="button" class="diff-nav-btn" data-action="prev">Prev</button>' +
+                        '<button type="button" class="diff-nav-btn" data-action="next">Next</button>' +
+                        '<span class="diff-nav-count"><span class="diff-nav-current">1</span> of ' + totalChanges + ' changes</span>';
+
+                    // Insert navigation before the diff-row
+                    var diffRow = section.querySelector('.diff-row');
+                    diffRow.parentNode.insertBefore(nav, diffRow);
+
+                    var prevBtn = nav.querySelector('[data-action="prev"]');
+                    var nextBtn = nav.querySelector('[data-action="next"]');
+                    var currentSpan = nav.querySelector('.diff-nav-current');
+
+                    // Sync scroll between panels (for manual scrolling)
+                    var syncing = false;
+                    function syncScroll(source, target) {
+                        if (syncing) return;
+                        syncing = true;
+                        var scrollRatio = source.scrollTop / (source.scrollHeight - source.clientHeight || 1);
+                        target.scrollTop = scrollRatio * (target.scrollHeight - target.clientHeight);
+                        setTimeout(function() { syncing = false; }, 50);
+                    }
+
+                    oldEl.addEventListener('scroll', function() { syncScroll(oldEl, newEl); });
+                    newEl.addEventListener('scroll', function() { syncScroll(newEl, oldEl); });
+
+                    function scrollToChange(index) {
+                        // Remove current highlight from all changes on both sides
+                        oldChanges.forEach(function(el) { el.classList.remove('diff-current'); });
+                        newChanges.forEach(function(el) { el.classList.remove('diff-current'); });
+
+                        // Get corresponding elements on both sides
+                        var oldChange = oldChanges[index];
+                        var newChange = newChanges[index];
+
+                        // Highlight both sides if they exist
+                        if (oldChange) oldChange.classList.add('diff-current');
+                        if (newChange) newChange.classList.add('diff-current');
+
+                        // Disable sync during programmatic scroll
+                        syncing = true;
+
+                        // Scroll both panels to center on the change
+                        if (newChange) {
+                            var containerTop = newEl.getBoundingClientRect().top;
+                            var elementTop = newChange.getBoundingClientRect().top;
+                            var relativePos = elementTop - containerTop;
+                            var targetScroll = newEl.scrollTop + relativePos - (newEl.clientHeight / 2);
+                            newEl.scroll({ top: Math.max(0, targetScroll), behavior: 'instant' });
+                        }
+                        if (oldChange) {
+                            var containerTop = oldEl.getBoundingClientRect().top;
+                            var elementTop = oldChange.getBoundingClientRect().top;
+                            var relativePos = elementTop - containerTop;
+                            var targetScroll = oldEl.scrollTop + relativePos - (oldEl.clientHeight / 2);
+                            oldEl.scroll({ top: Math.max(0, targetScroll), behavior: 'instant' });
+                        }
+
+                        // Re-enable sync after a delay
+                        setTimeout(function() { syncing = false; }, 100);
+
+                        // Update counter
+                        currentSpan.textContent = (index + 1);
+                    }
+
+                    prevBtn.addEventListener('click', function(e) {
+                        e.preventDefault();
+                        currentIndex = (currentIndex - 1 + totalChanges) % totalChanges;
+                        scrollToChange(currentIndex);
+                    });
+
+                    nextBtn.addEventListener('click', function(e) {
+                        e.preventDefault();
+                        currentIndex = (currentIndex + 1) % totalChanges;
+                        scrollToChange(currentIndex);
+                    });
+
+                    // Auto-scroll to first change after a short delay
+                    setTimeout(function() {
+                        scrollToChange(0);
+                    }, 200);
+                }
+            }
+        });
+        </script>
     ` + adminLayoutEnd,
 
 	"content_form": adminLayoutStart + `
@@ -1086,6 +1333,7 @@ var adminTemplates = map[string]string{
             <input type="hidden" name="template_id" value="{{.Template.ID.Hex}}">
             <input type="hidden" name="create_redirect" id="create_redirect" value="">
             <input type="hidden" name="slug_rename_enabled" id="slug_rename_enabled" value="">
+            <input type="hidden" name="version_comment" id="version_comment" value="">
 
             {{if not .IsNew}}
             <div class="form-group" style="background: var(--bg-tertiary); padding: 1rem; border-radius: var(--radius); margin-bottom: 1.5rem;">
@@ -1276,6 +1524,26 @@ var adminTemplates = map[string]string{
                 </div>
             </div>
         </div>
+
+        <!-- Version comment modal -->
+        <div id="version-comment-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.7); z-index: 10000; align-items: center; justify-content: center;">
+            <div style="background: #1e293b; border-radius: var(--radius); max-width: 500px; width: 90%; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8); border: 1px solid rgba(99, 102, 241, 0.3);">
+                <div style="padding: 1.5rem; border-bottom: 1px solid rgba(99, 102, 241, 0.2); background: #1a2332;">
+                    <h3 style="margin: 0; color: var(--text);">Save Version <span id="version-number-display" style="color: var(--accent);"></span></h3>
+                </div>
+                <div style="padding: 1.5rem; background: #1e293b;">
+                    <p style="margin: 0 0 1rem 0; color: var(--muted);">Add an optional comment to describe this version's changes.</p>
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label for="version-comment-input" style="margin-bottom: 0.5rem; display: block;">Version Comment (optional)</label>
+                        <textarea id="version-comment-input" rows="3" style="width: 100%; padding: 0.75rem; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); resize: vertical;" placeholder="e.g., Updated hero image, Fixed typo in introduction..."></textarea>
+                    </div>
+                </div>
+                <div style="padding: 1rem 1.5rem; border-top: 1px solid rgba(99, 102, 241, 0.2); display: flex; gap: 0.75rem; justify-content: flex-end; background: #1a2332;">
+                    <button type="button" class="btn btn-outline" id="version-comment-cancel">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="version-comment-save">Save</button>
+                </div>
+            </div>
+        </div>
         {{end}}
 
         {{if not .IsNew}}
@@ -1300,6 +1568,7 @@ var adminTemplates = map[string]string{
                         <tr>
                             <th>Version</th>
                             <th>Title</th>
+                            <th>Comment</th>
                             <th>Saved</th>
                             <th>Actions</th>
                         </tr>
@@ -1309,6 +1578,7 @@ var adminTemplates = map[string]string{
                         <tr>
                             <td>v{{.Version}}</td>
                             <td>{{.Title}}</td>
+                            <td style="color: var(--muted); font-size: 0.9rem; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{.Comment}}">{{if .Comment}}{{.Comment}}{{else}}-{{end}}</td>
                             <td>{{.CreatedAt.Format "Jan 2, 2006 3:04 PM"}}</td>
                             <td class="actions">
                                 <a href="/cm/content/{{.ContentID.Hex}}/versions/{{.Version}}/diff" class="btn btn-sm btn-outline">Diff</a>
@@ -2271,7 +2541,8 @@ var adminTemplates = map[string]string{
 
         // Track original slug for comparison
         var originalSlug = document.getElementById('slug') ? document.getElementById('slug').value : '';
-        var isNewContent = document.getElementById('slug') && !document.getElementById('slug').readOnly;
+        var slugEl = document.getElementById('slug');
+        var isNewContent = slugEl && !slugEl.readOnly;
         var slugRenameEnabled = false;
 
         // Update URL path preview when folder or slug changes
@@ -2426,6 +2697,57 @@ var adminTemplates = map[string]string{
                 });
             }
 
+            // Show version comment modal and return a promise
+            function showVersionCommentModal(nextVersionNumber) {
+                return new Promise(function(resolve) {
+                    var modal = document.getElementById('version-comment-modal');
+                    var versionDisplay = document.getElementById('version-number-display');
+                    var commentInput = document.getElementById('version-comment-input');
+                    var saveBtn = document.getElementById('version-comment-save');
+                    var cancelBtn = document.getElementById('version-comment-cancel');
+
+                    if (!modal) {
+                        // Modal doesn't exist (probably new content)
+                        resolve({ proceed: true, comment: '' });
+                        return;
+                    }
+
+                    versionDisplay.textContent = 'v' + nextVersionNumber;
+                    commentInput.value = '';
+                    modal.style.display = 'flex';
+                    commentInput.focus();
+
+                    function cleanup() {
+                        modal.style.display = 'none';
+                        saveBtn.removeEventListener('click', onSave);
+                        cancelBtn.removeEventListener('click', onCancel);
+                        commentInput.removeEventListener('keydown', onKeydown);
+                    }
+
+                    function onSave() {
+                        cleanup();
+                        resolve({ proceed: true, comment: commentInput.value.trim() });
+                    }
+
+                    function onCancel() {
+                        cleanup();
+                        resolve({ proceed: false, comment: '' });
+                    }
+
+                    function onKeydown(e) {
+                        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                            onSave();
+                        } else if (e.key === 'Escape') {
+                            onCancel();
+                        }
+                    }
+
+                    saveBtn.addEventListener('click', onSave);
+                    cancelBtn.addEventListener('click', onCancel);
+                    commentInput.addEventListener('keydown', onKeydown);
+                });
+            }
+
             // Validate slug on form submit and prompt for redirect if slug changed
             if (form) {
                 form.addEventListener('submit', async function(e) {
@@ -2455,6 +2777,18 @@ var adminTemplates = map[string]string{
                                 document.getElementById('create_redirect').value = createRedirect ? 'yes' : 'no';
                             }
                         }
+
+                        // Show version comment modal for updates (not new content)
+                        if (!isNewContent) {
+                            var currentVersionCount = {{if .Versions}}{{len .Versions}}{{else}}0{{end}};
+                            var nextVersion = currentVersionCount + 1;
+                            var result = await showVersionCommentModal(nextVersion);
+                            if (!result.proceed) {
+                                return; // User cancelled
+                            }
+                            document.getElementById('version_comment').value = result.comment;
+                        }
+
                         form.submit();
                     }
                 });

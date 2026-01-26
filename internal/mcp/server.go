@@ -52,6 +52,7 @@ func NewServer(db *database.DB) *Server {
 	s.registerTemplateTools()
 	s.registerAssetTools()
 	s.registerSettingsTools()
+	s.registerSearchTools()
 
 	return s
 }

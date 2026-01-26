@@ -1095,6 +1095,9 @@ func (h *Handler) UpdateContent(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Handle version comment (optional)
+	versionComment := r.FormValue("version_comment")
+
 	// Handle SEO fields
 	metaDescription := r.FormValue("meta_description")
 	ogImage := existingContent.OGImage // Keep existing if not uploading new
@@ -1183,7 +1186,7 @@ func (h *Handler) UpdateContent(w http.ResponseWriter, r *http.Request) {
 
 	// Save this version after the update succeeds
 	// Pass the original content so we can save it as v1 if no versions exist yet
-	if err := h.saveContentVersionWithOriginal(ctx, &existingContent, &originalContent); err != nil {
+	if err := h.saveContentVersionWithOriginal(ctx, &existingContent, &originalContent, versionComment); err != nil {
 		fmt.Printf("Warning: Failed to save content version: %v\n", err)
 	}
 
@@ -3164,11 +3167,11 @@ func extractInternalLinks(htmlContent string) []string {
 // saveContentVersion saves the current state of content as a new version
 // If originalContent is provided and no versions exist yet, it saves the original as v1 first
 func (h *Handler) saveContentVersion(ctx context.Context, content *models.Content) error {
-	return h.saveContentVersionWithOriginal(ctx, content, nil)
+	return h.saveContentVersionWithOriginal(ctx, content, nil, "")
 }
 
 // saveContentVersionWithOriginal saves versions with optional original state for first-time versioning
-func (h *Handler) saveContentVersionWithOriginal(ctx context.Context, content *models.Content, originalContent *models.Content) error {
+func (h *Handler) saveContentVersionWithOriginal(ctx context.Context, content *models.Content, originalContent *models.Content, comment string) error {
 	// Get the current version count
 	count, err := h.db.Count(ctx, "content_versions", bson.M{"content_id": content.ID})
 	if err != nil {
@@ -3210,6 +3213,7 @@ func (h *Handler) saveContentVersionWithOriginal(ctx context.Context, content *m
 	contentVersion := models.ContentVersion{
 		ContentID:       content.ID,
 		Version:         version,
+		Comment:         comment,
 		TemplateID:      content.TemplateID,
 		TemplateName:    content.TemplateName,
 		Title:           content.Title,
@@ -4636,7 +4640,7 @@ func (h *Handler) FixBrokenLink(w http.ResponseWriter, r *http.Request) {
 	content.UpdatedAt = time.Now()
 
 	// Save version first (using the same logic as UpdateContent)
-	if err := h.saveContentVersionWithOriginal(ctx, &content, &originalContent); err != nil {
+	if err := h.saveContentVersionWithOriginal(ctx, &content, &originalContent, "Link updated via bulk update"); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": "Failed to save version: " + err.Error()})
@@ -5175,7 +5179,7 @@ func (h *Handler) ReplaceExecute(w http.ResponseWriter, r *http.Request) {
 			content.Data = newData
 
 			// Save version with original content for first-time versioning
-			if err := h.saveContentVersionWithOriginal(ctx, &content, &originalContent); err != nil {
+			if err := h.saveContentVersionWithOriginal(ctx, &content, &originalContent, "Updated via bulk link replacement"); err != nil {
 				fmt.Printf("Warning: Failed to save content version for %s: %v\n", content.ID.Hex(), err)
 			}
 

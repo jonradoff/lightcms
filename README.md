@@ -229,19 +229,34 @@ Fields: title, subtitle, hero_image, intro, main_content, sidebar, cta_text, cta
 
 LightCMS includes an MCP (Model Context Protocol) server that allows you to manage your website content using Claude Code. Instead of navigating the admin UI, you can simply ask Claude to create pages, update content, manage assets, and more.
 
-### Setup
+### Quick Setup
+
+Run the setup script from the lightcms directory:
+
+```bash
+./setup-mcp.sh
+```
+
+This will:
+1. Build the MCP server binary
+2. Create the wrapper script
+3. Register the MCP server with Claude Code
+
+Then restart Claude Code and run `/mcp` to verify the connection.
+
+### Manual Setup
+
+If you prefer to set things up manually:
 
 1. Build the MCP server:
    ```bash
    go build -o bin/lightcms-mcp ./cmd/mcp
    ```
 
-2. Register the MCP server with Claude Code using the wrapper script:
+2. Register the MCP server with Claude Code:
    ```bash
    claude mcp add --transport stdio lightcms-mcp -- /path/to/lightcms/lightcms-mcp-wrapper.sh
    ```
-
-   The wrapper script automatically sets `LIGHTCMS_CONFIG_DIR` so the MCP server can find your config files regardless of where Claude Code runs from.
 
 3. Restart Claude Code (or start a new session)
 

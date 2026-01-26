@@ -629,3 +629,9 @@ func (db *DB) GetAssetFolders(ctx context.Context) ([]string, error) {
 	}
 	return folders, nil
 }
+
+// WatchCollection returns a change stream for the specified collection.
+// The caller is responsible for closing the stream.
+func (db *DB) WatchCollection(ctx context.Context, collection string, pipeline mongo.Pipeline) (*mongo.ChangeStream, error) {
+	return db.database.Collection(collection).Watch(ctx, pipeline)
+}

@@ -4,7 +4,7 @@ This document provides a complete reference for the LightCMS Model Context Proto
 
 ## Overview
 
-The LightCMS MCP server exposes 38 tools organized into these categories:
+The LightCMS MCP server exposes 41 tools organized into these categories:
 
 | Category | Tools | Description |
 |----------|-------|-------------|
@@ -16,6 +16,7 @@ The LightCMS MCP server exposes 38 tools organized into these categories:
 | [Redirects](#redirect-tools) | 4 | Manage URL redirects |
 | [Folders](#folder-tools) | 4 | Organize content into URL hierarchies |
 | [Collections](#collection-tools) | 5 | Group and display content by category |
+| [Search](#search-tools) | 3 | Search content and perform bulk find/replace |
 | [Utility](#utility-tools) | 1 | Regenerate all static pages |
 
 ---
@@ -73,6 +74,7 @@ Create a new content item.
 | `use_theme` | boolean | No | Apply site theme/layout (default: true) |
 | `raw_mode` | boolean | No | Use raw HTML mode |
 | `published` | boolean | No | Publish immediately |
+| `version_comment` | string | No | Optional comment describing this version |
 
 **Returns:** `{ success, id, full_path, message }`
 
@@ -89,7 +91,8 @@ Create a new content item.
     "content": "<p>Full article content here...</p>",
     "author": "Jane Doe"
   },
-  "published": true
+  "published": true,
+  "version_comment": "Initial creation"
 }
 ```
 
@@ -115,6 +118,7 @@ Update an existing content item. Creates a new version automatically.
 | `use_footer` | boolean | No | Toggle site footer |
 | `use_theme` | boolean | No | Toggle theme |
 | `raw_mode` | boolean | No | Toggle raw HTML mode |
+| `version_comment` | string | No | Optional comment describing this version change |
 
 Only include fields you want to change.
 
@@ -183,7 +187,7 @@ Get version history for a content item.
 |------|------|----------|-------------|
 | `content_id` | string | Yes | Content ID (MongoDB ObjectID) |
 
-**Returns:** Array of version summaries with version number, title, slug, full_path, published, created_at.
+**Returns:** Array of version summaries with version number, title, slug, full_path, published, comment (if any), created_at.
 
 ---
 
@@ -197,7 +201,7 @@ Get a specific version of a content item.
 | `content_id` | string | Yes | Content ID (MongoDB ObjectID) |
 | `version` | integer | Yes | Version number |
 
-**Returns:** Complete content object at that version.
+**Returns:** Complete content object at that version, including comment if any.
 
 ---
 
@@ -210,6 +214,7 @@ Revert content to a previous version. Creates a new version with the old data.
 |------|------|----------|-------------|
 | `content_id` | string | Yes | Content ID (MongoDB ObjectID) |
 | `version` | integer | Yes | Version number to revert to |
+| `version_comment` | string | No | Optional comment for the revert (e.g., "Reverted to v3") |
 
 **Returns:** Success message.
 
@@ -659,6 +664,102 @@ Delete a collection. Does not delete the content in the collection.
 
 ---
 
+## Search Tools
+
+### search_content
+
+Search across all content items by title or full text.
+
+**Parameters:**
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `query` | string | Yes | Search query string |
+| `search_type` | string | No | `name` (title only) or `fulltext` (all fields). Default: `fulltext` |
+| `include_deleted` | boolean | No | Include soft-deleted content |
+
+**Returns:** Object with query, search_type, total count, and matches array. Each match includes id, title, full_path, template_name, published status, and matched_in (array of field names where match was found).
+
+**Example:**
+```json
+{
+  "query": "artificial intelligence",
+  "search_type": "fulltext"
+}
+```
+
+---
+
+### search_replace_preview
+
+Preview search and replace results without making changes. **Always use this before `search_replace_execute`** to understand the impact.
+
+**Parameters:**
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `search` | string | Yes | Text to search for |
+| `replace` | string | Yes | Text to replace with |
+
+**Returns:** Object with:
+- `search`, `replace`: The search/replace terms
+- `total_matches`: Total number of text matches found
+- `affected_pages`: Number of content pages that will be modified
+- `published_pages`: Number of published pages affected
+- `draft_pages`: Number of draft pages affected
+- `matches`: Array of affected content with details including:
+  - `id`, `title`, `full_path`, `published`
+  - `match_count`: Number of matches in this page
+  - `field_matches`: Object mapping field names to match counts
+  - `sample_excerpt`: Preview showing the replacement in context
+- `warning`: Reminder this is preview only
+- `destructive_warning`: Warning about permanent changes
+
+**Example:**
+```json
+{
+  "search": "http://example.com",
+  "replace": "https://example.com"
+}
+```
+
+---
+
+### search_replace_execute
+
+Execute search and replace across all content. **⚠️ WARNING: This is a destructive operation that modifies content permanently.** Always run `search_replace_preview` first to review what will be changed.
+
+**Parameters:**
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `search` | string | Yes | Text to search for |
+| `replace` | string | Yes | Text to replace with |
+| `version_comment` | string | No | Comment for version history. Default: "Bulk search and replace: 'X' → 'Y'" |
+
+**Returns:** Object with:
+- `success`: Boolean indicating success
+- `search`, `replace`: The search/replace terms
+- `total_replacements`: Total number of replacements made
+- `pages_updated`: Number of pages modified
+- `published_pages`: Number of published pages affected
+- `version_comment`: The version comment used
+- `updated_pages`: Array of modified content with details
+
+**Example:**
+```json
+{
+  "search": "old-domain.com",
+  "replace": "new-domain.com",
+  "version_comment": "Updated domain links"
+}
+```
+
+**Safety Notes:**
+- Each modified content item gets a new version, so changes can be reverted
+- Preview your changes first with `search_replace_preview`
+- The operation searches in both titles and all content data fields
+- Published pages are automatically regenerated after replacement
+
+---
+
 ## Utility Tools
 
 ### regenerate_all_content
@@ -696,3 +797,10 @@ Regenerate all published static HTML pages. Use after major theme or template ch
 1. List existing: `list_redirects`
 2. Create redirect: `create_redirect` with from_path, to_path
 3. Use 301 for permanent moves, 302 for temporary
+
+### Bulk Update Links or Text
+
+1. Preview changes: `search_replace_preview` with search and replace terms
+2. Review affected pages and match counts carefully
+3. Execute changes: `search_replace_execute` (creates versions for rollback)
+4. If needed, revert individual pages: `revert_to_version`

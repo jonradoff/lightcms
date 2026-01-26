@@ -36,6 +36,7 @@ type CreateContentInput struct {
 	UseTheme        bool                   `json:"use_theme,omitempty" jsonschema:"Apply site theme/layout"`
 	RawMode         bool                   `json:"raw_mode,omitempty" jsonschema:"Use raw HTML mode"`
 	Published       bool                   `json:"published,omitempty" jsonschema:"Publish immediately"`
+	VersionComment  string                 `json:"version_comment,omitempty" jsonschema:"Optional comment describing this version"`
 }
 
 type UpdateContentInput struct {
@@ -52,6 +53,7 @@ type UpdateContentInput struct {
 	UseFooter       *bool                  `json:"use_footer,omitempty" jsonschema:"Include site footer"`
 	UseTheme        *bool                  `json:"use_theme,omitempty" jsonschema:"Apply site theme/layout"`
 	RawMode         *bool                  `json:"raw_mode,omitempty" jsonschema:"Use raw HTML mode"`
+	VersionComment  string                 `json:"version_comment,omitempty" jsonschema:"Optional comment describing this version change"`
 }
 
 type ContentIDInput struct {
@@ -68,8 +70,9 @@ type GetVersionInput struct {
 }
 
 type RevertToVersionInput struct {
-	ContentID string `json:"content_id" jsonschema:"Content ID (MongoDB ObjectID),required"`
-	Version   int    `json:"version" jsonschema:"Version number to revert to,required"`
+	ContentID      string `json:"content_id" jsonschema:"Content ID (MongoDB ObjectID),required"`
+	Version        int    `json:"version" jsonschema:"Version number to revert to,required"`
+	VersionComment string `json:"version_comment,omitempty" jsonschema:"Optional comment for the revert (e.g., 'Reverted to v3')"`
 }
 
 func (s *Server) registerContentTools() {
@@ -106,6 +109,9 @@ func (s *Server) registerContentTools() {
 		}
 
 		summaries := make([]ContentSummary, len(contents))
+		publishedCount := 0
+		deletedCount := 0
+		draftCount := 0
 		for i, c := range contents {
 			summary := ContentSummary{
 				ID:        c.ID.Hex(),
@@ -121,9 +127,37 @@ func (s *Server) registerContentTools() {
 				summary.PublishedAt = c.PublishedAt.Format("2006-01-02 15:04:05")
 			}
 			summaries[i] = summary
+
+			// Count stats
+			if c.Deleted {
+				deletedCount++
+			} else if c.Published {
+				publishedCount++
+			} else {
+				draftCount++
+			}
 		}
 
-		return jsonResult(summaries), nil, nil
+		// Return response with summary stats
+		type ListContentResponse struct {
+			Total           int              `json:"total"`
+			Published       int              `json:"published"`
+			Drafts          int              `json:"drafts"`
+			Deleted         int              `json:"deleted"`
+			IncludesDeleted bool             `json:"includes_deleted"`
+			Items           []ContentSummary `json:"items"`
+		}
+
+		response := ListContentResponse{
+			Total:           len(contents),
+			Published:       publishedCount,
+			Drafts:          draftCount,
+			Deleted:         deletedCount,
+			IncludesDeleted: args.IncludeDeleted,
+			Items:           summaries,
+		}
+
+		return jsonResult(response), nil, nil
 	})
 
 	// Get content
@@ -186,7 +220,7 @@ func (s *Server) registerContentTools() {
 			Published:       args.Published,
 		}
 
-		if err := s.contentService.CreateContent(ctx, content); err != nil {
+		if err := s.contentService.CreateContent(ctx, content, args.VersionComment); err != nil {
 			return errorResult(err), nil, nil
 		}
 
@@ -264,7 +298,7 @@ func (s *Server) registerContentTools() {
 			content.RawMode = *args.RawMode
 		}
 
-		if err := s.contentService.UpdateContent(ctx, content); err != nil {
+		if err := s.contentService.UpdateContent(ctx, content, args.VersionComment); err != nil {
 			return errorResult(err), nil, nil
 		}
 
@@ -366,6 +400,7 @@ func (s *Server) registerContentTools() {
 			Slug      string `json:"slug"`
 			FullPath  string `json:"full_path"`
 			Published bool   `json:"published"`
+			Comment   string `json:"comment,omitempty"`
 			CreatedAt string `json:"created_at"`
 		}
 
@@ -377,6 +412,7 @@ func (s *Server) registerContentTools() {
 				Slug:      v.Slug,
 				FullPath:  v.FullPath,
 				Published: v.Published,
+				Comment:   v.Comment,
 				CreatedAt: v.CreatedAt.Format("2006-01-02 15:04:05"),
 			}
 		}
@@ -412,7 +448,7 @@ func (s *Server) registerContentTools() {
 			return errorResult(fmt.Errorf("invalid content_id: %w", err)), nil, nil
 		}
 
-		if err := s.contentService.RevertToVersion(ctx, contentID, args.Version); err != nil {
+		if err := s.contentService.RevertToVersion(ctx, contentID, args.Version, args.VersionComment); err != nil {
 			return errorResult(err), nil, nil
 		}
 

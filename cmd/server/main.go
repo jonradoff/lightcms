@@ -17,6 +17,7 @@ import (
 	"lightcms/internal/handlers"
 	"lightcms/internal/middleware"
 	"lightcms/internal/models"
+	"lightcms/internal/services"
 
 	"github.com/gorilla/csrf"
 	"github.com/gorilla/mux"
@@ -90,6 +91,13 @@ func main() {
 	if err := db.MigrateAssetServePaths(context.Background()); err != nil {
 		log.Printf("Warning: Failed to migrate asset serve paths: %v", err)
 	}
+
+	// Start content change watcher for real-time sync with database changes
+	// This enables automatic static page regeneration when content is modified via MCP
+	contentService := services.NewContentService(db)
+	watchCtx, watchCancel := context.WithCancel(context.Background())
+	defer watchCancel()
+	go contentService.WatchForChanges(watchCtx)
 
 	// Setup router
 	r := mux.NewRouter()

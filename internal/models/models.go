@@ -63,6 +63,7 @@ type ContentVersion struct {
 	ID              primitive.ObjectID     `bson:"_id,omitempty" json:"id"`
 	ContentID       primitive.ObjectID     `bson:"content_id" json:"content_id"`         // Reference to the content item
 	Version         int                    `bson:"version" json:"version"`               // Version number (1, 2, 3...)
+	Comment         string                 `bson:"comment,omitempty" json:"comment,omitempty"` // Optional version comment
 	TemplateID      primitive.ObjectID     `bson:"template_id" json:"template_id"`
 	TemplateName    string                 `bson:"template_name" json:"template_name"`
 	Title           string                 `bson:"title" json:"title"`
