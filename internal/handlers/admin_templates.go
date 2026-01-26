@@ -105,6 +105,7 @@ var adminTemplates = map[string]string{
         <p class="subtitle">Content Management System</p>
         {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
         <form method="POST" action="/cm/login" autocomplete="off">
+            {{.CSRFField}}
             <label for="password">Admin Password</label>
             <input type="password" id="password" name="password" placeholder="Enter password" required autofocus autocomplete="current-password" {{if .RateLimited}}disabled{{end}}>
             <button type="submit" {{if .RateLimited}}disabled style="opacity: 0.5; cursor: not-allowed;"{{end}}>Sign In</button>
@@ -211,6 +212,7 @@ var adminTemplates = map[string]string{
                             <a href="/cm/templates/{{.ID.Hex}}" class="btn btn-sm">Edit</a>
                             {{if not .IsSystem}}
                             <form method="POST" action="/cm/templates/{{.ID.Hex}}/delete" onsubmit="return confirmDelete(this, 'Are you sure you want to delete this template?')">
+            {{.CSRFField}}
                                 <button type="submit" class="btn btn-sm btn-danger">Delete</button>
                             </form>
                             {{end}}
@@ -228,6 +230,7 @@ var adminTemplates = map[string]string{
         </div>
         {{if .Error}}<div class="error-message">{{.Error}}</div>{{end}}
         <form method="POST" class="form-card">
+            {{.CSRFField}}
             <div class="form-group">
                 <label for="name">Template Name</label>
                 <input type="text" id="name" name="name" value="{{if .Template}}{{.Template.Name}}{{end}}" required>
@@ -369,15 +372,18 @@ var adminTemplates = map[string]string{
                             <a href="/cm/content/{{.ID.Hex}}/versions/latest/view" target="_blank" class="btn btn-sm btn-outline">View</a>
                             <a href="/cm/content/{{.ID.Hex}}" class="btn btn-sm">Edit</a>
                             <form method="POST" action="/cm/content/{{.ID.Hex}}/undelete" style="display:inline">
+            {{.CSRFField}}
                                 <button type="submit" class="btn btn-sm btn-primary">Restore</button>
                             </form>
                             {{else}}
                             <a href="{{if .FullPath}}{{.FullPath}}{{else}}/{{.Slug}}{{end}}" target="_blank" class="btn btn-sm btn-outline">View</a>
                             <a href="/cm/content/{{.ID.Hex}}" class="btn btn-sm">Edit</a>
                             <form method="POST" action="/cm/content/{{.ID.Hex}}/regenerate" style="display:inline">
+            {{.CSRFField}}
                                 <button type="submit" class="btn btn-sm btn-secondary" title="Regenerate static file">↻</button>
                             </form>
                             <form method="POST" action="/cm/content/{{.ID.Hex}}/delete" onsubmit="return confirmDelete(this, 'Are you sure you want to delete this content?')">
+            {{.CSRFField}}
                                 <button type="submit" class="btn btn-sm btn-danger">Delete</button>
                             </form>
                             {{end}}
@@ -569,6 +575,7 @@ var adminTemplates = map[string]string{
             }
         </style>
         <script>
+            var csrfToken = '{{.CSRFToken}}';
             var originalTableBody = null;
             var isSearchActive = false;
 
@@ -670,6 +677,7 @@ var adminTemplates = map[string]string{
                         html += '<a href="/cm/content/' + item.id + '/versions/latest/view" target="_blank" class="btn btn-sm btn-outline">View</a>';
                         html += '<a href="/cm/content/' + item.id + '" class="btn btn-sm">Edit</a>';
                         html += '<form method="POST" action="/cm/content/' + item.id + '/undelete" style="display:inline">';
+                        html += '<input type="hidden" name="gorilla.csrf.Token" value="' + csrfToken + '">';
                         html += '<button type="submit" class="btn btn-sm btn-primary">Restore</button>';
                         html += '</form>';
                     } else {
@@ -987,6 +995,7 @@ var adminTemplates = map[string]string{
             <a href="/cm/content/{{.Current.ID.Hex}}" class="btn btn-outline">Back to Editor</a>
             <a href="/cm/content/{{.Current.ID.Hex}}/versions/{{.Version.Version}}/view" target="_blank" class="btn btn-secondary">Preview Version {{.Version.Version}}</a>
             <form method="POST" action="/cm/content/{{.Current.ID.Hex}}/versions/{{.Version.Version}}/revert" style="display:inline" onsubmit="return confirmRevert(this, {{.Version.Version}})">
+            {{.CSRFField}}
                 <button type="submit" class="btn btn-primary">Revert to Version {{.Version.Version}}</button>
             </form>
         </div>
@@ -1073,6 +1082,7 @@ var adminTemplates = map[string]string{
         </div>
         {{if .Error}}<div class="error-message">{{.Error}}</div>{{end}}
         <form method="POST" action="{{if .IsNew}}/cm/content/create{{else}}/cm/content/{{.Content.ID.Hex}}{{end}}" enctype="multipart/form-data" class="form-card">
+            {{.CSRFField}}
             <input type="hidden" name="template_id" value="{{.Template.ID.Hex}}">
             <input type="hidden" name="create_redirect" id="create_redirect" value="">
             <input type="hidden" name="slug_rename_enabled" id="slug_rename_enabled" value="">
@@ -1274,6 +1284,7 @@ var adminTemplates = map[string]string{
             <h3 style="color: var(--danger);">⚠️ This content is deleted</h3>
             <p style="margin-bottom: 1rem;">This page was deleted on {{if .Content.DeletedAt}}{{.Content.DeletedAt.Format "Jan 2, 2006 3:04 PM"}}{{else}}unknown date{{end}}.</p>
             <form method="POST" action="/cm/content/{{.Content.ID.Hex}}/undelete" style="display: inline;">
+            {{.CSRFField}}
                 <button type="submit" class="btn btn-primary">Restore This Page</button>
             </form>
         </div>
@@ -1303,6 +1314,7 @@ var adminTemplates = map[string]string{
                                 <a href="/cm/content/{{.ContentID.Hex}}/versions/{{.Version}}/diff" class="btn btn-sm btn-outline">Diff</a>
                                 <a href="/cm/content/{{.ContentID.Hex}}/versions/{{.Version}}/view" target="_blank" class="btn btn-sm btn-outline">Preview</a>
                                 <form method="POST" action="/cm/content/{{.ContentID.Hex}}/versions/{{.Version}}/revert" style="display:inline" onsubmit="return confirmRevert(this, {{.Version}})">
+            {{.CSRFField}}
                                     <button type="submit" class="btn btn-sm btn-secondary">Revert</button>
                                 </form>
                             </td>
@@ -2565,6 +2577,7 @@ var adminTemplates = map[string]string{
             <div class="form-actions">
                 <a href="/cm/content/{{.Content.ID.Hex}}" class="btn btn-outline">Cancel</a>
                 <form method="POST" action="/cm/content/{{.Content.ID.Hex}}/change-template/{{.NewTemplate.ID.Hex}}/confirm" style="display: inline;">
+            {{.CSRFField}}
                     <button type="submit" class="btn" style="background: var(--warning); color: white;">Confirm Template Change</button>
                 </form>
             </div>
@@ -2596,6 +2609,7 @@ var adminTemplates = map[string]string{
                             <a href="/{{.Slug}}" target="_blank" class="btn btn-sm btn-outline">View</a>
                             <a href="/cm/collections/{{.ID.Hex}}" class="btn btn-sm">Edit</a>
                             <form method="POST" action="/cm/collections/{{.ID.Hex}}/delete" onsubmit="return confirmDelete(this, 'Are you sure you want to delete this collection?')">
+            {{.CSRFField}}
                                 <button type="submit" class="btn btn-sm btn-danger">Delete</button>
                             </form>
                         </td>
@@ -2612,6 +2626,7 @@ var adminTemplates = map[string]string{
         </div>
         {{if .Error}}<div class="error-message">{{.Error}}</div>{{end}}
         <form method="POST" class="form-card">
+            {{.CSRFField}}
             <div class="form-group">
                 <label for="name">Collection Name</label>
                 <input type="text" id="name" name="name" value="{{if .Collection}}{{.Collection.Name}}{{end}}" required>
@@ -2668,6 +2683,7 @@ var adminTemplates = map[string]string{
         {{if .Error}}<div class="error-message">{{.Error}}</div>{{end}}
         {{if .Success}}<div class="success-message">{{.Success}}</div>{{end}}
         <form method="POST" class="form-card">
+            {{.CSRFField}}
             <div class="form-section">
                 <h3>Site Identity</h3>
                 <div class="form-row">
@@ -3218,7 +3234,8 @@ var adminTemplates = map[string]string{
                         <td><code>{{.Folder.Path}}</code></td>
                         <td class="actions">
                             <a href="/cm/folders/{{.Folder.ID.Hex}}" class="btn btn-sm">Edit</a>
-                            <form method="POST" action="/cm/folders/{{.Folder.ID.Hex}}/delete" onsubmit="return confirmDelete(this, 'Are you sure you want to delete this folder?<br><br><span style=\"color: var(--text-muted); font-size: 0.9rem;\">Make sure it has no content or subfolders.</span>')">
+                            <form method="POST" action="/cm/folders/{{.Folder.ID.Hex}}/delete" onsubmit="return confirmDelete(this, 'Are you sure you want to delete this folder?<br><br><span style=&quot;color: var(--text-muted); font-size: 0.9rem;&quot;>Make sure it has no content or subfolders.</span>')">
+                                {{.CSRFField}}
                                 <button type="submit" class="btn btn-sm btn-danger">Delete</button>
                             </form>
                         </td>
@@ -3253,6 +3270,7 @@ var adminTemplates = map[string]string{
         </div>
         {{if .Error}}<div class="error-message">{{.Error}}</div>{{end}}
         <form method="POST" class="form-card">
+            {{.CSRFField}}
             <div class="form-group">
                 <label for="name">Folder Name</label>
                 <input type="text" id="name" name="name" value="{{if .Folder}}{{.Folder.Name}}{{end}}" required placeholder="e.g., Blog Posts">
@@ -3316,6 +3334,7 @@ var adminTemplates = map[string]string{
         {{if .Error}}<div class="error-message">{{.Error}}</div>{{end}}
         {{if .Success}}<div class="success-message">{{.Success}}</div>{{end}}
         <form method="POST" class="form-card">
+            {{.CSRFField}}
             <div class="form-section">
                 <h3>Change Password</h3>
                 <p class="help-text">Password must be at least 8 characters and contain uppercase, lowercase, and numbers.</p>
@@ -3379,6 +3398,7 @@ var adminTemplates = map[string]string{
         </style>
 
         <form method="POST" class="form-card">
+            {{.CSRFField}}
             <div class="form-section">
                 <h3>Page Title Templates</h3>
                 <p class="help-text">Customize how page titles appear in browser tabs and search results.</p>
@@ -3429,6 +3449,7 @@ var adminTemplates = map[string]string{
                         <td class="actions">
                             <a href="/cm/redirects/{{.ID.Hex}}" class="btn btn-sm">Edit</a>
                             <form method="POST" action="/cm/redirects/{{.ID.Hex}}/delete" style="display:inline" onsubmit="return confirmDelete(this, 'Are you sure you want to delete this redirect?&lt;br&gt;&lt;br&gt;Note: Browsers cache 301 redirects. After deletion, users may need to clear their browser cache.')">
+            {{.CSRFField}}
                                 <button type="submit" class="btn btn-sm btn-danger">Delete</button>
                             </form>
                         </td>
@@ -3449,6 +3470,7 @@ var adminTemplates = map[string]string{
         </div>
         {{if .Error}}<div class="error-message">{{.Error}}</div>{{end}}
         <form method="POST" action="{{if .IsNew}}/cm/redirects/new{{else}}/cm/redirects/{{.Redirect.ID.Hex}}{{end}}" class="form-card">
+            {{.CSRFField}}
             <div class="form-group">
                 <label for="from_path">From Path</label>
                 <input type="text" id="from_path" name="from_path" value="{{if .Redirect}}{{.Redirect.FromPath}}{{end}}" placeholder="/old-page" required>
@@ -3508,6 +3530,7 @@ var adminTemplates = map[string]string{
                         <td class="actions">
                             <a href="/cm/messages/{{.ID.Hex}}" class="btn btn-sm">View</a>
                             <form method="POST" action="/cm/messages/{{.ID.Hex}}/delete" style="display:inline" onsubmit="return confirmDelete(this, 'Are you sure you want to delete this message?')">
+            {{.CSRFField}}
                                 <button type="submit" class="btn btn-sm btn-danger">Delete</button>
                             </form>
                         </td>
@@ -3577,6 +3600,7 @@ var adminTemplates = map[string]string{
             <a href="mailto:{{.Message.Email}}?subject=Re: Your message" class="btn btn-primary">Reply via Email</a>
             {{end}}
             <form method="POST" action="/cm/messages/{{.Message.ID.Hex}}/delete" style="display:inline" onsubmit="return confirmDelete(this, 'Are you sure you want to delete this message?')">
+            {{.CSRFField}}
                 <button type="submit" class="btn btn-danger">Delete</button>
             </form>
         </div>
@@ -3629,6 +3653,7 @@ var adminTemplates = map[string]string{
                             <a href="{{.ServePath}}" target="_blank" class="btn btn-sm">View</a>
                             <button onclick="copyToClipboard('{{.ServePath}}')" class="btn btn-sm btn-secondary">Copy URL</button>
                             <form method="POST" action="/cm/assets/{{.ID.Hex}}/delete" style="display:inline" onsubmit="return confirmDelete(this, 'Are you sure you want to delete this asset?')">
+            {{.CSRFField}}
                                 <button type="submit" class="btn btn-sm btn-danger">Delete</button>
                             </form>
                         </td>
@@ -3996,6 +4021,7 @@ var adminTemplates = map[string]string{
         </div>
 
         <form method="POST" action="/cm/assets/upload" enctype="multipart/form-data" class="form-card">
+            {{.CSRFField}}
             <div class="form-group">
                 <label for="file">File</label>
                 <input type="file" id="file" name="file" required style="padding: 0.75rem; background: var(--bg-dark); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: var(--text);">
@@ -4114,6 +4140,14 @@ const adminLayoutStart = `<!DOCTYPE html>
         .nav-link:hover {
             background: var(--bg-hover);
             text-decoration: none;
+        }
+        .logout-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            width: 100%;
+            text-align: left;
+            font: inherit;
         }
         .nav-link.active {
             background: linear-gradient(135deg, var(--primary), var(--secondary));
@@ -4671,7 +4705,10 @@ const adminLayoutStart = `<!DOCTYPE html>
                 </div>
                 <div class="nav-section">
                     <a href="/" target="_blank" class="nav-link">🌐 View Site</a>
-                    <a href="/cm/logout" class="nav-link">🚪 Logout</a>
+                    <form method="POST" action="/cm/logout" style="margin: 0;">
+                        {{.CSRFField}}
+                        <button type="submit" class="nav-link logout-btn">🚪 Logout</button>
+                    </form>
                 </div>
             </nav>
         </aside>

@@ -1,5 +1,7 @@
-# Binary
+# Binaries
 lightcms
+bin/
+server
 
 # Uploads (user content)
 static/uploads/*

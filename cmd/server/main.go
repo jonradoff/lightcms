@@ -15,8 +15,10 @@ import (
 	"lightcms/internal/build"
 	"lightcms/internal/database"
 	"lightcms/internal/handlers"
+	"lightcms/internal/middleware"
 	"lightcms/internal/models"
 
+	"github.com/gorilla/csrf"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/sessions"
 )
@@ -50,13 +52,14 @@ func main() {
 
 	log.Println("Connected to MongoDB successfully")
 
-	// Initialize session store
+	// Initialize session store with secure settings
 	sessionStore := sessions.NewCookieStore([]byte(cfg.SessionSecret))
 	sessionStore.Options = &sessions.Options{
 		Path:     "/",
-		MaxAge:   86400 * 7, // 7 days
+		MaxAge:   86400, // 24 hours (reduced from 7 days for security)
 		HttpOnly: true,
-		Secure:   cfg.SecureCookies, // true in production (requires HTTPS)
+		Secure:   cfg.SecureCookies,  // true in production (requires HTTPS)
+		SameSite: http.SameSiteStrictMode, // Prevent CSRF via cookies
 	}
 
 	// Initialize auth manager with database connection
@@ -69,6 +72,9 @@ func main() {
 
 	// Initialize handlers with config
 	h := handlers.New(db, authManager, cfg.BaseURL, cfg.Env)
+
+	// Initialize trusted proxy config for rate limiting
+	proxyConfig := middleware.DefaultCloudConfig()
 
 	// Seed default data if needed
 	if err := h.SeedDefaults(context.Background()); err != nil {
@@ -88,15 +94,42 @@ func main() {
 	// Setup router
 	r := mux.NewRouter()
 
+	// Apply security headers middleware to all routes
+	r.Use(middleware.SecurityHeaders)
+
 	// Static files
 	r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
 	r.PathPrefix("/uploads/").Handler(http.StripPrefix("/uploads/", http.FileServer(http.Dir("static/uploads"))))
 
+	// CSRF protection for admin routes
+	// Generate a 32-byte key from session secret for CSRF
+	csrfKey := []byte(cfg.SessionSecret)
+	if len(csrfKey) > 32 {
+		csrfKey = csrfKey[:32]
+	} else if len(csrfKey) < 32 {
+		// Pad with zeros if too short (shouldn't happen with proper secrets)
+		padded := make([]byte, 32)
+		copy(padded, csrfKey)
+		csrfKey = padded
+	}
+
+	csrfMiddleware := csrf.Protect(
+		csrfKey,
+		csrf.Secure(cfg.SecureCookies),
+		csrf.Path("/cm"),
+		csrf.SameSite(csrf.SameSiteStrictMode),
+		csrf.ErrorHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			log.Printf("CSRF validation failed for %s %s", r.Method, r.URL.Path)
+			http.Error(w, "Invalid or missing CSRF token", http.StatusForbidden)
+		})),
+	)
+
 	// Admin routes (under /cm)
 	admin := r.PathPrefix("/cm").Subrouter()
+	admin.Use(csrfMiddleware)
 	admin.HandleFunc("/login", h.LoginPage).Methods("GET")
 	admin.HandleFunc("/login", h.LoginHandler).Methods("POST")
-	admin.HandleFunc("/logout", h.LogoutHandler).Methods("GET")
+	admin.HandleFunc("/logout", h.LogoutHandler).Methods("POST") // Changed to POST for security
 	admin.HandleFunc("", h.AdminDashboard).Methods("GET")
 	admin.HandleFunc("/", h.AdminDashboard).Methods("GET")
 	admin.HandleFunc("/templates", h.ListTemplates).Methods("GET")
@@ -157,17 +190,19 @@ func main() {
 	admin.HandleFunc("/tools/broken-links", h.BrokenLinkFinder).Methods("GET")
 
 	// API routes for AJAX
+	// Note: Most API routes require authentication (checked in handlers)
+	// The /api/contact route is public for contact form submissions
 	api := r.PathPrefix("/api").Subrouter()
-	api.HandleFunc("/template/{id}/fields", h.GetTemplateFields).Methods("GET")
-	api.HandleFunc("/slugs", h.GetAllSlugs).Methods("GET")
-	api.HandleFunc("/folders", h.GetAllFoldersAPI).Methods("GET")
-	api.HandleFunc("/contact", h.ContactFormSubmit).Methods("POST")
-	api.HandleFunc("/content/search", h.SearchContent).Methods("GET")
-	api.HandleFunc("/content/check-slug", h.CheckSlug).Methods("GET")
-	api.HandleFunc("/content/replace-preview", h.ReplacePreview).Methods("GET")
-	api.HandleFunc("/content/replace-execute", h.ReplaceExecute).Methods("POST")
-	api.HandleFunc("/tools/broken-links/scan", h.BrokenLinkScan).Methods("GET")
-	api.HandleFunc("/tools/fix-link", h.FixBrokenLink).Methods("POST")
+	api.HandleFunc("/template/{id}/fields", h.GetTemplateFields).Methods("GET")    // Auth checked in handler
+	api.HandleFunc("/slugs", h.GetAllSlugs).Methods("GET")                         // Auth checked in handler
+	api.HandleFunc("/folders", h.GetAllFoldersAPI).Methods("GET")                  // Auth checked in handler
+	api.HandleFunc("/contact", h.ContactFormSubmitWithConfig(proxyConfig)).Methods("POST") // Public, uses trusted proxy config
+	api.HandleFunc("/content/search", h.SearchContent).Methods("GET")              // Auth checked in handler
+	api.HandleFunc("/content/check-slug", h.CheckSlug).Methods("GET")              // Auth checked in handler
+	api.HandleFunc("/content/replace-preview", h.ReplacePreview).Methods("GET")    // Auth checked in handler
+	api.HandleFunc("/content/replace-execute", h.ReplaceExecute).Methods("POST")   // Auth checked in handler
+	api.HandleFunc("/tools/broken-links/scan", h.BrokenLinkScan).Methods("GET")    // Auth checked in handler
+	api.HandleFunc("/tools/fix-link", h.FixBrokenLink).Methods("POST")             // Auth checked in handler
 
 	// Public asset serving
 	r.PathPrefix("/assets/").HandlerFunc(h.ServeAsset).Methods("GET")

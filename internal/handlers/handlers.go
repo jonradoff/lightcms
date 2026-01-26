@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"html/template"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -18,12 +19,16 @@ import (
 	"lightcms/internal/auth"
 	"lightcms/internal/build"
 	"lightcms/internal/database"
+	"lightcms/internal/errors"
+	"lightcms/internal/middleware"
 	"lightcms/internal/models"
 
+	"github.com/gorilla/csrf"
 	"github.com/gorilla/mux"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"golang.org/x/text/unicode/norm"
 )
 
 type Handler struct {
@@ -31,10 +36,23 @@ type Handler struct {
 	auth    *auth.Manager
 	baseURL string
 	env     string
+	errors  *errors.Handler
 }
 
 func New(db *database.DB, authManager *auth.Manager, baseURL string, env string) *Handler {
-	return &Handler{db: db, auth: authManager, baseURL: baseURL, env: env}
+	isDev := env == "development" || env == "dev"
+	return &Handler{
+		db:      db,
+		auth:    authManager,
+		baseURL: baseURL,
+		env:     env,
+		errors:  errors.NewHandler(isDev),
+	}
+}
+
+// IsDev returns true if running in development mode
+func (h *Handler) IsDev() bool {
+	return h.env == "development" || h.env == "dev"
 }
 
 // SeedDefaults creates default templates and hello world page if they don't exist
@@ -2537,20 +2555,43 @@ func (h *Handler) UploadFile(w http.ResponseWriter, r *http.Request) {
 	r.ParseMultipartForm(32 << 20)
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, "No file uploaded", http.StatusBadRequest)
 		return
 	}
 	defer file.Close()
 
-	filename := fmt.Sprintf("%d_%s", time.Now().UnixNano(), header.Filename)
-	filepath := filepath.Join("static/uploads", filename)
-	dst, err := os.Create(filepath)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	// Validate file extension
+	ext := strings.ToLower(filepath.Ext(header.Filename))
+	if !middleware.IsAllowedFileType(ext) {
+		http.Error(w, "File type not allowed", http.StatusBadRequest)
 		return
 	}
-	defer dst.Close()
-	io.Copy(dst, file)
+
+	// Read file data to validate MIME type
+	data, err := io.ReadAll(file)
+	if err != nil {
+		h.errors.HTTPError(w, err, http.StatusInternalServerError)
+		return
+	}
+
+	// Validate MIME type matches extension
+	detectedMIME := http.DetectContentType(data)
+	if !middleware.ValidateMIMEType(ext, detectedMIME) {
+		log.Printf("MIME type mismatch in upload: extension=%s, detected=%s", ext, detectedMIME)
+		http.Error(w, "File content does not match its extension", http.StatusBadRequest)
+		return
+	}
+
+	// Sanitize the original filename (remove any path components)
+	safeFilename := filepath.Base(header.Filename)
+	// Generate unique filename with timestamp
+	filename := fmt.Sprintf("%d_%s", time.Now().UnixNano(), safeFilename)
+	uploadPath := filepath.Join("static/uploads", filename)
+
+	if err := os.WriteFile(uploadPath, data, 0644); err != nil {
+		h.errors.HTTPError(w, err, http.StatusInternalServerError)
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	fmt.Fprintf(w, `{"location": "/uploads/%s"}`, filename)
@@ -2558,6 +2599,12 @@ func (h *Handler) UploadFile(w http.ResponseWriter, r *http.Request) {
 
 // API handler for template fields
 func (h *Handler) GetTemplateFields(w http.ResponseWriter, r *http.Request) {
+	// Require authentication to prevent information disclosure
+	if !h.auth.IsAuthenticated(r) {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	vars := mux.Vars(r)
 	id, err := primitive.ObjectIDFromHex(vars["id"])
 	if err != nil {
@@ -2990,6 +3037,10 @@ func (h *Handler) renderAdmin(w http.ResponseWriter, r *http.Request, name strin
 	}
 	data["IsAuthenticated"] = h.auth.IsAuthenticated(r)
 
+	// Add CSRF token to template data
+	data["CSRFToken"] = csrf.Token(r)
+	data["CSRFField"] = csrf.TemplateField(r)
+
 	ctx := r.Context()
 	theme, _ := h.db.GetThemeSettings(ctx)
 	data["Theme"] = theme
@@ -3022,20 +3073,50 @@ func (h *Handler) renderAdmin(w http.ResponseWriter, r *http.Request, name strin
 	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 	w.Header().Set("Pragma", "no-cache")
 	w.Header().Set("Expires", "0")
-	// Security headers
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("X-Frame-Options", "DENY")
-	w.Header().Set("X-XSS-Protection", "1; mode=block")
-	w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+	// Note: Security headers are now applied globally via middleware
 	tmpl.Execute(w, data)
 }
 
 func slugify(s string) string {
+	// Normalize unicode (NFKD decomposition)
+	s = norm.NFKD.String(s)
+
+	// Remove non-ASCII characters (accents, etc.)
+	var result strings.Builder
+	for _, r := range s {
+		if r < 128 {
+			result.WriteRune(r)
+		}
+	}
+	s = result.String()
+
+	// Convert to lowercase
 	s = strings.ToLower(s)
+
+	// Replace non-alphanumeric characters with hyphens
 	reg := regexp.MustCompile(`[^a-z0-9]+`)
 	s = reg.ReplaceAllString(s, "-")
+
+	// Trim leading/trailing hyphens
 	s = strings.Trim(s, "-")
+
+	// Enforce maximum length (255 chars for URL safety)
+	if len(s) > 255 {
+		s = s[:255]
+		// Don't end with a hyphen after truncation
+		s = strings.TrimRight(s, "-")
+	}
+
 	return s
+}
+
+// slugifyStrict is like slugify but also validates the result isn't empty
+func slugifyStrict(s string) (string, error) {
+	slug := slugify(s)
+	if slug == "" {
+		return "", fmt.Errorf("invalid input: results in empty slug")
+	}
+	return slug, nil
 }
 
 // extractInternalLinks finds all internal links (starting with /) in HTML content
@@ -3552,15 +3633,24 @@ func (h *Handler) DeleteRedirect(w http.ResponseWriter, r *http.Request) {
 // Contact Form Handlers
 // ============================================
 
-// ContactFormSubmit handles public contact form submissions
+// ContactFormSubmitWithConfig returns a handler that uses the provided proxy config for rate limiting
+func (h *Handler) ContactFormSubmitWithConfig(proxyConfig *middleware.TrustedProxyConfig) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		h.contactFormSubmitInternal(w, r, proxyConfig)
+	}
+}
+
+// ContactFormSubmit handles public contact form submissions (legacy, uses no proxy config)
 func (h *Handler) ContactFormSubmit(w http.ResponseWriter, r *http.Request) {
+	h.contactFormSubmitInternal(w, r, nil)
+}
+
+// contactFormSubmitInternal is the internal implementation of contact form submission
+func (h *Handler) contactFormSubmitInternal(w http.ResponseWriter, r *http.Request, proxyConfig *middleware.TrustedProxyConfig) {
 	ctx := r.Context()
 
-	// Get IP address for rate limiting
-	ip := r.RemoteAddr
-	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
-		ip = strings.Split(forwarded, ",")[0]
-	}
+	// Get real client IP using trusted proxy config
+	ip := middleware.GetClientIP(r, proxyConfig)
 
 	// Check rate limit
 	isLimited, err := h.db.IsContactRateLimited(ctx, ip)
@@ -3795,10 +3885,25 @@ func (h *Handler) AssetUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
+	// Validate file extension first (before reading the entire file)
+	ext := strings.ToLower(filepath.Ext(header.Filename))
+	if !middleware.IsAllowedFileType(ext) {
+		http.Error(w, "File type not allowed. Allowed types: images, PDFs, web assets (CSS, JS, fonts)", http.StatusBadRequest)
+		return
+	}
+
 	// Read file data
 	data, err := io.ReadAll(file)
 	if err != nil {
-		http.Error(w, "Failed to read file", http.StatusInternalServerError)
+		h.errors.HTTPError(w, err, http.StatusInternalServerError)
+		return
+	}
+
+	// Detect MIME type and validate it matches the extension
+	detectedMIME := http.DetectContentType(data)
+	if !middleware.ValidateMIMEType(ext, detectedMIME) {
+		log.Printf("MIME type mismatch: extension=%s, detected=%s", ext, detectedMIME)
+		http.Error(w, "File content does not match its extension", http.StatusBadRequest)
 		return
 	}
 
@@ -3811,10 +3916,23 @@ func (h *Handler) AssetUpload(w http.ResponseWriter, r *http.Request) {
 	if !strings.HasPrefix(servePath, "/") {
 		servePath = "/" + servePath
 	}
+
+	// SECURITY: Validate path doesn't contain traversal attempts
+	if !middleware.ValidateFilePath(servePath) {
+		http.Error(w, "Invalid file path", http.StatusBadRequest)
+		return
+	}
+
 	// Clean the path
 	servePath = filepath.Clean(servePath)
 	if !strings.HasPrefix(servePath, "/") {
 		servePath = "/" + servePath
+	}
+
+	// SECURITY: Double-check after cleaning that we're still safe
+	if strings.Contains(servePath, "..") {
+		http.Error(w, "Invalid file path", http.StatusBadRequest)
+		return
 	}
 
 	// Get filename from serve path
@@ -3826,10 +3944,8 @@ func (h *Handler) AssetUpload(w http.ResponseWriter, r *http.Request) {
 		folder = "/"
 	}
 
-	// Detect MIME type
-	mimeType := http.DetectContentType(data)
-	// Improve MIME type detection for common file extensions
-	ext := strings.ToLower(filepath.Ext(filename))
+	// Determine MIME type - use detected type but override for known extensions
+	mimeType := detectedMIME
 	switch ext {
 	case ".svg":
 		mimeType = "image/svg+xml"
@@ -3853,15 +3969,28 @@ func (h *Handler) AssetUpload(w http.ResponseWriter, r *http.Request) {
 
 	description := r.FormValue("description")
 
-	// Write the file to the static assets directory
+	// SECURITY: Build the static path and verify it's within the allowed directory
+	baseDir, _ := filepath.Abs("content/generated")
 	staticPath := filepath.Join("content/generated", servePath)
+	absStaticPath, err := filepath.Abs(staticPath)
+	if err != nil {
+		h.errors.HTTPError(w, err, http.StatusInternalServerError)
+		return
+	}
+	// Ensure the resolved path is within the base directory
+	if !strings.HasPrefix(absStaticPath, baseDir) {
+		log.Printf("Path traversal attempt blocked: %s not within %s", absStaticPath, baseDir)
+		http.Error(w, "Invalid file path", http.StatusBadRequest)
+		return
+	}
+
 	staticDir := filepath.Dir(staticPath)
 	if err := os.MkdirAll(staticDir, 0755); err != nil {
-		http.Error(w, "Failed to create directory: "+err.Error(), http.StatusInternalServerError)
+		h.errors.HTTPError(w, err, http.StatusInternalServerError)
 		return
 	}
 	if err := os.WriteFile(staticPath, data, 0644); err != nil {
-		http.Error(w, "Failed to write file: "+err.Error(), http.StatusInternalServerError)
+		h.errors.HTTPError(w, err, http.StatusInternalServerError)
 		return
 	}
 
