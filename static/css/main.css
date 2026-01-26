@@ -130,7 +130,7 @@ a:hover {
 .main-footer {
     background: rgba(15, 23, 42, 0.5);
     border-top: 1px solid rgba(99, 102, 241, 0.1);
-    padding: 3rem 0;
+    padding: 3rem 2rem;
     text-align: center;
 }
 
@@ -881,10 +881,10 @@ li {
    ====================================== */
 .main-footer .footer-grid {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(3, minmax(0, 280px));
     gap: 2rem;
     text-align: left;
-    max-width: 1000px;
+    justify-content: center;
     margin: 0 auto 2rem;
 }
 

@@ -80,6 +80,11 @@ func main() {
 		log.Printf("Warning: Failed to check version migration: %v", err)
 	}
 
+	// Migrate legacy assets to have serve_path
+	if err := db.MigrateAssetServePaths(context.Background()); err != nil {
+		log.Printf("Warning: Failed to migrate asset serve paths: %v", err)
+	}
+
 	// Setup router
 	r := mux.NewRouter()
 
@@ -109,6 +114,8 @@ func main() {
 	admin.HandleFunc("/content/{id}/delete", h.DeleteContent).Methods("POST")
 	admin.HandleFunc("/content/{id}/undelete", h.UndeleteContent).Methods("POST")
 	admin.HandleFunc("/content/{id}/regenerate", h.RegenerateContent).Methods("POST")
+	admin.HandleFunc("/content/{id}/change-template/{template_id}", h.ChangeTemplatePreview).Methods("GET")
+	admin.HandleFunc("/content/{id}/change-template/{template_id}/confirm", h.ConfirmChangeTemplate).Methods("POST")
 	admin.HandleFunc("/content/{id}/versions", h.ListContentVersions).Methods("GET")
 	admin.HandleFunc("/content/{id}/versions/{version}/view", h.ViewContentVersion).Methods("GET")
 	admin.HandleFunc("/content/{id}/versions/{version}/diff", h.DiffContentVersion).Methods("GET")
@@ -146,15 +153,30 @@ func main() {
 	admin.HandleFunc("/assets/upload", h.AssetUpload).Methods("POST")
 	admin.HandleFunc("/assets/{id}/delete", h.DeleteAsset).Methods("POST")
 
+	// Tools routes
+	admin.HandleFunc("/tools/broken-links", h.BrokenLinkFinder).Methods("GET")
+
 	// API routes for AJAX
 	api := r.PathPrefix("/api").Subrouter()
 	api.HandleFunc("/template/{id}/fields", h.GetTemplateFields).Methods("GET")
 	api.HandleFunc("/slugs", h.GetAllSlugs).Methods("GET")
 	api.HandleFunc("/folders", h.GetAllFoldersAPI).Methods("GET")
 	api.HandleFunc("/contact", h.ContactFormSubmit).Methods("POST")
+	api.HandleFunc("/content/search", h.SearchContent).Methods("GET")
+	api.HandleFunc("/content/check-slug", h.CheckSlug).Methods("GET")
+	api.HandleFunc("/content/replace-preview", h.ReplacePreview).Methods("GET")
+	api.HandleFunc("/content/replace-execute", h.ReplaceExecute).Methods("POST")
+	api.HandleFunc("/tools/broken-links/scan", h.BrokenLinkScan).Methods("GET")
+	api.HandleFunc("/tools/fix-link", h.FixBrokenLink).Methods("POST")
 
 	// Public asset serving
 	r.PathPrefix("/assets/").HandlerFunc(h.ServeAsset).Methods("GET")
+
+	// Health check for Fly.io
+	r.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	}).Methods("GET")
 
 	// Sitemap and robots.txt
 	r.HandleFunc("/sitemap.xml", h.ServeSitemap).Methods("GET")
@@ -165,12 +187,14 @@ func main() {
 	r.HandleFunc("/{slug:.*}", h.ServePage).Methods("GET")
 
 	// Create server
+	// Note: WriteTimeout is set high (5 min) to support SSE streaming endpoints like broken link scanner
+	// which can take several minutes to complete scanning all pages
 	srv := &http.Server{
 		Addr:         ":" + cfg.Port,
 		Handler:      r,
 		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		WriteTimeout: 5 * time.Minute,
+		IdleTimeout:  5 * time.Minute,
 	}
 
 	// Start server in goroutine

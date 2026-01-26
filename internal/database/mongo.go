@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -209,6 +210,14 @@ func (db *DB) DeleteOne(ctx context.Context, collection string, filter interface
 	return err
 }
 
+func (db *DB) DeleteMany(ctx context.Context, collection string, filter interface{}) (int64, error) {
+	result, err := db.database.Collection(collection).DeleteMany(ctx, filter)
+	if err != nil {
+		return 0, err
+	}
+	return result.DeletedCount, nil
+}
+
 func (db *DB) Count(ctx context.Context, collection string, filter interface{}) (int64, error) {
 	return db.database.Collection(collection).CountDocuments(ctx, filter)
 }
@@ -228,6 +237,7 @@ type ThemeSettings struct {
 	SiteName        string             `bson:"site_name"`
 	SiteTagline     string             `bson:"site_tagline"`
 	LogoURL         string             `bson:"logo_url"`
+	HeadHTML        string             `bson:"head_html"`
 	HeaderHTML      string             `bson:"header_html"`
 	FooterHTML      string             `bson:"footer_html"`
 	UpdatedAt       time.Time          `bson:"updated_at"`
@@ -250,6 +260,7 @@ func (db *DB) GetThemeSettings(ctx context.Context) (*ThemeSettings, error) {
 			CustomCSS:       "",
 			SiteName:        "LightCMS",
 			SiteTagline:     "A lightweight content management system",
+			HeadHTML:        "",
 			HeaderHTML:      "",
 			FooterHTML:      "",
 		}, nil
@@ -496,6 +507,7 @@ type Asset struct {
 	Filename    string             `bson:"filename"`
 	Folder      string             `bson:"folder"`
 	FullPath    string             `bson:"full_path"`
+	ServePath   string             `bson:"serve_path"` // URL path where file is served (e.g., /favicon.png)
 	MimeType    string             `bson:"mime_type"`
 	Size        int64              `bson:"size"`
 	Data        []byte             `bson:"data"`
@@ -552,7 +564,51 @@ func (db *DB) SaveAsset(ctx context.Context, asset *Asset) error {
 	return err
 }
 
-// DeleteAsset removes an asset by ID
+// MigrateAssetServePaths updates legacy assets to have serve_path set
+func (db *DB) MigrateAssetServePaths(ctx context.Context) error {
+	// Find all assets without serve_path or with empty serve_path
+	cursor, err := db.Assets().Find(ctx, bson.M{
+		"$or": []bson.M{
+			{"serve_path": ""},
+			{"serve_path": bson.M{"$exists": false}},
+		},
+	})
+	if err != nil {
+		return err
+	}
+	defer cursor.Close(ctx)
+
+	for cursor.Next(ctx) {
+		var asset Asset
+		if err := cursor.Decode(&asset); err != nil {
+			continue
+		}
+
+		// Set serve_path to /assets/ + full_path for legacy assets
+		servePath := "/assets" + asset.FullPath
+		_, err := db.Assets().UpdateOne(ctx,
+			bson.M{"_id": asset.ID},
+			bson.M{"$set": bson.M{"serve_path": servePath}},
+		)
+		if err != nil {
+			fmt.Printf("Warning: Failed to migrate asset %s: %v\n", asset.Filename, err)
+		} else {
+			fmt.Printf("Migrated asset %s to serve_path %s\n", asset.Filename, servePath)
+		}
+	}
+	return nil
+}
+
+// GetAsset retrieves an asset by ID
+func (db *DB) GetAsset(ctx context.Context, id primitive.ObjectID) (*Asset, error) {
+	var asset Asset
+	err := db.Assets().FindOne(ctx, bson.M{"_id": id}).Decode(&asset)
+	if err == mongo.ErrNoDocuments {
+		return nil, nil
+	}
+	return &asset, err
+}
+
 func (db *DB) DeleteAsset(ctx context.Context, id primitive.ObjectID) error {
 	_, err := db.Assets().DeleteOne(ctx, bson.M{"_id": id})
 	return err

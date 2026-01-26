@@ -849,10 +849,24 @@ func (h *Handler) EditContent(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Check for error query param (e.g., path conflict on undelete)
+	// Check for error query param (e.g., path conflict on undelete or slug exists)
 	errorMsg := ""
 	if r.URL.Query().Get("error") == "path_conflict" {
 		errorMsg = "Cannot restore: another page already exists at this URL path. Change the slug first or delete the conflicting page."
+	} else if r.URL.Query().Get("error") == "slug_exists" {
+		conflictPath := r.URL.Query().Get("path")
+		if conflictPath != "" {
+			errorMsg = fmt.Sprintf("A page already exists at %q. Please choose a different slug.", conflictPath)
+		} else {
+			errorMsg = "A page already exists at that URL path. Please choose a different slug."
+		}
+	}
+
+	// Get all templates for template change feature
+	var allTemplates []models.Template
+	templateCursor, err := h.db.FindMany(ctx, "templates", bson.M{}, nil)
+	if err == nil {
+		templateCursor.All(ctx, &allTemplates)
 	}
 
 	h.renderAdmin(w, r, "content_form", map[string]interface{}{
@@ -862,6 +876,7 @@ func (h *Handler) EditContent(w http.ResponseWriter, r *http.Request) {
 		"Folders":       folders,
 		"Versions":      versions,
 		"SameSlugPages": sameSlugPages,
+		"AllTemplates":  allTemplates,
 		"Error":         errorMsg,
 	})
 }
@@ -886,6 +901,14 @@ func (h *Handler) UpdateContent(w http.ResponseWriter, r *http.Request) {
 	if err := h.db.FindOne(ctx, "content", bson.M{"_id": id}, &existingContent); err != nil {
 		http.Error(w, "Content not found", http.StatusNotFound)
 		return
+	}
+
+	// Make a copy of the original content before modifications (for versioning)
+	originalContent := existingContent
+	// Deep copy the Data map
+	originalContent.Data = make(map[string]interface{})
+	for k, v := range existingContent.Data {
+		originalContent.Data[k] = v
 	}
 
 	var tmpl models.Template
@@ -919,13 +942,15 @@ func (h *Handler) UpdateContent(w http.ResponseWriter, r *http.Request) {
 
 	title := r.FormValue("title")
 	slug := r.FormValue("slug")
+	slugRenameEnabled := r.FormValue("slug_rename_enabled") == "yes"
 
-	// Preserve empty slug for homepage (full_path "/")
-	if slug == "" && existingContent.FullPath == "/" {
-		// Keep slug empty for homepage
-	} else if slug == "" {
-		slug = slugify(title)
+	// For existing content, preserve the existing slug ONLY if rename wasn't explicitly enabled
+	// If rename was enabled, accept whatever value was submitted (including empty for homepage)
+	if !slugRenameEnabled && slug == "" && existingContent.Slug != "" {
+		// Preserve existing slug if form submitted empty and rename wasn't enabled
+		slug = existingContent.Slug
 	}
+	// Otherwise use the submitted slug value (empty is valid for root page "/")
 
 	// Handle folder selection
 	folderIDStr := r.FormValue("folder_id")
@@ -971,8 +996,27 @@ func (h *Handler) UpdateContent(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Delete old static file if path changed
+	// Check for duplicate path if path is changing
+	createRedirectFromOld := false
 	if oldFullPath != fullPath {
+		var existingAtPath models.Content
+		err := h.db.FindOne(ctx, "content", bson.M{
+			"full_path": fullPath,
+			"_id":       bson.M{"$ne": existingContent.ID},
+			"deleted":   bson.M{"$ne": true},
+		}, &existingAtPath)
+		if err == nil {
+			// Found existing content at this path - redirect back with error
+			http.Redirect(w, r, fmt.Sprintf("/cm/content/%s?error=slug_exists&path=%s", existingContent.ID.Hex(), fullPath), http.StatusSeeOther)
+			return
+		}
+
+		// Check if user wants to create a redirect from old path to new
+		if r.FormValue("create_redirect") == "yes" {
+			createRedirectFromOld = true
+		}
+
+		// Delete old static file if path changed
 		oldStaticPath := h.getStaticFilePath(oldFullPath)
 		os.Remove(oldStaticPath)
 	}
@@ -1069,6 +1113,21 @@ func (h *Handler) UpdateContent(w http.ResponseWriter, r *http.Request) {
 			// Log but don't fail the request
 			fmt.Printf("Warning: Failed to update dependent content: %v\n", err)
 		}
+
+		// Create redirect from old path to new if user requested
+		if createRedirectFromOld {
+			redirect := models.Redirect{
+				FromPath:    oldFullPath,
+				ToPath:      fullPath,
+				StatusCode:  301, // Permanent redirect
+				Description: fmt.Sprintf("Auto-created when page was renamed from %s", oldFullPath),
+				CreatedAt:   time.Now(),
+				UpdatedAt:   time.Now(),
+			}
+			if _, err := h.db.InsertOne(ctx, "redirects", redirect); err != nil {
+				fmt.Printf("Warning: Failed to create redirect from %s to %s: %v\n", oldFullPath, fullPath, err)
+			}
+		}
 	}
 
 	// Update content struct with new values for static generation and version saving
@@ -1088,7 +1147,8 @@ func (h *Handler) UpdateContent(w http.ResponseWriter, r *http.Request) {
 	existingContent.UseFooter = useFooter
 
 	// Save this version after the update succeeds
-	if err := h.saveContentVersion(ctx, &existingContent); err != nil {
+	// Pass the original content so we can save it as v1 if no versions exist yet
+	if err := h.saveContentVersionWithOriginal(ctx, &existingContent, &originalContent); err != nil {
 		fmt.Printf("Warning: Failed to save content version: %v\n", err)
 	}
 
@@ -1133,6 +1193,17 @@ func (h *Handler) DeleteContent(w http.ResponseWriter, r *http.Request) {
 		staticPath = filepath.Join("content/generated", content.Slug+".html")
 	}
 	os.Remove(staticPath)
+
+	// Remove any redirects that point to this page
+	// (no point keeping redirects to a deleted page)
+	if content.FullPath != "" {
+		deleteResult, err := h.db.DeleteMany(ctx, "redirects", bson.M{"to_path": content.FullPath})
+		if err != nil {
+			fmt.Printf("Warning: Failed to delete redirects pointing to %s: %v\n", content.FullPath, err)
+		} else if deleteResult > 0 {
+			fmt.Printf("Deleted %d redirect(s) pointing to deleted page %s\n", deleteResult, content.FullPath)
+		}
+	}
 
 	// Soft delete: mark as deleted instead of removing from database
 	// Use a unique deleted path to avoid unique index conflicts
@@ -1223,6 +1294,234 @@ func (h *Handler) UndeleteContent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Redirect(w, r, "/cm/content/"+id.Hex(), http.StatusSeeOther)
+}
+
+// FieldMapping represents a field that will be mapped between templates
+type FieldMapping struct {
+	Name    string
+	OldType string
+	NewType string
+	Value   string
+}
+
+// FieldInfo represents a field with its name and type
+type FieldInfo struct {
+	Name string
+	Type string
+}
+
+func (h *Handler) ChangeTemplatePreview(w http.ResponseWriter, r *http.Request) {
+	if !h.auth.IsAuthenticated(r) {
+		http.Redirect(w, r, "/cm/login", http.StatusSeeOther)
+		return
+	}
+
+	vars := mux.Vars(r)
+	contentID, err := primitive.ObjectIDFromHex(vars["id"])
+	if err != nil {
+		http.Error(w, "Invalid content ID", http.StatusBadRequest)
+		return
+	}
+
+	newTemplateID, err := primitive.ObjectIDFromHex(vars["template_id"])
+	if err != nil {
+		http.Error(w, "Invalid template ID", http.StatusBadRequest)
+		return
+	}
+
+	ctx := r.Context()
+
+	// Get content
+	var content models.Content
+	if err := h.db.FindOne(ctx, "content", bson.M{"_id": contentID}, &content); err != nil {
+		http.Error(w, "Content not found", http.StatusNotFound)
+		return
+	}
+
+	// Get old template
+	var oldTemplate models.Template
+	if err := h.db.FindOne(ctx, "templates", bson.M{"_id": content.TemplateID}, &oldTemplate); err != nil {
+		http.Error(w, "Old template not found", http.StatusNotFound)
+		return
+	}
+
+	// Get new template
+	var newTemplate models.Template
+	if err := h.db.FindOne(ctx, "templates", bson.M{"_id": newTemplateID}, &newTemplate); err != nil {
+		http.Error(w, "New template not found", http.StatusNotFound)
+		return
+	}
+
+	// Build field mappings
+	oldFieldMap := make(map[string]models.TemplateField)
+	for _, f := range oldTemplate.Fields {
+		oldFieldMap[f.Name] = f
+	}
+
+	newFieldMap := make(map[string]models.TemplateField)
+	for _, f := range newTemplate.Fields {
+		newFieldMap[f.Name] = f
+	}
+
+	var mappedFields []FieldMapping
+	var lostFields []FieldMapping
+	var newFields []FieldInfo
+
+	// Check which old fields map to new fields
+	for _, oldField := range oldTemplate.Fields {
+		value := ""
+		if content.Data != nil {
+			if v, ok := content.Data[oldField.Name]; ok {
+				if s, ok := v.(string); ok {
+					value = s
+					// Truncate long values for display
+					if len(value) > 100 {
+						value = value[:100] + "..."
+					}
+				}
+			}
+		}
+
+		if newField, exists := newFieldMap[oldField.Name]; exists {
+			mappedFields = append(mappedFields, FieldMapping{
+				Name:    oldField.Name,
+				OldType: oldField.Type,
+				NewType: newField.Type,
+				Value:   value,
+			})
+		} else {
+			lostFields = append(lostFields, FieldMapping{
+				Name:    oldField.Name,
+				OldType: oldField.Type,
+				Value:   value,
+			})
+		}
+	}
+
+	// Check for new fields that don't exist in old template
+	for _, newField := range newTemplate.Fields {
+		if _, exists := oldFieldMap[newField.Name]; !exists {
+			newFields = append(newFields, FieldInfo{
+				Name: newField.Name,
+				Type: newField.Type,
+			})
+		}
+	}
+
+	h.renderAdmin(w, r, "change_template_preview", map[string]interface{}{
+		"Content":      content,
+		"OldTemplate":  oldTemplate,
+		"NewTemplate":  newTemplate,
+		"MappedFields": mappedFields,
+		"LostFields":   lostFields,
+		"NewFields":    newFields,
+	})
+}
+
+func (h *Handler) ConfirmChangeTemplate(w http.ResponseWriter, r *http.Request) {
+	if !h.auth.IsAuthenticated(r) {
+		http.Redirect(w, r, "/cm/login", http.StatusSeeOther)
+		return
+	}
+
+	vars := mux.Vars(r)
+	contentID, err := primitive.ObjectIDFromHex(vars["id"])
+	if err != nil {
+		http.Error(w, "Invalid content ID", http.StatusBadRequest)
+		return
+	}
+
+	newTemplateID, err := primitive.ObjectIDFromHex(vars["template_id"])
+	if err != nil {
+		http.Error(w, "Invalid template ID", http.StatusBadRequest)
+		return
+	}
+
+	ctx := r.Context()
+
+	// Get content
+	var content models.Content
+	if err := h.db.FindOne(ctx, "content", bson.M{"_id": contentID}, &content); err != nil {
+		http.Error(w, "Content not found", http.StatusNotFound)
+		return
+	}
+
+	// Get old template (for version history)
+	var oldTemplate models.Template
+	if err := h.db.FindOne(ctx, "templates", bson.M{"_id": content.TemplateID}, &oldTemplate); err != nil {
+		http.Error(w, "Old template not found", http.StatusNotFound)
+		return
+	}
+
+	// Get new template
+	var newTemplate models.Template
+	if err := h.db.FindOne(ctx, "templates", bson.M{"_id": newTemplateID}, &newTemplate); err != nil {
+		http.Error(w, "New template not found", http.StatusNotFound)
+		return
+	}
+
+	// Save current version before making changes
+	cursor, err := h.db.FindMany(ctx, "content_versions", bson.M{"content_id": contentID}, options.Find().SetSort(bson.D{{Key: "version", Value: -1}}).SetLimit(1))
+	nextVersion := 1
+	if err == nil {
+		var versions []models.ContentVersion
+		if cursor.All(ctx, &versions) == nil && len(versions) > 0 {
+			nextVersion = versions[0].Version + 1
+		}
+	}
+
+	version := models.ContentVersion{
+		ContentID:  contentID,
+		Version:    nextVersion,
+		Title:      content.Title,
+		Slug:       content.Slug,
+		Data:       content.Data,
+		Published:  content.Published,
+		TemplateID: content.TemplateID,
+		CreatedAt:  time.Now(),
+	}
+	if _, err := h.db.InsertOne(ctx, "content_versions", version); err != nil {
+		fmt.Printf("Warning: Failed to save content version: %v\n", err)
+	}
+
+	// Build new field map
+	newFieldMap := make(map[string]bool)
+	for _, f := range newTemplate.Fields {
+		newFieldMap[f.Name] = true
+	}
+
+	// Filter data to only include fields in new template
+	newData := make(map[string]interface{})
+	if content.Data != nil {
+		for key, value := range content.Data {
+			if newFieldMap[key] {
+				newData[key] = value
+			}
+		}
+	}
+
+	// Update content with new template
+	update := bson.M{
+		"$set": bson.M{
+			"template_id": newTemplateID,
+			"data":        newData,
+			"updated_at":  time.Now(),
+		},
+	}
+
+	if err := h.db.UpdateOne(ctx, "content", bson.M{"_id": contentID}, update); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Regenerate static file if published
+	if content.Published {
+		content.TemplateID = newTemplateID
+		content.Data = newData
+		h.generateStaticPage(ctx, &content, &newTemplate)
+	}
+
+	http.Redirect(w, r, "/cm/content/"+contentID.Hex(), http.StatusSeeOther)
 }
 
 func (h *Handler) ListContentVersions(w http.ResponseWriter, r *http.Request) {
@@ -2061,6 +2360,7 @@ func (h *Handler) UpdateTheme(w http.ResponseWriter, r *http.Request) {
 		SiteName:        r.FormValue("site_name"),
 		SiteTagline:     r.FormValue("site_tagline"),
 		LogoURL:         r.FormValue("logo_url"),
+		HeadHTML:        r.FormValue("head_html"),
 		HeaderHTML:      r.FormValue("header_html"),
 		FooterHTML:      r.FormValue("footer_html"),
 	}
@@ -2323,14 +2623,62 @@ func (h *Handler) ServePage(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	slug := vars["slug"]
 
-	ctx := r.Context()
-	theme, _ := h.db.GetThemeSettings(ctx)
-
 	// Build full path from URL
 	fullPath := "/" + slug
 	if slug == "" {
 		fullPath = "/"
 	}
+
+	// Check for static asset first (for files uploaded via Asset Library)
+	// These are served from content/generated at any path
+	if slug != "" && strings.Contains(slug, ".") {
+		// Looks like a file (has extension) - check if it exists as a static asset
+		assetPath := filepath.Join("content/generated", fullPath)
+		if info, err := os.Stat(assetPath); err == nil && !info.IsDir() {
+			// Serve the static file with proper MIME type
+			ext := strings.ToLower(filepath.Ext(slug))
+			mimeType := "application/octet-stream"
+			switch ext {
+			case ".png":
+				mimeType = "image/png"
+			case ".jpg", ".jpeg":
+				mimeType = "image/jpeg"
+			case ".gif":
+				mimeType = "image/gif"
+			case ".svg":
+				mimeType = "image/svg+xml"
+			case ".webp":
+				mimeType = "image/webp"
+			case ".ico":
+				mimeType = "image/x-icon"
+			case ".css":
+				mimeType = "text/css"
+			case ".js":
+				mimeType = "application/javascript"
+			case ".json":
+				mimeType = "application/json"
+			case ".woff":
+				mimeType = "font/woff"
+			case ".woff2":
+				mimeType = "font/woff2"
+			case ".ttf":
+				mimeType = "font/ttf"
+			case ".pdf":
+				mimeType = "application/pdf"
+			case ".xml":
+				mimeType = "application/xml"
+			case ".txt":
+				mimeType = "text/plain"
+			}
+			w.Header().Set("Content-Type", mimeType)
+			w.Header().Set("Cache-Control", "public, max-age=31536000")
+			http.ServeFile(w, r, assetPath)
+			return
+		}
+	}
+
+	ctx := r.Context()
+	theme, _ := h.db.GetThemeSettings(ctx)
 
 	// Check for redirect first
 	redirect, err := h.db.GetRedirect(ctx, fullPath)
@@ -2602,6 +2950,7 @@ func (h *Handler) renderPublicWithSEO(w http.ResponseWriter, r *http.Request, th
 		"Content":         template.HTML(content),
 		"UseHeader":       useHeader,
 		"UseFooter":       useFooter,
+		"HeadHTML":        template.HTML(theme.HeadHTML),
 		"HeaderHTML":      template.HTML(theme.HeaderHTML),
 		"FooterHTML":      template.HTML(theme.FooterHTML),
 		"PageTitle":       pageTitle,
@@ -2715,12 +3064,49 @@ func extractInternalLinks(htmlContent string) []string {
 }
 
 // saveContentVersion saves the current state of content as a new version
+// If originalContent is provided and no versions exist yet, it saves the original as v1 first
 func (h *Handler) saveContentVersion(ctx context.Context, content *models.Content) error {
-	// Get the next version number
+	return h.saveContentVersionWithOriginal(ctx, content, nil)
+}
+
+// saveContentVersionWithOriginal saves versions with optional original state for first-time versioning
+func (h *Handler) saveContentVersionWithOriginal(ctx context.Context, content *models.Content, originalContent *models.Content) error {
+	// Get the current version count
 	count, err := h.db.Count(ctx, "content_versions", bson.M{"content_id": content.ID})
 	if err != nil {
 		return err
 	}
+
+	// If no versions exist and we have the original content, save it as v1 first
+	if count == 0 && originalContent != nil {
+		v1 := models.ContentVersion{
+			ContentID:       originalContent.ID,
+			Version:         1,
+			TemplateID:      originalContent.TemplateID,
+			TemplateName:    originalContent.TemplateName,
+			Title:           originalContent.Title,
+			Slug:            originalContent.Slug,
+			FolderID:        originalContent.FolderID,
+			FolderPath:      originalContent.FolderPath,
+			FullPath:        originalContent.FullPath,
+			Category:        originalContent.Category,
+			MetaDescription: originalContent.MetaDescription,
+			OGImage:         originalContent.OGImage,
+			Data:            originalContent.Data,
+			Published:       originalContent.Published,
+			PublishedAt:     originalContent.PublishedAt,
+			UseHeader:       originalContent.UseHeader,
+			UseFooter:       originalContent.UseFooter,
+			UseTheme:        originalContent.UseTheme,
+			RawMode:         originalContent.RawMode,
+			CreatedAt:       originalContent.CreatedAt, // Use original creation time
+		}
+		if _, err := h.db.InsertOne(ctx, "content_versions", v1); err != nil {
+			return err
+		}
+		count = 1
+	}
+
 	version := int(count) + 1
 
 	contentVersion := models.ContentVersion{
@@ -2923,6 +3309,7 @@ func updateLinksInHTMLByPath(html, oldPath, newPath string) string {
 const publicLayout = `<!DOCTYPE html>
 <html lang="en">
 <head>
+{{if .HeadHTML}}{{.HeadHTML}}{{end}}
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{if .PageTitle}}{{.PageTitle}}{{else}}{{.Theme.SiteName}}{{end}}</title>
@@ -3415,53 +3802,84 @@ func (h *Handler) AssetUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get form values
-	filename := r.FormValue("filename")
-	if filename == "" {
-		filename = header.Filename
+	// Get serve path from form
+	servePath := r.FormValue("serve_path")
+	if servePath == "" {
+		servePath = "/" + header.Filename
 	}
-	// Sanitize filename
-	filename = strings.ReplaceAll(filename, "/", "-")
-	filename = strings.ReplaceAll(filename, "\\", "-")
-
-	folder := r.FormValue("folder")
-	if folder == "" {
-		folder = "/"
+	// Ensure serve path starts with /
+	if !strings.HasPrefix(servePath, "/") {
+		servePath = "/" + servePath
 	}
-	// Ensure folder starts with / and doesn't end with /
-	if !strings.HasPrefix(folder, "/") {
-		folder = "/" + folder
-	}
-	folder = strings.TrimSuffix(folder, "/")
-	if folder == "" {
-		folder = "/"
+	// Clean the path
+	servePath = filepath.Clean(servePath)
+	if !strings.HasPrefix(servePath, "/") {
+		servePath = "/" + servePath
 	}
 
-	// Build full path
-	var fullPath string
-	if folder == "/" {
-		fullPath = "/" + filename
-	} else {
-		fullPath = folder + "/" + filename
+	// Get filename from serve path
+	filename := filepath.Base(servePath)
+
+	// Get folder from serve path
+	folder := filepath.Dir(servePath)
+	if folder == "." {
+		folder = "/"
 	}
 
 	// Detect MIME type
 	mimeType := http.DetectContentType(data)
+	// Improve MIME type detection for common file extensions
+	ext := strings.ToLower(filepath.Ext(filename))
+	switch ext {
+	case ".svg":
+		mimeType = "image/svg+xml"
+	case ".css":
+		mimeType = "text/css"
+	case ".js":
+		mimeType = "application/javascript"
+	case ".json":
+		mimeType = "application/json"
+	case ".ico":
+		mimeType = "image/x-icon"
+	case ".webp":
+		mimeType = "image/webp"
+	case ".woff":
+		mimeType = "font/woff"
+	case ".woff2":
+		mimeType = "font/woff2"
+	case ".ttf":
+		mimeType = "font/ttf"
+	}
 
 	description := r.FormValue("description")
+
+	// Write the file to the static assets directory
+	staticPath := filepath.Join("content/generated", servePath)
+	staticDir := filepath.Dir(staticPath)
+	if err := os.MkdirAll(staticDir, 0755); err != nil {
+		http.Error(w, "Failed to create directory: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := os.WriteFile(staticPath, data, 0644); err != nil {
+		http.Error(w, "Failed to write file: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 
 	ctx := r.Context()
 	asset := &database.Asset{
 		Filename:    filename,
 		Folder:      folder,
-		FullPath:    fullPath,
+		FullPath:    servePath, // Keep for backwards compat
+		ServePath:   servePath,
 		MimeType:    mimeType,
 		Size:        int64(len(data)),
-		Data:        data,
+		Data:        nil, // Don't store binary data in DB anymore
 		Description: description,
 	}
 
 	if err := h.db.SaveAsset(ctx, asset); err != nil {
+		// Clean up the file if DB save fails
+		os.Remove(staticPath)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -3469,7 +3887,7 @@ func (h *Handler) AssetUpload(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/cm/assets", http.StatusSeeOther)
 }
 
-// ServeAsset serves an asset file by path
+// ServeAsset serves an asset file by path (legacy /assets/ path support)
 func (h *Handler) ServeAsset(w http.ResponseWriter, r *http.Request) {
 	// Get full path from URL
 	fullPath := r.URL.Path
@@ -3483,6 +3901,14 @@ func (h *Handler) ServeAsset(w http.ResponseWriter, r *http.Request) {
 		assetPath = "/"
 	}
 
+	// First check for static file (new style)
+	staticFilePath := filepath.Join("content/generated", assetPath)
+	if info, err := os.Stat(staticFilePath); err == nil && !info.IsDir() {
+		http.ServeFile(w, r, staticFilePath)
+		return
+	}
+
+	// Fall back to database (legacy assets)
 	ctx := r.Context()
 	asset, err := h.db.GetAssetByPath(ctx, assetPath)
 	if err != nil || asset == nil {
@@ -3513,6 +3939,20 @@ func (h *Handler) DeleteAsset(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
+
+	// Get asset first to know the file path
+	asset, err := h.db.GetAsset(ctx, id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Delete the static file if it exists
+	if asset != nil && asset.ServePath != "" {
+		staticPath := filepath.Join("content/generated", asset.ServePath)
+		os.Remove(staticPath) // Ignore errors, file may not exist
+	}
+
 	if err := h.db.DeleteAsset(ctx, id); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -3609,6 +4049,477 @@ func (h *Handler) GenerateSitemap(ctx context.Context, baseURL string) error {
 	return os.WriteFile("static/sitemap.xml", []byte(sb.String()), 0644)
 }
 
+// ==================== Tools ====================
+
+// BrokenLinkFinder scans all content for broken internal links
+func (h *Handler) BrokenLinkFinder(w http.ResponseWriter, r *http.Request) {
+	if !h.auth.IsAuthenticated(r) {
+		http.Redirect(w, r, "/cm/login", http.StatusSeeOther)
+		return
+	}
+
+	// Render the page - scanning happens via SSE
+	h.renderAdmin(w, r, "broken_links", nil)
+}
+
+// BrokenLinkScan performs the actual scan with Server-Sent Events for real-time progress
+func (h *Handler) BrokenLinkScan(w http.ResponseWriter, r *http.Request) {
+	if !h.auth.IsAuthenticated(r) {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Set headers for SSE
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no") // Disable nginx buffering
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "Streaming not supported", http.StatusInternalServerError)
+		return
+	}
+
+	// Use background context for database operations to avoid cancellation
+	ctx := context.Background()
+	clientCtx := r.Context()
+
+	// Helper to check if client is still connected
+	clientDisconnected := func() bool {
+		select {
+		case <-clientCtx.Done():
+			return true
+		default:
+			return false
+		}
+	}
+
+	// Helper to send SSE event
+	sendEvent := func(eventType string, data string) bool {
+		if clientDisconnected() {
+			return false
+		}
+		fmt.Fprintf(w, "event: %s\ndata: %s\n\n", eventType, data)
+		flusher.Flush()
+		return true
+	}
+
+	// Start a goroutine to send keep-alive comments every 5 seconds
+	// This prevents Fly.io proxy from timing out on the SSE connection
+	done := make(chan bool)
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ticker.C:
+				// Send SSE comment (lines starting with : are comments)
+				fmt.Fprintf(w, ": keepalive\n\n")
+				flusher.Flush()
+			}
+		}
+	}()
+	defer func() {
+		select {
+		case done <- true:
+		default:
+		}
+	}()
+
+	// Get all published, non-deleted content
+	cursor, err := h.db.FindMany(ctx, "content", bson.M{
+		"published": true,
+		"deleted":   bson.M{"$ne": true},
+	}, nil)
+	if err != nil {
+		sendEvent("error", err.Error())
+		return
+	}
+
+	var allContent []models.Content
+	if err := cursor.All(ctx, &allContent); err != nil {
+		sendEvent("error", err.Error())
+		return
+	}
+
+	totalPages := len(allContent)
+	sendEvent("total", fmt.Sprintf(`{"total": %d}`, totalPages))
+
+	// Build a set of valid paths (published content and collections)
+	validPaths := make(map[string]bool)
+	validPaths["/"] = true
+
+	for _, c := range allContent {
+		path := c.FullPath
+		if path == "" {
+			path = "/" + c.Slug
+		}
+		validPaths[path] = true
+	}
+
+	// Also add collection paths
+	collCursor, err := h.db.FindMany(ctx, "collections", bson.M{}, nil)
+	if err == nil {
+		var collections []models.Collection
+		if collCursor.All(ctx, &collections) == nil {
+			for _, coll := range collections {
+				validPaths["/"+coll.Slug] = true
+			}
+		}
+	}
+
+	// Load all redirects to check if internal paths have redirects
+	redirectPaths := make(map[string]bool)
+	redirectCursor, err := h.db.FindMany(ctx, "redirects", bson.M{}, nil)
+	if err == nil {
+		var redirects []models.Redirect
+		if redirectCursor.All(ctx, &redirects) == nil {
+			for _, redir := range redirects {
+				redirectPaths[redir.FromPath] = true
+			}
+		}
+	}
+
+	// Extract links from href attributes
+	linkPattern := regexp.MustCompile(`href=["']([^"']+)["']`)
+
+	type BrokenLinkResult struct {
+		URL    string `json:"url"`
+		Field  string `json:"field"`
+		Status int    `json:"status,omitempty"`
+		Error  string `json:"error,omitempty"`
+	}
+
+	type PageResult struct {
+		ID          string             `json:"id"`
+		Title       string             `json:"title"`
+		Path        string             `json:"path"`
+		BrokenLinks []BrokenLinkResult `json:"brokenLinks"`
+	}
+
+	// HTTP client with short timeout for external link checking
+	// Use 3 seconds to prevent blocking the SSE stream too long
+	httpClient := &http.Client{
+		Timeout: 5 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			// Allow up to 10 redirects (sites like anchor.fm can have 4+ redirects)
+			if len(via) >= 10 {
+				return fmt.Errorf("too many redirects")
+			}
+			return nil
+		},
+	}
+
+	// Cache for external link results to avoid checking same URL multiple times
+	externalLinkCache := make(map[string]*BrokenLinkResult)
+
+	// Browser-like User-Agent (many sites block non-browser UAs)
+	browserUA := "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+	// Helper to check if an external URL is broken
+	checkExternalURL := func(urlStr string) *BrokenLinkResult {
+		// Check if client disconnected
+		if clientDisconnected() {
+			return nil
+		}
+
+		// Check cache first
+		if cached, ok := externalLinkCache[urlStr]; ok {
+			return cached
+		}
+
+		// Use GET directly - many sites (Substack, Medium) return 404 for HEAD but work with GET
+		req, err := http.NewRequest("GET", urlStr, nil)
+		if err != nil {
+			result := &BrokenLinkResult{URL: urlStr, Error: "invalid URL"}
+			externalLinkCache[urlStr] = result
+			return result
+		}
+		req.Header.Set("User-Agent", browserUA)
+		req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+		req.Header.Set("Accept-Language", "en-US,en;q=0.5")
+
+		resp, err := httpClient.Do(req)
+		if err != nil {
+			// Simplify error message
+			errMsg := err.Error()
+			if strings.Contains(errMsg, "timeout") || strings.Contains(errMsg, "deadline") {
+				errMsg = "timeout"
+			} else if strings.Contains(errMsg, "no such host") {
+				errMsg = "host not found"
+			} else if strings.Contains(errMsg, "connection refused") {
+				errMsg = "connection refused"
+			} else if strings.Contains(errMsg, "certificate") {
+				errMsg = "SSL certificate error"
+			} else if len(errMsg) > 50 {
+				errMsg = errMsg[:50] + "..."
+			}
+			result := &BrokenLinkResult{URL: urlStr, Error: errMsg}
+			externalLinkCache[urlStr] = result
+			return result
+		}
+
+		// Read and discard only first 1KB to avoid blocking on large responses
+		// We only care about the status code
+		io.CopyN(io.Discard, resp.Body, 1024)
+		resp.Body.Close()
+
+		// Consider 4xx and 5xx as broken (except 403 which might be blocking bots)
+		// Also accept 401 as valid (requires auth but page exists)
+		if resp.StatusCode >= 400 && resp.StatusCode != 401 && resp.StatusCode != 403 {
+			result := &BrokenLinkResult{URL: urlStr, Status: resp.StatusCode}
+			externalLinkCache[urlStr] = result
+			return result
+		}
+
+		// Link is OK
+		externalLinkCache[urlStr] = nil
+		return nil
+	}
+
+	var results []PageResult
+	totalBrokenLinks := 0
+	totalLinksChecked := 0
+
+	for i, content := range allContent {
+		// Check if client disconnected
+		if clientDisconnected() {
+			return
+		}
+
+		path := content.FullPath
+		if path == "" {
+			path = "/" + content.Slug
+		}
+
+		// Send progress update
+		progressData := fmt.Sprintf(`{"current": %d, "total": %d, "path": %q, "title": %q, "linksChecked": %d}`,
+			i+1, totalPages, path, content.Title, totalLinksChecked)
+		if !sendEvent("progress", progressData) {
+			return // Client disconnected
+		}
+
+		var brokenLinks []BrokenLinkResult
+
+		// Check all data fields
+		for fieldName, value := range content.Data {
+			if strVal, ok := value.(string); ok {
+				matches := linkPattern.FindAllStringSubmatch(strVal, -1)
+				for _, match := range matches {
+					if len(match) >= 2 {
+						href := match[1]
+
+						// Skip mailto, tel, javascript, and anchor-only links
+						if strings.HasPrefix(href, "mailto:") ||
+							strings.HasPrefix(href, "tel:") ||
+							strings.HasPrefix(href, "javascript:") ||
+							strings.HasPrefix(href, "#") {
+							continue
+						}
+
+						// Check internal links (starting with /)
+						if strings.HasPrefix(href, "/") && !strings.HasPrefix(href, "//") {
+							// Remove query string and fragment
+							cleanPath := href
+							if idx := strings.Index(cleanPath, "?"); idx != -1 {
+								cleanPath = cleanPath[:idx]
+							}
+							if idx := strings.Index(cleanPath, "#"); idx != -1 {
+								cleanPath = cleanPath[:idx]
+							}
+
+							// Skip static assets and special paths
+							if strings.HasPrefix(cleanPath, "/static/") ||
+								strings.HasPrefix(cleanPath, "/uploads/") ||
+								strings.HasPrefix(cleanPath, "/assets/") ||
+								strings.HasPrefix(cleanPath, "/cm/") ||
+								strings.HasPrefix(cleanPath, "/api/") ||
+								cleanPath == "/sitemap.xml" ||
+								cleanPath == "/robots.txt" {
+								continue
+							}
+
+							totalLinksChecked++
+
+							// Check if path exists in content OR has a redirect
+							if !validPaths[cleanPath] && !redirectPaths[cleanPath] {
+								brokenLinks = append(brokenLinks, BrokenLinkResult{
+									URL:   href,
+									Field: fieldName,
+								})
+							}
+						} else if strings.HasPrefix(href, "http://") || strings.HasPrefix(href, "https://") || strings.HasPrefix(href, "//") {
+							// External link - check with HTTP request
+							totalLinksChecked++
+
+							// Normalize // to https://
+							checkURL := href
+							if strings.HasPrefix(href, "//") {
+								checkURL = "https:" + href
+							}
+
+							// Send checking status
+							checkData := fmt.Sprintf(`{"current": %d, "total": %d, "path": %q, "title": %q, "checking": %q, "linksChecked": %d}`,
+								i+1, totalPages, path, content.Title, checkURL, totalLinksChecked)
+							if !sendEvent("progress", checkData) {
+								return // Client disconnected
+							}
+
+							if result := checkExternalURL(checkURL); result != nil {
+								result.Field = fieldName
+								brokenLinks = append(brokenLinks, *result)
+							}
+						}
+					}
+				}
+			}
+		}
+
+		if len(brokenLinks) > 0 {
+			pageResult := PageResult{
+				ID:          content.ID.Hex(),
+				Title:       content.Title,
+				Path:        path,
+				BrokenLinks: brokenLinks,
+			}
+			results = append(results, pageResult)
+			totalBrokenLinks += len(brokenLinks)
+
+			// Send found broken links for this page immediately
+			resultJSON, _ := json.Marshal(pageResult)
+			if !sendEvent("result", string(resultJSON)) {
+				return // Client disconnected
+			}
+		}
+	}
+
+	// Send completion event
+	completeData := fmt.Sprintf(`{"totalPages": %d, "pagesWithBrokenLinks": %d, "totalBrokenLinks": %d, "totalLinksChecked": %d}`,
+		totalPages, len(results), totalBrokenLinks, totalLinksChecked)
+	sendEvent("complete", completeData)
+}
+
+// FixBrokenLink handles fixing a broken link in content
+func (h *Handler) FixBrokenLink(w http.ResponseWriter, r *http.Request) {
+	if !h.auth.IsAuthenticated(r) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Unauthorized"})
+		return
+	}
+
+	var req struct {
+		ContentID string `json:"contentId"`
+		Field     string `json:"field"`
+		OldURL    string `json:"oldUrl"`
+		NewURL    string `json:"newUrl"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Invalid request body"})
+		return
+	}
+
+	ctx := r.Context()
+
+	// Get the content
+	objectID, err := primitive.ObjectIDFromHex(req.ContentID)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Invalid content ID"})
+		return
+	}
+
+	var content models.Content
+	if err := h.db.FindOne(ctx, "content", bson.M{"_id": objectID}, &content); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Content not found"})
+		return
+	}
+
+	// Store original content for versioning
+	originalContent := content
+
+	// Find and replace the link in the specified field
+	fieldValue, ok := content.Data[req.Field]
+	if !ok {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Field not found"})
+		return
+	}
+
+	fieldStr, ok := fieldValue.(string)
+	if !ok {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Field is not a string"})
+		return
+	}
+
+	// Replace the old URL with the new one in href attributes
+	// We need to be careful to only replace in href="..." or href='...'
+	var newFieldStr string
+	if req.NewURL == "" {
+		// Remove the link entirely - find <a href="oldUrl">...</a> and replace with just the inner content
+		// This is a simplified approach - for complex cases, user should use the full editor
+		linkPattern := regexp.MustCompile(`<a[^>]*href=["']` + regexp.QuoteMeta(req.OldURL) + `["'][^>]*>(.*?)</a>`)
+		newFieldStr = linkPattern.ReplaceAllString(fieldStr, "$1")
+	} else {
+		// Replace the URL
+		oldPattern := regexp.MustCompile(`(href=["'])` + regexp.QuoteMeta(req.OldURL) + `(["'])`)
+		newFieldStr = oldPattern.ReplaceAllString(fieldStr, "${1}"+req.NewURL+"${2}")
+	}
+
+	if newFieldStr == fieldStr {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Link not found in field"})
+		return
+	}
+
+	// Update the content
+	content.Data[req.Field] = newFieldStr
+	content.UpdatedAt = time.Now()
+
+	// Save version first (using the same logic as UpdateContent)
+	if err := h.saveContentVersionWithOriginal(ctx, &content, &originalContent); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Failed to save version: " + err.Error()})
+		return
+	}
+
+	// Update the content in the database
+	if err := h.db.UpdateOne(ctx, "content", bson.M{"_id": objectID}, bson.M{
+		"$set": bson.M{
+			"data":       content.Data,
+			"updated_at": content.UpdatedAt,
+		},
+	}); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Failed to update content"})
+		return
+	}
+
+	// Get the version number for the response
+	versionCount, _ := h.db.Count(ctx, "content_versions", bson.M{"content_id": content.ID})
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"version": versionCount,
+	})
+}
+
 // ServeSitemap serves the sitemap.xml file
 func (h *Handler) ServeSitemap(w http.ResponseWriter, r *http.Request) {
 	// Try to serve static file first
@@ -3661,6 +4572,489 @@ func (h *Handler) RegenerateSitemap(ctx context.Context) {
 		baseURL = "http://localhost:8082" // Fallback for development
 	}
 	h.GenerateSitemap(ctx, baseURL)
+}
+
+// ==================== Content Search ====================
+
+// SearchContent handles AJAX search requests for content
+func (h *Handler) SearchContent(w http.ResponseWriter, r *http.Request) {
+	if !h.auth.IsAuthenticated(r) {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	ctx := r.Context()
+	query := r.URL.Query().Get("q")
+	searchType := r.URL.Query().Get("type")           // "name" or "fulltext"
+	includeDeleted := r.URL.Query().Get("deleted") == "true"
+
+	// Sanitize and limit query length
+	if query != "" {
+		query = sanitizeContactInput(query)
+		if len(query) > 200 {
+			query = query[:200]
+		}
+	}
+
+	// Build the base filter
+	var filter bson.M
+	if query == "" {
+		// Empty query - return all content
+		filter = bson.M{}
+	} else if searchType == "fulltext" {
+		// Search in title and all data fields using $or and $regex
+		filter = bson.M{
+			"$or": []bson.M{
+				{"title": bson.M{"$regex": query, "$options": "i"}},
+				{"data": bson.M{"$regex": query, "$options": "i"}},
+			},
+		}
+	} else {
+		// Default to name/title search
+		filter = bson.M{
+			"title": bson.M{"$regex": query, "$options": "i"},
+		}
+	}
+
+	// Add deleted filter
+	if !includeDeleted {
+		filter["deleted"] = bson.M{"$ne": true}
+	}
+
+	cursor, err := h.db.FindMany(ctx, "content", filter, options.Find().SetSort(bson.D{{Key: "updated_at", Value: -1}}).SetLimit(100))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	var results []models.Content
+	if err := cursor.All(ctx, &results); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// If fulltext search didn't find in Data field using regex on the whole object,
+	// we need to do a manual search through Data fields
+	if query != "" && searchType == "fulltext" && len(results) == 0 {
+		// Fallback: get all content and search manually
+		fallbackFilter := bson.M{}
+		if !includeDeleted {
+			fallbackFilter["deleted"] = bson.M{"$ne": true}
+		}
+		allCursor, err := h.db.FindMany(ctx, "content", fallbackFilter, options.Find().SetSort(bson.D{{Key: "updated_at", Value: -1}}))
+		if err == nil {
+			var allContent []models.Content
+			if err := allCursor.All(ctx, &allContent); err == nil {
+				lowerQuery := strings.ToLower(query)
+				for _, c := range allContent {
+					// Check title
+					if strings.Contains(strings.ToLower(c.Title), lowerQuery) {
+						results = append(results, c)
+						continue
+					}
+					// Check each data field
+					for _, v := range c.Data {
+						if strVal, ok := v.(string); ok {
+							if strings.Contains(strings.ToLower(strVal), lowerQuery) {
+								results = append(results, c)
+								break
+							}
+						}
+					}
+					if len(results) >= 100 {
+						break
+					}
+				}
+			}
+		}
+	}
+
+	// Build JSON response
+	type SearchResult struct {
+		ID           string `json:"id"`
+		Title        string `json:"title"`
+		TemplateName string `json:"template_name"`
+		FullPath     string `json:"full_path"`
+		Slug         string `json:"slug"`
+		Published    bool   `json:"published"`
+		Deleted      bool   `json:"deleted"`
+		UpdatedAt    string `json:"updated_at"`
+	}
+
+	searchResults := make([]SearchResult, 0, len(results))
+	for _, c := range results {
+		path := c.FullPath
+		if path == "" {
+			path = "/" + c.Slug
+		}
+		searchResults = append(searchResults, SearchResult{
+			ID:           c.ID.Hex(),
+			Title:        c.Title,
+			TemplateName: c.TemplateName,
+			FullPath:     path,
+			Slug:         c.Slug,
+			Published:    c.Published,
+			Deleted:      c.Deleted,
+			UpdatedAt:    c.UpdatedAt.Format("Jan 2, 2006"),
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(searchResults)
+}
+
+// CheckSlug checks if a content path already exists (for slug validation)
+func (h *Handler) CheckSlug(w http.ResponseWriter, r *http.Request) {
+	if !h.auth.IsAuthenticated(r) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{"error": "Unauthorized"})
+		return
+	}
+
+	ctx := r.Context()
+	path := r.URL.Query().Get("path")
+	excludeID := r.URL.Query().Get("exclude") // Optional: exclude current content by ID
+
+	if path == "" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]bool{"exists": false})
+		return
+	}
+
+	// Build filter to find content at this path
+	filter := bson.M{
+		"full_path": path,
+		"deleted":   bson.M{"$ne": true},
+	}
+
+	// Exclude specific content ID if provided (for editing)
+	if excludeID != "" {
+		if oid, err := primitive.ObjectIDFromHex(excludeID); err == nil {
+			filter["_id"] = bson.M{"$ne": oid}
+		}
+	}
+
+	var existingContent models.Content
+	err := h.db.FindOne(ctx, "content", filter, &existingContent)
+
+	w.Header().Set("Content-Type", "application/json")
+	if err != nil {
+		// No content found at this path
+		json.NewEncoder(w).Encode(map[string]bool{"exists": false})
+	} else {
+		// Content exists at this path
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"exists": true,
+			"title":  existingContent.Title,
+		})
+	}
+}
+
+// ReplacePreview returns a preview of search and replace results
+func (h *Handler) ReplacePreview(w http.ResponseWriter, r *http.Request) {
+	if !h.auth.IsAuthenticated(r) {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	ctx := r.Context()
+	searchQuery := r.URL.Query().Get("search")
+	replaceQuery := r.URL.Query().Get("replace")
+
+	if searchQuery == "" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"matches": []interface{}{}})
+		return
+	}
+
+	// Find all non-deleted content
+	cursor, err := h.db.FindMany(ctx, "content", bson.M{"deleted": bson.M{"$ne": true}}, options.Find().SetSort(bson.D{{Key: "title", Value: 1}}))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	var allContent []models.Content
+	if err := cursor.All(ctx, &allContent); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	type MatchResult struct {
+		ID         string   `json:"id"`
+		Title      string   `json:"title"`
+		FullPath   string   `json:"full_path"`
+		MatchCount int      `json:"match_count"`
+		Excerpts   []string `json:"excerpts"`
+	}
+
+	var matches []MatchResult
+
+	for _, content := range allContent {
+		matchCount := 0
+		var excerpts []string
+
+		// Search in all data fields
+		for fieldName, value := range content.Data {
+			if strVal, ok := value.(string); ok {
+				count := strings.Count(strVal, searchQuery)
+				if count > 0 {
+					matchCount += count
+					// Generate excerpts with highlighted replacements (max 3 per field)
+					fieldExcerpts := generateReplaceExcerpts(strVal, searchQuery, replaceQuery, 3)
+					for _, exc := range fieldExcerpts {
+						excerpts = append(excerpts, fmt.Sprintf("<strong>%s:</strong> %s", fieldName, exc))
+					}
+				}
+			}
+		}
+
+		// Also check title
+		if strings.Contains(content.Title, searchQuery) {
+			titleCount := strings.Count(content.Title, searchQuery)
+			matchCount += titleCount
+			excerpts = append([]string{fmt.Sprintf("<strong>title:</strong> %s",
+				generateReplaceExcerpt(content.Title, searchQuery, replaceQuery))}, excerpts...)
+		}
+
+		if matchCount > 0 {
+			path := content.FullPath
+			if path == "" {
+				path = "/" + content.Slug
+			}
+			// Limit excerpts to 5 total
+			if len(excerpts) > 5 {
+				excerpts = excerpts[:5]
+			}
+			matches = append(matches, MatchResult{
+				ID:         content.ID.Hex(),
+				Title:      content.Title,
+				FullPath:   path,
+				MatchCount: matchCount,
+				Excerpts:   excerpts,
+			})
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"matches": matches,
+		"search":  searchQuery,
+		"replace": replaceQuery,
+	})
+}
+
+// generateReplaceExcerpts generates multiple excerpts showing before/after replacement
+func generateReplaceExcerpts(text, search, replace string, maxExcerpts int) []string {
+	var excerpts []string
+	remaining := text
+	offset := 0
+
+	for i := 0; i < maxExcerpts; i++ {
+		idx := strings.Index(remaining, search)
+		if idx == -1 {
+			break
+		}
+
+		// Calculate absolute position
+		absIdx := offset + idx
+
+		// Get context around the match (50 chars before and after)
+		start := absIdx - 50
+		if start < 0 {
+			start = 0
+		}
+		end := absIdx + len(search) + 50
+		if end > len(text) {
+			end = len(text)
+		}
+
+		// Build excerpt with highlighting
+		excerpt := ""
+		if start > 0 {
+			excerpt += "..."
+		}
+
+		// Text before match
+		beforeMatch := text[start:absIdx]
+		// The match itself
+		matchText := text[absIdx : absIdx+len(search)]
+		// Text after match
+		afterMatch := text[absIdx+len(search) : end]
+
+		excerpt += escapeHTMLForExcerpt(beforeMatch)
+		excerpt += `<span class="replace-old">` + escapeHTMLForExcerpt(matchText) + `</span>`
+		excerpt += `<span class="replace-new">` + escapeHTMLForExcerpt(replace) + `</span>`
+		excerpt += escapeHTMLForExcerpt(afterMatch)
+
+		if end < len(text) {
+			excerpt += "..."
+		}
+
+		excerpts = append(excerpts, excerpt)
+
+		// Move past this match
+		offset = absIdx + len(search)
+		remaining = text[offset:]
+	}
+
+	return excerpts
+}
+
+// generateReplaceExcerpt generates a single excerpt for short text like titles
+func generateReplaceExcerpt(text, search, replace string) string {
+	idx := strings.Index(text, search)
+	if idx == -1 {
+		return escapeHTMLForExcerpt(text)
+	}
+
+	before := text[:idx]
+	after := text[idx+len(search):]
+
+	return escapeHTMLForExcerpt(before) +
+		`<span class="replace-old">` + escapeHTMLForExcerpt(search) + `</span>` +
+		`<span class="replace-new">` + escapeHTMLForExcerpt(replace) + `</span>` +
+		escapeHTMLForExcerpt(after)
+}
+
+// escapeHTMLForExcerpt escapes HTML special characters for display
+func escapeHTMLForExcerpt(s string) string {
+	s = strings.ReplaceAll(s, "&", "&amp;")
+	s = strings.ReplaceAll(s, "<", "&lt;")
+	s = strings.ReplaceAll(s, ">", "&gt;")
+	s = strings.ReplaceAll(s, "\"", "&quot;")
+	// Truncate very long strings
+	if len(s) > 200 {
+		s = s[:200] + "..."
+	}
+	return s
+}
+
+// ReplaceExecute performs the actual search and replace on content
+func (h *Handler) ReplaceExecute(w http.ResponseWriter, r *http.Request) {
+	if !h.auth.IsAuthenticated(r) {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var request struct {
+		Search  string `json:"search"`
+		Replace string `json:"replace"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"error": "Invalid request body"})
+		return
+	}
+
+	if request.Search == "" {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"error": "Search query is required"})
+		return
+	}
+
+	ctx := r.Context()
+
+	// Find all non-deleted content
+	cursor, err := h.db.FindMany(ctx, "content", bson.M{"deleted": bson.M{"$ne": true}}, nil)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	var allContent []models.Content
+	if err := cursor.All(ctx, &allContent); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	updatedCount := 0
+
+	for _, content := range allContent {
+		needsUpdate := false
+		originalContent := content
+		// Deep copy the Data map for original
+		originalContent.Data = make(map[string]interface{})
+		for k, v := range content.Data {
+			originalContent.Data[k] = v
+		}
+
+		newData := make(map[string]interface{})
+		for k, v := range content.Data {
+			newData[k] = v
+		}
+
+		// Replace in all data fields
+		for fieldName, value := range content.Data {
+			if strVal, ok := value.(string); ok {
+				if strings.Contains(strVal, request.Search) {
+					newData[fieldName] = strings.ReplaceAll(strVal, request.Search, request.Replace)
+					needsUpdate = true
+				}
+			}
+		}
+
+		// Replace in title
+		newTitle := content.Title
+		if strings.Contains(content.Title, request.Search) {
+			newTitle = strings.ReplaceAll(content.Title, request.Search, request.Replace)
+			needsUpdate = true
+		}
+
+		if needsUpdate {
+			// Update the content in database
+			update := bson.M{
+				"$set": bson.M{
+					"title":      newTitle,
+					"data":       newData,
+					"updated_at": time.Now(),
+				},
+			}
+
+			if err := h.db.UpdateOne(ctx, "content", bson.M{"_id": content.ID}, update); err != nil {
+				continue // Skip this one but continue with others
+			}
+
+			// Update content struct for versioning
+			content.Title = newTitle
+			content.Data = newData
+
+			// Save version with original content for first-time versioning
+			if err := h.saveContentVersionWithOriginal(ctx, &content, &originalContent); err != nil {
+				fmt.Printf("Warning: Failed to save content version for %s: %v\n", content.ID.Hex(), err)
+			}
+
+			// Regenerate static page if published
+			if content.Published {
+				var tmpl models.Template
+				if err := h.db.FindOne(ctx, "templates", bson.M{"_id": content.TemplateID}, &tmpl); err == nil {
+					h.generateStaticPage(ctx, &content, &tmpl)
+				}
+			}
+
+			updatedCount++
+		}
+	}
+
+	// Regenerate sitemap if content was updated
+	if updatedCount > 0 {
+		go h.RegenerateSitemap(context.Background())
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":       true,
+		"updated_count": updatedCount,
+	})
 }
 
 // ==================== Security Helpers ====================

@@ -7,6 +7,11 @@ var adminTemplates = map[string]string{
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login - LightCMS</title>
+    <link rel="icon" type="image/x-icon" href="/static/images/favicon.ico">
+    <link rel="icon" type="image/png" sizes="16x16" href="/static/images/favicon-16x16.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="/static/images/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="48x48" href="/static/images/favicon-48x48.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/static/images/apple-touch-icon.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -32,14 +37,12 @@ var adminTemplates = map[string]string{
             box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
         }
         .logo {
-            font-family: 'Space Grotesk', sans-serif;
-            font-size: 2rem;
-            font-weight: 700;
-            background: linear-gradient(135deg, #6366f1, #8b5cf6, #06b6d4);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
             text-align: center;
             margin-bottom: 0.5rem;
+        }
+        .logo img {
+            height: 48px;
+            width: auto;
         }
         .subtitle {
             color: #94a3b8;
@@ -98,7 +101,7 @@ var adminTemplates = map[string]string{
 </head>
 <body>
     <div class="login-card">
-        <h1 class="logo">LightCMS</h1>
+        <h1 class="logo"><img src="/static/images/lightcms-logo.png" alt="LightCMS"></h1>
         <p class="subtitle">Content Management System</p>
         {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
         <form method="POST" action="/cm/login" autocomplete="off">
@@ -207,7 +210,7 @@ var adminTemplates = map[string]string{
                         <td class="actions">
                             <a href="/cm/templates/{{.ID.Hex}}" class="btn btn-sm">Edit</a>
                             {{if not .IsSystem}}
-                            <form method="POST" action="/cm/templates/{{.ID.Hex}}/delete" onsubmit="return confirm('Delete this template?')">
+                            <form method="POST" action="/cm/templates/{{.ID.Hex}}/delete" onsubmit="return confirmDelete(this, 'Are you sure you want to delete this template?')">
                                 <button type="submit" class="btn btn-sm btn-danger">Delete</button>
                             </form>
                             {{end}}
@@ -305,7 +308,7 @@ var adminTemplates = map[string]string{
 
 	"content_list": adminLayoutStart + `
         <div class="page-header">
-            <h1>Content{{if .ShowDeleted}} <span style="color: var(--danger);">(Deleted)</span>{{end}}</h1>
+            <h1>Content</h1>
             <a href="/cm/content/new" class="btn btn-primary">New Content</a>
         </div>
 
@@ -321,11 +324,17 @@ var adminTemplates = map[string]string{
                 </select>
             </div>
             <div class="filter-group" style="display: flex; gap: 0.5rem; align-items: center;">
-                {{if .ShowDeleted}}
-                <a href="/cm/content" class="btn btn-sm btn-outline">← Show Active</a>
-                {{else}}
-                <a href="/cm/content?deleted=true" class="btn btn-sm btn-outline" style="border-color: var(--danger); color: var(--danger);">View Deleted</a>
-                {{end}}
+                <button type="button" onclick="openSearchModal()" class="btn btn-sm btn-outline" title="Search Content" style="display: flex; align-items: center; gap: 0.4rem;">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="11" cy="11" r="8"></circle>
+                        <path d="M21 21l-4.35-4.35"></path>
+                    </svg>
+                    Search
+                </button>
+            </div>
+            <div id="search-indicator" class="filter-group" style="display: none; gap: 0.5rem; align-items: center;">
+                <span id="search-query-display" style="font-size: 0.9rem; color: var(--primary);"></span>
+                <button type="button" onclick="clearSearch()" class="btn btn-sm btn-outline">Show All</button>
             </div>
         </div>
 
@@ -368,7 +377,7 @@ var adminTemplates = map[string]string{
                             <form method="POST" action="/cm/content/{{.ID.Hex}}/regenerate" style="display:inline">
                                 <button type="submit" class="btn btn-sm btn-secondary" title="Regenerate static file">↻</button>
                             </form>
-                            <form method="POST" action="/cm/content/{{.ID.Hex}}/delete" onsubmit="return confirm('Delete this content?')">
+                            <form method="POST" action="/cm/content/{{.ID.Hex}}/delete" onsubmit="return confirmDelete(this, 'Are you sure you want to delete this content?')">
                                 <button type="submit" class="btn btn-sm btn-danger">Delete</button>
                             </form>
                             {{end}}
@@ -378,6 +387,81 @@ var adminTemplates = map[string]string{
                 </tbody>
             </table>
         </div>
+        <!-- Search Modal -->
+        <div id="search-modal" class="modal-overlay" style="display: none;">
+            <div class="modal-content" style="max-width: 500px;">
+                <div class="modal-header">
+                    <h2 id="search-modal-title">Search Content</h2>
+                    <button type="button" onclick="closeSearchModal()" class="modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group" style="margin-bottom: 1rem;">
+                        <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Search Query</label>
+                        <input type="text" id="search-query" placeholder="Leave empty to show all..."
+                               style="width: 100%; padding: 0.75rem; background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); font-size: 1rem;"
+                               onkeydown="if(event.key==='Enter') { if(document.getElementById('enable-replace').checked) { previewReplace(); } else { performSearch(); } }">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 1rem;">
+                        <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Search In</label>
+                        <div style="display: flex; gap: 1rem;">
+                            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                                <input type="radio" name="search-type" value="name" checked style="accent-color: var(--primary);" onchange="updateSearchMode()">
+                                <span>Title only</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                                <input type="radio" name="search-type" value="fulltext" style="accent-color: var(--primary);" onchange="updateSearchMode()">
+                                <span>Full text</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="form-group" style="margin-bottom: 1rem;">
+                        <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                            <input type="checkbox" id="include-deleted" style="accent-color: var(--danger); width: 16px; height: 16px;">
+                            <span style="color: var(--danger);">Include deleted content</span>
+                        </label>
+                    </div>
+                    <div class="form-group" style="margin-bottom: 1rem; padding-top: 0.5rem; border-top: 1px solid var(--border);">
+                        <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                            <input type="checkbox" id="enable-replace" style="accent-color: var(--warning); width: 16px; height: 16px;" onchange="toggleReplaceMode()">
+                            <span style="color: var(--warning);">Search and Replace (full text only)</span>
+                        </label>
+                    </div>
+                    <div id="replace-field" class="form-group" style="margin-bottom: 1.5rem; display: none;">
+                        <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Replace With</label>
+                        <input type="text" id="replace-query" placeholder="Replacement text..."
+                               style="width: 100%; padding: 0.75rem; background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); font-size: 1rem;">
+                    </div>
+                    <button type="button" id="search-btn" onclick="performSearch()" class="btn btn-primary" style="width: 100%;">Search</button>
+                    <button type="button" id="preview-replace-btn" onclick="previewReplace()" class="btn btn-warning" style="width: 100%; display: none;">Preview Replacements</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Replace Preview Modal -->
+        <div id="replace-preview-modal" class="modal-overlay" style="display: none;">
+            <div class="modal-content" style="max-width: 900px;">
+                <div class="modal-header" style="background: rgba(234, 179, 8, 0.1); border-bottom-color: var(--warning);">
+                    <h2 style="color: var(--warning);">Search and Replace Preview</h2>
+                    <button type="button" onclick="closeReplacePreview()" class="modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="replace-warning" style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: var(--radius); padding: 1rem; margin-bottom: 1.5rem;">
+                        <strong style="color: var(--danger);">Warning:</strong> Site-wide replace can be destructive. Please carefully review all changes below before proceeding. Each affected page will have a version saved before changes are made.
+                    </div>
+                    <div id="replace-summary" style="margin-bottom: 1rem; padding: 0.75rem; background: var(--card-bg); border-radius: var(--radius);">
+                        <!-- Summary will be inserted here -->
+                    </div>
+                    <div id="replace-preview-list" style="max-height: 400px; overflow-y: auto; margin-bottom: 1.5rem;">
+                        <!-- Preview items will be inserted here -->
+                    </div>
+                    <div style="display: flex; gap: 1rem;">
+                        <button type="button" onclick="closeReplacePreview()" class="btn btn-outline" style="flex: 1;">Cancel</button>
+                        <button type="button" id="execute-replace-btn" onclick="executeReplace()" class="btn btn-danger" style="flex: 1;">Accept Replacements</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <style>
             code {
                 font-family: 'JetBrains Mono', monospace;
@@ -386,8 +470,108 @@ var adminTemplates = map[string]string{
                 border-radius: 4px;
                 font-size: 0.85rem;
             }
+            .modal-overlay {
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(0, 0, 0, 0.7);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                z-index: 1000;
+                backdrop-filter: blur(4px);
+            }
+            .modal-content {
+                background: var(--background);
+                border: 1px solid var(--border);
+                border-radius: var(--radius);
+                width: 90%;
+                max-height: 90vh;
+                overflow-y: auto;
+                box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            }
+            .modal-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                padding: 1rem 1.5rem;
+                border-bottom: 1px solid var(--border);
+            }
+            .modal-header h2 {
+                margin: 0;
+                font-size: 1.25rem;
+            }
+            .modal-close {
+                background: none;
+                border: none;
+                color: var(--muted);
+                font-size: 1.5rem;
+                cursor: pointer;
+                padding: 0;
+                line-height: 1;
+            }
+            .modal-close:hover {
+                color: var(--text);
+            }
+            .modal-body {
+                padding: 1.5rem;
+            }
+            .search-results-row {
+                opacity: 0;
+                animation: fadeIn 0.3s ease forwards;
+            }
+            @keyframes fadeIn {
+                to { opacity: 1; }
+            }
+            .btn-warning {
+                background: linear-gradient(135deg, #eab308, #ca8a04);
+                color: #000;
+            }
+            .btn-warning:hover {
+                box-shadow: 0 10px 20px -10px rgba(234, 179, 8, 0.5);
+            }
+            .replace-preview-item {
+                background: var(--card-bg);
+                border: 1px solid var(--border);
+                border-radius: var(--radius);
+                padding: 1rem;
+                margin-bottom: 0.75rem;
+            }
+            .replace-preview-item h4 {
+                margin: 0 0 0.5rem 0;
+                font-size: 1rem;
+            }
+            .replace-preview-item .path {
+                font-size: 0.85rem;
+                color: var(--muted);
+                margin-bottom: 0.75rem;
+            }
+            .replace-excerpt {
+                font-family: 'JetBrains Mono', monospace;
+                font-size: 0.85rem;
+                background: rgba(15, 23, 42, 0.5);
+                padding: 0.75rem;
+                border-radius: 4px;
+                overflow-x: auto;
+                white-space: pre-wrap;
+                word-break: break-word;
+            }
+            .replace-old {
+                background: rgba(239, 68, 68, 0.2);
+                color: #fca5a5;
+                text-decoration: line-through;
+            }
+            .replace-new {
+                background: rgba(34, 197, 94, 0.2);
+                color: #86efac;
+            }
         </style>
         <script>
+            var originalTableBody = null;
+            var isSearchActive = false;
+
             function applyFilters() {
                 var folder = document.getElementById('folder-filter').value;
                 var params = new URLSearchParams(window.location.search);
@@ -398,6 +582,289 @@ var adminTemplates = map[string]string{
                 }
                 window.location.search = params.toString();
             }
+
+            function openSearchModal() {
+                document.getElementById('search-modal').style.display = 'flex';
+                document.getElementById('search-query').focus();
+            }
+
+            function closeSearchModal() {
+                document.getElementById('search-modal').style.display = 'none';
+            }
+
+            function performSearch() {
+                var query = document.getElementById('search-query').value.trim();
+                var searchType = document.querySelector('input[name="search-type"]:checked').value;
+                var includeDeleted = document.getElementById('include-deleted').checked;
+
+                // Store original table body if not already stored
+                if (!originalTableBody) {
+                    originalTableBody = document.querySelector('tbody').innerHTML;
+                }
+
+                // Show loading state
+                var tbody = document.querySelector('tbody');
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 2rem; color: var(--muted);">Searching...</td></tr>';
+
+                var url = '/api/content/search?type=' + searchType;
+                if (query) {
+                    url += '&q=' + encodeURIComponent(query);
+                }
+                if (includeDeleted) {
+                    url += '&deleted=true';
+                }
+
+                fetch(url)
+                    .then(function(response) { return response.json(); })
+                    .then(function(results) {
+                        closeSearchModal();
+                        displaySearchResults(results, query, includeDeleted);
+                    })
+                    .catch(function(err) {
+                        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 2rem; color: var(--danger);">Search failed: ' + err.message + '</td></tr>';
+                    });
+            }
+
+            function displaySearchResults(results, query, includeDeleted) {
+                var tbody = document.querySelector('tbody');
+                isSearchActive = true;
+
+                // Show search indicator with appropriate message
+                document.getElementById('search-indicator').style.display = 'flex';
+                var indicatorText = '';
+                if (query) {
+                    indicatorText = 'Search: <strong>' + escapeHtml(query) + '</strong>';
+                } else {
+                    indicatorText = '<strong>All content</strong>';
+                }
+                if (includeDeleted) {
+                    indicatorText += ' <span style="color: var(--danger);">(including deleted)</span>';
+                }
+                document.getElementById('search-query-display').innerHTML = indicatorText;
+
+                if (results.length === 0) {
+                    var msg = query ? 'No results found for "' + escapeHtml(query) + '"' : 'No content found';
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 2rem; color: var(--muted);">' + msg + '</td></tr>';
+                    return;
+                }
+
+                var html = '';
+                results.forEach(function(item, index) {
+                    var rowStyle = item.deleted ? ' style="opacity: 0.7; animation-delay: ' + (index * 0.05) + 's;"' : ' style="animation-delay: ' + (index * 0.05) + 's;"';
+                    html += '<tr class="search-results-row"' + rowStyle + '>';
+                    html += '<td><strong>' + escapeHtml(item.title) + '</strong></td>';
+                    html += '<td>' + escapeHtml(item.template_name) + '</td>';
+                    html += '<td><code>' + (item.deleted ? '(deleted)' : escapeHtml(item.full_path)) + '</code></td>';
+
+                    if (item.deleted) {
+                        html += '<td><span class="status-badge" style="background: var(--danger);">Deleted</span></td>';
+                    } else {
+                        var statusClass = item.published ? 'published' : 'draft';
+                        var statusText = item.published ? 'Published' : 'Draft';
+                        html += '<td><span class="status-badge ' + statusClass + '">' + statusText + '</span></td>';
+                    }
+
+                    html += '<td>' + escapeHtml(item.updated_at) + '</td>';
+                    html += '<td class="actions">';
+                    if (item.deleted) {
+                        html += '<a href="/cm/content/' + item.id + '/versions/latest/view" target="_blank" class="btn btn-sm btn-outline">View</a>';
+                        html += '<a href="/cm/content/' + item.id + '" class="btn btn-sm">Edit</a>';
+                        html += '<form method="POST" action="/cm/content/' + item.id + '/undelete" style="display:inline">';
+                        html += '<button type="submit" class="btn btn-sm btn-primary">Restore</button>';
+                        html += '</form>';
+                    } else {
+                        html += '<a href="' + item.full_path + '" target="_blank" class="btn btn-sm btn-outline">View</a>';
+                        html += '<a href="/cm/content/' + item.id + '" class="btn btn-sm">Edit</a>';
+                    }
+                    html += '</td>';
+                    html += '</tr>';
+                });
+                tbody.innerHTML = html;
+            }
+
+            function clearSearch() {
+                if (originalTableBody) {
+                    document.querySelector('tbody').innerHTML = originalTableBody;
+                }
+                document.getElementById('search-indicator').style.display = 'none';
+                document.getElementById('search-query').value = '';
+                document.getElementById('include-deleted').checked = false;
+                isSearchActive = false;
+            }
+
+            function escapeHtml(text) {
+                var div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
+            }
+
+            // Search and Replace functions
+            var replacePreviewData = null;
+
+            function toggleReplaceMode() {
+                var enabled = document.getElementById('enable-replace').checked;
+                var replaceField = document.getElementById('replace-field');
+                var searchBtn = document.getElementById('search-btn');
+                var previewBtn = document.getElementById('preview-replace-btn');
+                var titleEl = document.getElementById('search-modal-title');
+
+                if (enabled) {
+                    replaceField.style.display = 'block';
+                    searchBtn.style.display = 'none';
+                    previewBtn.style.display = 'block';
+                    titleEl.textContent = 'Search and Replace';
+                    // Force full text mode
+                    document.querySelector('input[name="search-type"][value="fulltext"]').checked = true;
+                    document.getElementById('include-deleted').checked = false;
+                    document.getElementById('include-deleted').disabled = true;
+                } else {
+                    replaceField.style.display = 'none';
+                    searchBtn.style.display = 'block';
+                    previewBtn.style.display = 'none';
+                    titleEl.textContent = 'Search Content';
+                    document.getElementById('include-deleted').disabled = false;
+                }
+            }
+
+            function updateSearchMode() {
+                var searchType = document.querySelector('input[name="search-type"]:checked').value;
+                if (searchType !== 'fulltext' && document.getElementById('enable-replace').checked) {
+                    document.getElementById('enable-replace').checked = false;
+                    toggleReplaceMode();
+                }
+            }
+
+            function previewReplace() {
+                var searchQuery = document.getElementById('search-query').value.trim();
+                var replaceQuery = document.getElementById('replace-query').value;
+
+                if (!searchQuery) {
+                    alert('Please enter a search query for replace.');
+                    return;
+                }
+
+                // Show loading in preview modal
+                document.getElementById('replace-preview-modal').style.display = 'flex';
+                document.getElementById('replace-preview-list').innerHTML = '<div style="text-align: center; padding: 2rem; color: var(--muted);">Loading preview...</div>';
+                document.getElementById('replace-summary').innerHTML = '';
+                document.getElementById('execute-replace-btn').disabled = true;
+
+                fetch('/api/content/replace-preview?search=' + encodeURIComponent(searchQuery) + '&replace=' + encodeURIComponent(replaceQuery))
+                    .then(function(response) { return response.json(); })
+                    .then(function(data) {
+                        replacePreviewData = data;
+                        displayReplacePreview(data, searchQuery, replaceQuery);
+                    })
+                    .catch(function(err) {
+                        document.getElementById('replace-preview-list').innerHTML = '<div style="text-align: center; padding: 2rem; color: var(--danger);">Failed to load preview: ' + escapeHtml(err.message) + '</div>';
+                    });
+            }
+
+            function displayReplacePreview(data, searchQuery, replaceQuery) {
+                var listEl = document.getElementById('replace-preview-list');
+                var summaryEl = document.getElementById('replace-summary');
+                var executeBtn = document.getElementById('execute-replace-btn');
+
+                if (!data.matches || data.matches.length === 0) {
+                    summaryEl.innerHTML = '<span style="color: var(--muted);">No matches found for "' + escapeHtml(searchQuery) + '"</span>';
+                    listEl.innerHTML = '';
+                    executeBtn.disabled = true;
+                    return;
+                }
+
+                var totalMatches = 0;
+                data.matches.forEach(function(m) { totalMatches += m.match_count; });
+
+                summaryEl.innerHTML = 'Found <strong>' + totalMatches + '</strong> occurrence(s) across <strong>' + data.matches.length + '</strong> page(s). Replacing "<code>' + escapeHtml(searchQuery) + '</code>" with "<code>' + escapeHtml(replaceQuery) + '</code>"';
+
+                var html = '';
+                data.matches.forEach(function(item) {
+                    html += '<div class="replace-preview-item">';
+                    html += '<h4>' + escapeHtml(item.title) + '</h4>';
+                    html += '<div class="path"><code>' + escapeHtml(item.full_path) + '</code> &middot; ' + item.match_count + ' occurrence(s)</div>';
+
+                    item.excerpts.forEach(function(excerpt) {
+                        html += '<div class="replace-excerpt">' + excerpt + '</div>';
+                    });
+
+                    html += '</div>';
+                });
+
+                listEl.innerHTML = html;
+                executeBtn.disabled = false;
+            }
+
+            function closeReplacePreview() {
+                document.getElementById('replace-preview-modal').style.display = 'none';
+                replacePreviewData = null;
+            }
+
+            function executeReplace() {
+                if (!replacePreviewData || !replacePreviewData.matches || replacePreviewData.matches.length === 0) {
+                    return;
+                }
+
+                var searchQuery = document.getElementById('search-query').value.trim();
+                var replaceQuery = document.getElementById('replace-query').value;
+                var count = replacePreviewData.matches.length;
+
+                showConfirm('Are you sure you want to replace text in ' + count + ' page(s)?<br><br>This action will save a version of each page before making changes.', 'Confirm Replace').then(function(confirmed) {
+                    if (!confirmed) return;
+
+                    var executeBtn = document.getElementById('execute-replace-btn');
+                    executeBtn.disabled = true;
+                    executeBtn.textContent = 'Replacing...';
+
+                    fetch('/api/content/replace-execute', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            search: searchQuery,
+                            replace: replaceQuery
+                        })
+                    })
+                    .then(function(response) { return response.json(); })
+                    .then(function(data) {
+                        if (data.error) {
+                            showAlert('Error: ' + data.error, 'Replace Failed');
+                            executeBtn.disabled = false;
+                            executeBtn.textContent = 'Accept Replacements';
+                        } else {
+                            closeReplacePreview();
+                            closeSearchModal();
+                            showAlert('Successfully updated ' + data.updated_count + ' page(s).', 'Replace Complete', function() {
+                                // Reload the page to see changes
+                                window.location.reload();
+                            });
+                        }
+                    })
+                    .catch(function(err) {
+                        showAlert('Failed to execute replace: ' + err.message, 'Replace Failed');
+                        executeBtn.disabled = false;
+                        executeBtn.textContent = 'Accept Replacements';
+                    });
+                });
+            }
+
+            // Close modal on escape key
+            document.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape') {
+                    closeSearchModal();
+                    closeReplacePreview();
+                }
+            });
+
+            // Close modal on overlay click
+            document.getElementById('search-modal').addEventListener('click', function(e) {
+                if (e.target === this) {
+                    closeSearchModal();
+                }
+            });
+            document.getElementById('replace-preview-modal').addEventListener('click', function(e) {
+                if (e.target === this) {
+                    closeReplacePreview();
+                }
+            });
         </script>
     ` + adminLayoutEnd,
 
@@ -519,7 +986,7 @@ var adminTemplates = map[string]string{
         <div class="form-actions" style="margin-top: 2rem;">
             <a href="/cm/content/{{.Current.ID.Hex}}" class="btn btn-outline">Back to Editor</a>
             <a href="/cm/content/{{.Current.ID.Hex}}/versions/{{.Version.Version}}/view" target="_blank" class="btn btn-secondary">Preview Version {{.Version.Version}}</a>
-            <form method="POST" action="/cm/content/{{.Current.ID.Hex}}/versions/{{.Version.Version}}/revert" style="display:inline" onsubmit="return confirm('Revert to version {{.Version.Version}}? A new version will be saved with the reverted content.')">
+            <form method="POST" action="/cm/content/{{.Current.ID.Hex}}/versions/{{.Version.Version}}/revert" style="display:inline" onsubmit="return confirmRevert(this, {{.Version.Version}})">
                 <button type="submit" class="btn btn-primary">Revert to Version {{.Version.Version}}</button>
             </form>
         </div>
@@ -607,6 +1074,20 @@ var adminTemplates = map[string]string{
         {{if .Error}}<div class="error-message">{{.Error}}</div>{{end}}
         <form method="POST" action="{{if .IsNew}}/cm/content/create{{else}}/cm/content/{{.Content.ID.Hex}}{{end}}" enctype="multipart/form-data" class="form-card">
             <input type="hidden" name="template_id" value="{{.Template.ID.Hex}}">
+            <input type="hidden" name="create_redirect" id="create_redirect" value="">
+            <input type="hidden" name="slug_rename_enabled" id="slug_rename_enabled" value="">
+
+            {{if not .IsNew}}
+            <div class="form-group" style="background: var(--bg-tertiary); padding: 1rem; border-radius: var(--radius); margin-bottom: 1.5rem;">
+                <div style="display: flex; align-items: center; justify-content: space-between;">
+                    <div>
+                        <label style="margin-bottom: 0.25rem; display: block;">Template</label>
+                        <span style="font-size: 1.1rem; font-weight: 500;">{{.Template.Name}}</span>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-outline" onclick="showChangeTemplateModal()">Change Template</button>
+                </div>
+            </div>
+            {{end}}
 
             <div class="form-group">
                 <label for="title">Title</label>
@@ -614,7 +1095,17 @@ var adminTemplates = map[string]string{
             </div>
             <div class="form-group">
                 <label for="slug">Slug (URL path)</label>
-                <input type="text" id="slug" name="slug" value="{{if .Content}}{{.Content.Slug}}{{end}}" placeholder="auto-generated from title">
+                <div class="slug-input-wrapper" style="display: flex; gap: 0.5rem; align-items: center;">
+                    {{if .IsNew}}
+                    <input type="text" id="slug" name="slug" value="" placeholder="auto-generated from title" style="flex: 1;">
+                    {{else}}
+                    <input type="text" id="slug" name="slug" value="{{.Content.Slug}}" readonly style="flex: 1; background: var(--bg-tertiary);">
+                    <button type="button" id="rename-slug-btn" class="btn btn-sm btn-outline" onclick="enableSlugRename()">Rename</button>
+                    <button type="button" id="cancel-rename-btn" class="btn btn-sm btn-outline" onclick="cancelSlugRename()" style="display: none;">Cancel</button>
+                    {{end}}
+                </div>
+                <p class="help-text slug-error" id="slug-error" style="color: var(--error); display: none;"></p>
+                {{if not .IsNew}}<p class="help-text">Leave empty for root page (/). Click Rename to change the slug.</p>{{end}}
             </div>
             <div class="form-group">
                 <label for="folder_id">Folder</label>
@@ -728,6 +1219,55 @@ var adminTemplates = map[string]string{
             </div>
         </form>
 
+        <!-- Redirect confirmation modal -->
+        <div id="redirect-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.7); z-index: 10000; align-items: center; justify-content: center;">
+            <div style="background: #1e293b; border-radius: var(--radius); max-width: 500px; width: 90%; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8); border: 1px solid rgba(99, 102, 241, 0.3);">
+                <div style="padding: 1.5rem; border-bottom: 1px solid rgba(99, 102, 241, 0.2); background: #1a2332;">
+                    <h3 style="margin: 0; color: var(--text);">Create Redirect?</h3>
+                </div>
+                <div style="padding: 1.5rem; background: #1e293b;">
+                    <p style="margin: 0 0 0.5rem 0;">You are changing the URL from:</p>
+                    <p style="margin: 0 0 1rem 0;"><code id="redirect-old-path" style="background: #0f172a; padding: 0.25rem 0.5rem; border-radius: 4px; color: var(--accent);"></code></p>
+                    <p style="margin: 0 0 0.5rem 0;">to:</p>
+                    <p style="margin: 0 0 1rem 0;"><code id="redirect-new-path" style="background: #0f172a; padding: 0.25rem 0.5rem; border-radius: 4px; color: var(--accent);"></code></p>
+                    <p style="margin: 0; color: var(--muted); font-size: 0.9rem;">Creating a redirect will preserve any existing links or bookmarks to the old URL.</p>
+                </div>
+                <div style="padding: 1rem 1.5rem; border-top: 1px solid rgba(99, 102, 241, 0.2); display: flex; gap: 0.75rem; justify-content: flex-end; background: #1a2332;">
+                    <button type="button" class="btn btn-outline" id="redirect-no-btn">Rename without Redirect</button>
+                    <button type="button" class="btn btn-primary" id="redirect-yes-btn">Yes, Redirect</button>
+                </div>
+            </div>
+        </div>
+
+        {{if not .IsNew}}
+        <!-- Change template modal -->
+        <div id="change-template-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.7); z-index: 10000; align-items: center; justify-content: center;">
+            <div style="background: #1e293b; border-radius: var(--radius); max-width: 500px; width: 90%; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8); border: 1px solid rgba(245, 158, 11, 0.3);">
+                <div style="padding: 1.5rem; border-bottom: 1px solid rgba(245, 158, 11, 0.2); background: #1a2332;">
+                    <h3 style="margin: 0; color: var(--warning);">Change Template</h3>
+                </div>
+                <div style="padding: 1.5rem; background: #1e293b;">
+                    <p style="margin: 0 0 1rem 0; color: var(--warning);">Changing templates may not preserve all field data.</p>
+                    <p style="margin: 0 0 1.5rem 0; color: var(--muted);">Fields with matching names will be carried over. Fields that don't exist in the new template will be lost. You'll see a preview of the changes before confirming.</p>
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <label for="new-template-select" style="margin-bottom: 0.5rem; display: block;">Select New Template</label>
+                        <select id="new-template-select" style="width: 100%; padding: 0.75rem; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text);">
+                            {{range .AllTemplates}}
+                            {{if ne .ID.Hex $.Template.ID.Hex}}
+                            <option value="{{.ID.Hex}}">{{.Name}}</option>
+                            {{end}}
+                            {{end}}
+                        </select>
+                    </div>
+                </div>
+                <div style="padding: 1rem 1.5rem; border-top: 1px solid rgba(245, 158, 11, 0.2); display: flex; gap: 0.75rem; justify-content: flex-end; background: #1a2332;">
+                    <button type="button" class="btn btn-outline" onclick="closeChangeTemplateModal()">Cancel</button>
+                    <button type="button" class="btn" style="background: var(--warning); color: white;" onclick="proceedToTemplatePreview()">Proceed</button>
+                </div>
+            </div>
+        </div>
+        {{end}}
+
         {{if not .IsNew}}
         {{if .Content.Deleted}}
         <div class="form-section" style="margin-top: 2rem; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: var(--radius); padding: 1.5rem;">
@@ -762,7 +1302,7 @@ var adminTemplates = map[string]string{
                             <td class="actions">
                                 <a href="/cm/content/{{.ContentID.Hex}}/versions/{{.Version}}/diff" class="btn btn-sm btn-outline">Diff</a>
                                 <a href="/cm/content/{{.ContentID.Hex}}/versions/{{.Version}}/view" target="_blank" class="btn btn-sm btn-outline">Preview</a>
-                                <form method="POST" action="/cm/content/{{.ContentID.Hex}}/versions/{{.Version}}/revert" style="display:inline" onsubmit="return confirm('Revert to version {{.Version}}? A new version will be saved with the reverted content.')">
+                                <form method="POST" action="/cm/content/{{.ContentID.Hex}}/versions/{{.Version}}/revert" style="display:inline" onsubmit="return confirmRevert(this, {{.Version}})">
                                     <button type="submit" class="btn btn-sm btn-secondary">Revert</button>
                                 </form>
                             </td>
@@ -1717,6 +2257,11 @@ var adminTemplates = map[string]string{
             }
         }
 
+        // Track original slug for comparison
+        var originalSlug = document.getElementById('slug') ? document.getElementById('slug').value : '';
+        var isNewContent = document.getElementById('slug') && !document.getElementById('slug').readOnly;
+        var slugRenameEnabled = false;
+
         // Update URL path preview when folder or slug changes
         function updatePathPreview() {
             var folderSelect = document.getElementById('folder_id');
@@ -1729,8 +2274,8 @@ var adminTemplates = map[string]string{
             var folderPath = (folder && folder.value !== 'root') ? folder.text.split(' ')[0] : '';
             var slug = slugInput ? slugInput.value : '';
 
-            // If no slug, generate from title
-            if (!slug && titleInput && titleInput.value) {
+            // Only auto-generate slug from title for NEW content when slug is empty
+            if (isNewContent && !slug && titleInput && titleInput.value) {
                 slug = titleInput.value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
             }
 
@@ -1740,20 +2285,290 @@ var adminTemplates = map[string]string{
             preview.textContent = fullPath;
         }
 
+        // Enable slug renaming for existing content
+        function enableSlugRename() {
+            var slugInput = document.getElementById('slug');
+            var renameBtn = document.getElementById('rename-slug-btn');
+            var cancelBtn = document.getElementById('cancel-rename-btn');
+            var renameEnabledField = document.getElementById('slug_rename_enabled');
+
+            if (slugInput && renameBtn && cancelBtn) {
+                slugInput.readOnly = false;
+                slugInput.style.background = '';
+                renameBtn.style.display = 'none';
+                cancelBtn.style.display = '';
+                slugRenameEnabled = true;
+                if (renameEnabledField) renameEnabledField.value = 'yes';
+                slugInput.focus();
+            }
+        }
+
+        // Cancel slug rename and restore original value
+        function cancelSlugRename() {
+            var slugInput = document.getElementById('slug');
+            var renameBtn = document.getElementById('rename-slug-btn');
+            var cancelBtn = document.getElementById('cancel-rename-btn');
+            var errorEl = document.getElementById('slug-error');
+            var renameEnabledField = document.getElementById('slug_rename_enabled');
+
+            if (slugInput && renameBtn && cancelBtn) {
+                slugInput.value = originalSlug;
+                slugInput.readOnly = true;
+                slugInput.style.background = 'var(--bg-tertiary)';
+                renameBtn.style.display = '';
+                cancelBtn.style.display = 'none';
+                slugRenameEnabled = false;
+                if (renameEnabledField) renameEnabledField.value = '';
+                if (errorEl) errorEl.style.display = 'none';
+                updatePathPreview();
+            }
+        }
+
+        // Check for duplicate slug before form submission
+        async function validateSlug() {
+            var slugInput = document.getElementById('slug');
+            var errorEl = document.getElementById('slug-error');
+            var folderSelect = document.getElementById('folder_id');
+
+            if (!slugInput || !errorEl) return true;
+
+            var slug = slugInput.value.trim();
+            var folderPath = '';
+            if (folderSelect && folderSelect.value !== 'root') {
+                var selectedOption = folderSelect.options[folderSelect.selectedIndex];
+                folderPath = selectedOption.text.split(' ')[0];
+            }
+
+            var fullPath = folderPath ? folderPath + '/' + slug : '/' + slug;
+            if (!slug) fullPath = folderPath || '/';
+
+            // Skip validation if slug hasn't changed
+            var currentFullPath = '{{if .Content}}{{.Content.FullPath}}{{end}}';
+            if (!currentFullPath) currentFullPath = originalSlug ? '/' + originalSlug : '/';
+            if (fullPath === currentFullPath) return true;
+
+            try {
+                var response = await fetch('/api/content/check-slug?path=' + encodeURIComponent(fullPath));
+                var data = await response.json();
+
+                if (data.exists) {
+                    errorEl.textContent = 'A page already exists at "' + fullPath + '". Please choose a different slug.';
+                    errorEl.style.display = 'block';
+                    slugInput.focus();
+                    return false;
+                }
+                errorEl.style.display = 'none';
+                return true;
+            } catch (e) {
+                console.error('Error checking slug:', e);
+                return true; // Allow submission, server will validate
+            }
+        }
+
         // Set up event listeners for path preview
         document.addEventListener('DOMContentLoaded', function() {
             var folderSelect = document.getElementById('folder_id');
             var slugInput = document.getElementById('slug');
             var titleInput = document.getElementById('title');
+            var form = document.querySelector('form.form-card');
 
             if (folderSelect) folderSelect.addEventListener('change', updatePathPreview);
             if (slugInput) slugInput.addEventListener('input', updatePathPreview);
-            if (titleInput) titleInput.addEventListener('input', updatePathPreview);
+
+            // Only auto-update slug from title for new content
+            if (isNewContent && titleInput) {
+                titleInput.addEventListener('input', updatePathPreview);
+            }
+
+            // Show redirect confirmation modal and return a promise
+            function showRedirectModal(oldPath, newPath) {
+                return new Promise(function(resolve) {
+                    var modal = document.getElementById('redirect-modal');
+                    var oldPathEl = document.getElementById('redirect-old-path');
+                    var newPathEl = document.getElementById('redirect-new-path');
+                    var yesBtn = document.getElementById('redirect-yes-btn');
+                    var noBtn = document.getElementById('redirect-no-btn');
+
+                    oldPathEl.textContent = oldPath;
+                    newPathEl.textContent = newPath;
+                    modal.style.display = 'flex';
+
+                    function cleanup() {
+                        modal.style.display = 'none';
+                        yesBtn.removeEventListener('click', onYes);
+                        noBtn.removeEventListener('click', onNo);
+                    }
+
+                    function onYes() {
+                        cleanup();
+                        resolve(true);
+                    }
+
+                    function onNo() {
+                        cleanup();
+                        resolve(false);
+                    }
+
+                    yesBtn.addEventListener('click', onYes);
+                    noBtn.addEventListener('click', onNo);
+                });
+            }
+
+            // Validate slug on form submit and prompt for redirect if slug changed
+            if (form) {
+                form.addEventListener('submit', async function(e) {
+                    e.preventDefault();
+                    if (await validateSlug()) {
+                        // Check if slug has changed (for existing content only)
+                        if (!isNewContent && slugRenameEnabled) {
+                            var slugInput = document.getElementById('slug');
+                            var folderSelect = document.getElementById('folder_id');
+                            var newSlug = slugInput ? slugInput.value.trim() : '';
+
+                            var folderPath = '';
+                            if (folderSelect && folderSelect.value !== 'root') {
+                                var selectedOption = folderSelect.options[folderSelect.selectedIndex];
+                                folderPath = selectedOption.text.split(' ')[0];
+                            }
+
+                            var newFullPath = folderPath ? folderPath + '/' + newSlug : '/' + newSlug;
+                            if (!newSlug) newFullPath = folderPath || '/';
+
+                            var oldFullPath = '{{if .Content}}{{.Content.FullPath}}{{end}}';
+                            if (!oldFullPath) oldFullPath = originalSlug ? '/' + originalSlug : '/';
+
+                            // If path actually changed, show redirect modal
+                            if (newFullPath !== oldFullPath) {
+                                var createRedirect = await showRedirectModal(oldFullPath, newFullPath);
+                                document.getElementById('create_redirect').value = createRedirect ? 'yes' : 'no';
+                            }
+                        }
+                        form.submit();
+                    }
+                });
+            }
 
             // Initial preview
             updatePathPreview();
         });
+
+        // Change template modal functions
+        function showChangeTemplateModal() {
+            var modal = document.getElementById('change-template-modal');
+            if (modal) {
+                modal.style.display = 'flex';
+            }
+        }
+
+        function closeChangeTemplateModal() {
+            var modal = document.getElementById('change-template-modal');
+            if (modal) {
+                modal.style.display = 'none';
+            }
+        }
+
+        function proceedToTemplatePreview() {
+            var select = document.getElementById('new-template-select');
+            if (select && select.value) {
+                var contentId = '{{if .Content}}{{.Content.ID.Hex}}{{end}}';
+                window.location.href = '/cm/content/' + contentId + '/change-template/' + select.value;
+            }
+        }
         </script>
+    ` + adminLayoutEnd,
+
+	"change_template_preview": adminLayoutStart + `
+        <div class="page-header">
+            <h1>Change Template Preview</h1>
+        </div>
+        <div class="form-card">
+            <div style="margin-bottom: 1.5rem; padding: 1rem; background: var(--bg-tertiary); border-radius: var(--radius);">
+                <p style="margin: 0;">
+                    <strong>Content:</strong> {{.Content.Title}}<br>
+                    <strong>From:</strong> {{.OldTemplate.Name}} → <strong>To:</strong> {{.NewTemplate.Name}}
+                </p>
+            </div>
+
+            <h3 style="margin-bottom: 1rem; color: var(--text);">Field Mapping</h3>
+
+            {{if .MappedFields}}
+            <div style="margin-bottom: 1.5rem;">
+                <h4 style="color: var(--success); margin-bottom: 0.75rem;">Fields that will be preserved:</h4>
+                <table style="width: 100%;">
+                    <thead>
+                        <tr>
+                            <th style="text-align: left; padding: 0.5rem; border-bottom: 1px solid var(--border);">Field Name</th>
+                            <th style="text-align: left; padding: 0.5rem; border-bottom: 1px solid var(--border);">Current Value</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range .MappedFields}}
+                        <tr>
+                            <td style="padding: 0.5rem; border-bottom: 1px solid var(--border);">
+                                <code>{{.Name}}</code>
+                                {{if ne .OldType .NewType}}
+                                <span style="color: var(--warning); font-size: 0.85rem;">(type: {{.OldType}} → {{.NewType}})</span>
+                                {{end}}
+                            </td>
+                            <td style="padding: 0.5rem; border-bottom: 1px solid var(--border); max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                {{if .Value}}{{.Value}}{{else}}<span style="color: var(--muted);">(empty)</span>{{end}}
+                            </td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+            {{end}}
+
+            {{if .LostFields}}
+            <div style="margin-bottom: 1.5rem; padding: 1rem; background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: var(--radius);">
+                <h4 style="color: var(--danger); margin-bottom: 0.75rem;">Fields that will be LOST:</h4>
+                <p style="color: var(--muted); margin-bottom: 0.75rem;">These fields exist in the current template but not in the new template. Their data will be permanently lost.</p>
+                <table style="width: 100%;">
+                    <thead>
+                        <tr>
+                            <th style="text-align: left; padding: 0.5rem; border-bottom: 1px solid rgba(239, 68, 68, 0.3);">Field Name</th>
+                            <th style="text-align: left; padding: 0.5rem; border-bottom: 1px solid rgba(239, 68, 68, 0.3);">Current Value (will be lost)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range .LostFields}}
+                        <tr>
+                            <td style="padding: 0.5rem; border-bottom: 1px solid rgba(239, 68, 68, 0.2);"><code>{{.Name}}</code></td>
+                            <td style="padding: 0.5rem; border-bottom: 1px solid rgba(239, 68, 68, 0.2); max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--danger);">
+                                {{if .Value}}{{.Value}}{{else}}<span style="color: var(--muted);">(empty)</span>{{end}}
+                            </td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+            {{end}}
+
+            {{if .NewFields}}
+            <div style="margin-bottom: 1.5rem;">
+                <h4 style="color: var(--primary); margin-bottom: 0.75rem;">New fields (will start empty):</h4>
+                <ul style="margin: 0; padding-left: 1.5rem;">
+                    {{range .NewFields}}
+                    <li><code>{{.Name}}</code> ({{.Type}})</li>
+                    {{end}}
+                </ul>
+            </div>
+            {{end}}
+
+            <div style="padding: 1rem; background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: var(--radius); margin-bottom: 1.5rem;">
+                <p style="margin: 0; color: var(--warning);">
+                    <strong>Note:</strong> This action will save a new version of the content with the template change. You can revert to a previous version if needed.
+                </p>
+            </div>
+
+            <div class="form-actions">
+                <a href="/cm/content/{{.Content.ID.Hex}}" class="btn btn-outline">Cancel</a>
+                <form method="POST" action="/cm/content/{{.Content.ID.Hex}}/change-template/{{.NewTemplate.ID.Hex}}/confirm" style="display: inline;">
+                    <button type="submit" class="btn" style="background: var(--warning); color: white;">Confirm Template Change</button>
+                </form>
+            </div>
+        </div>
     ` + adminLayoutEnd,
 
 	"collections_list": adminLayoutStart + `
@@ -1780,7 +2595,7 @@ var adminTemplates = map[string]string{
                         <td class="actions">
                             <a href="/{{.Slug}}" target="_blank" class="btn btn-sm btn-outline">View</a>
                             <a href="/cm/collections/{{.ID.Hex}}" class="btn btn-sm">Edit</a>
-                            <form method="POST" action="/cm/collections/{{.ID.Hex}}/delete" onsubmit="return confirm('Delete this collection?')">
+                            <form method="POST" action="/cm/collections/{{.ID.Hex}}/delete" onsubmit="return confirmDelete(this, 'Are you sure you want to delete this collection?')">
                                 <button type="submit" class="btn btn-sm btn-danger">Delete</button>
                             </form>
                         </td>
@@ -1916,14 +2731,25 @@ var adminTemplates = map[string]string{
                 </div>
             </div>
 
-            <div class="form-group">
-                <label for="custom_css">Custom CSS</label>
-                <textarea id="custom_css" name="custom_css" rows="10" class="code-editor">{{.Settings.CustomCSS}}</textarea>
+            <div class="form-section">
+                <h3>Custom CSS</h3>
+                <p class="help-text">Injected into the &lt;style&gt; tag in the page &lt;head&gt;, after the theme CSS variables.</p>
+                <div class="form-group">
+                    <textarea id="custom_css" name="custom_css" rows="10" class="code-editor">{{.Settings.CustomCSS}}</textarea>
+                </div>
+            </div>
+
+            <div class="form-section">
+                <h3>Head HTML</h3>
+                <p class="help-text">Injected immediately after the opening &lt;head&gt; tag on every page (for analytics, scripts, meta tags, etc.).</p>
+                <div class="form-group">
+                    <textarea id="head_html" name="head_html" rows="8" class="code-editor" placeholder="<!-- Google Analytics, meta tags, external scripts, etc. -->">{{.Settings.HeadHTML}}</textarea>
+                </div>
             </div>
 
             <div class="form-section">
                 <h3>Site Header</h3>
-                <p class="help-text">HTML content displayed at the top of every page (that has header enabled). Use navigation links, logo, etc. Internal links will be automatically updated if page slugs change.</p>
+                <p class="help-text">Injected at the start of the &lt;body&gt; on pages with header enabled (navigation, logo, etc.).</p>
                 <div class="form-group">
                     <textarea id="header_html" name="header_html" rows="12" class="code-editor">{{.Settings.HeaderHTML}}</textarea>
                 </div>
@@ -1931,7 +2757,7 @@ var adminTemplates = map[string]string{
 
             <div class="form-section">
                 <h3>Site Footer</h3>
-                <p class="help-text">HTML content displayed at the bottom of every page (that has footer enabled). Internal links will be automatically updated if page slugs change.</p>
+                <p class="help-text">Injected at the end of the &lt;body&gt; on pages with footer enabled (copyright, links, etc.).</p>
                 <div class="form-group">
                     <textarea id="footer_html" name="footer_html" rows="15" class="code-editor">{{.Settings.FooterHTML}}</textarea>
                 </div>
@@ -2392,7 +3218,7 @@ var adminTemplates = map[string]string{
                         <td><code>{{.Folder.Path}}</code></td>
                         <td class="actions">
                             <a href="/cm/folders/{{.Folder.ID.Hex}}" class="btn btn-sm">Edit</a>
-                            <form method="POST" action="/cm/folders/{{.Folder.ID.Hex}}/delete" onsubmit="return confirm('Delete this folder? Make sure it has no content or subfolders.')">
+                            <form method="POST" action="/cm/folders/{{.Folder.ID.Hex}}/delete" onsubmit="return confirmDelete(this, 'Are you sure you want to delete this folder?<br><br><span style=\"color: var(--text-muted); font-size: 0.9rem;\">Make sure it has no content or subfolders.</span>')">
                                 <button type="submit" class="btn btn-sm btn-danger">Delete</button>
                             </form>
                         </td>
@@ -2582,8 +3408,8 @@ var adminTemplates = map[string]string{
             <h1>Redirects</h1>
             <a href="/cm/redirects/new" class="btn btn-primary">New Redirect</a>
         </div>
-        <div class="table-card">
-            <table class="data-table">
+        <div class="table-container">
+            <table>
                 <thead>
                     <tr>
                         <th>From</th>
@@ -2602,7 +3428,7 @@ var adminTemplates = map[string]string{
                         <td>{{.Description}}</td>
                         <td class="actions">
                             <a href="/cm/redirects/{{.ID.Hex}}" class="btn btn-sm">Edit</a>
-                            <form method="POST" action="/cm/redirects/{{.ID.Hex}}/delete" style="display:inline" onsubmit="return confirm('Delete this redirect?\n\nNote: Browsers cache 301 redirects. After deletion, users may need to clear their browser cache or use incognito mode to see the change.')">
+                            <form method="POST" action="/cm/redirects/{{.ID.Hex}}/delete" style="display:inline" onsubmit="return confirmDelete(this, 'Are you sure you want to delete this redirect?&lt;br&gt;&lt;br&gt;Note: Browsers cache 301 redirects. After deletion, users may need to clear their browser cache.')">
                                 <button type="submit" class="btn btn-sm btn-danger">Delete</button>
                             </form>
                         </td>
@@ -2681,7 +3507,7 @@ var adminTemplates = map[string]string{
                         <td class="message-preview">{{.Message}}</td>
                         <td class="actions">
                             <a href="/cm/messages/{{.ID.Hex}}" class="btn btn-sm">View</a>
-                            <form method="POST" action="/cm/messages/{{.ID.Hex}}/delete" style="display:inline" onsubmit="return confirm('Delete this message?')">
+                            <form method="POST" action="/cm/messages/{{.ID.Hex}}/delete" style="display:inline" onsubmit="return confirmDelete(this, 'Are you sure you want to delete this message?')">
                                 <button type="submit" class="btn btn-sm btn-danger">Delete</button>
                             </form>
                         </td>
@@ -2750,7 +3576,7 @@ var adminTemplates = map[string]string{
             {{if not .Message.IsSystem}}
             <a href="mailto:{{.Message.Email}}?subject=Re: Your message" class="btn btn-primary">Reply via Email</a>
             {{end}}
-            <form method="POST" action="/cm/messages/{{.Message.ID.Hex}}/delete" style="display:inline" onsubmit="return confirm('Delete this message?')">
+            <form method="POST" action="/cm/messages/{{.Message.ID.Hex}}/delete" style="display:inline" onsubmit="return confirmDelete(this, 'Are you sure you want to delete this message?')">
                 <button type="submit" class="btn btn-danger">Delete</button>
             </form>
         </div>
@@ -2774,13 +3600,12 @@ var adminTemplates = map[string]string{
 
         {{if .Assets}}
         <div class="table-container">
-            <table class="data-table">
+            <table>
                 <thead>
                     <tr>
                         <th>Preview</th>
                         <th>Filename</th>
-                        <th>Folder</th>
-                        <th>URL Path</th>
+                        <th>Serve Path</th>
                         <th>Type</th>
                         <th>Size</th>
                         <th>Actions</th>
@@ -2791,21 +3616,20 @@ var adminTemplates = map[string]string{
                     <tr>
                         <td style="width: 60px;">
                             {{if or (eq .MimeType "image/png") (eq .MimeType "image/jpeg") (eq .MimeType "image/gif") (eq .MimeType "image/webp") (eq .MimeType "image/svg+xml")}}
-                            <img src="/assets{{.FullPath}}" alt="{{.Filename}}" style="max-width: 50px; max-height: 50px; border-radius: 4px;">
+                            <img src="{{.ServePath}}" alt="{{.Filename}}" style="max-width: 50px; max-height: 50px; border-radius: 4px;">
                             {{else}}
                             <span style="font-size: 1.5rem;">📄</span>
                             {{end}}
                         </td>
                         <td>{{.Filename}}</td>
-                        <td><code>{{.Folder}}</code></td>
-                        <td><code>/assets{{.FullPath}}</code></td>
+                        <td><code>{{.ServePath}}</code></td>
                         <td>{{.MimeType}}</td>
                         <td>{{if lt .Size 1024}}{{.Size}} B{{else if lt .Size 1048576}}{{divide .Size 1024}} KB{{else}}{{divide .Size 1048576}} MB{{end}}</td>
                         <td>
-                            <a href="/assets{{.FullPath}}" target="_blank" class="btn btn-small">View</a>
-                            <button onclick="copyToClipboard('/assets{{.FullPath}}')" class="btn btn-small btn-secondary">Copy URL</button>
-                            <form method="POST" action="/cm/assets/{{.ID.Hex}}/delete" style="display:inline" onsubmit="return confirm('Delete this asset?')">
-                                <button type="submit" class="btn btn-small btn-danger">Delete</button>
+                            <a href="{{.ServePath}}" target="_blank" class="btn btn-sm">View</a>
+                            <button onclick="copyToClipboard('{{.ServePath}}')" class="btn btn-sm btn-secondary">Copy URL</button>
+                            <form method="POST" action="/cm/assets/{{.ID.Hex}}/delete" style="display:inline" onsubmit="return confirmDelete(this, 'Are you sure you want to delete this asset?')">
+                                <button type="submit" class="btn btn-sm btn-danger">Delete</button>
                             </form>
                         </td>
                     </tr>
@@ -2828,6 +3652,343 @@ var adminTemplates = map[string]string{
         </script>
     ` + adminLayoutEnd,
 
+	"broken_links": adminLayoutStart + `
+        <div class="page-header">
+            <h1>🔗 Broken Link Finder</h1>
+        </div>
+
+        <div class="info-card" style="margin-bottom: 1.5rem;">
+            <p style="margin: 0; color: var(--text-muted);">
+                This tool scans all published content for broken links, including both internal pages and external URLs.
+                Links with redirects are considered valid.
+            </p>
+        </div>
+
+        <!-- Progress Section -->
+        <div id="scan-progress" style="margin-bottom: 1.5rem;">
+            <div style="background: var(--bg-card); padding: 1.5rem; border-radius: 8px;">
+                <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
+                    <div class="spinner" style="width: 24px; height: 24px; border: 3px solid var(--bg-dark); border-top-color: var(--primary); border-radius: 50%; animation: spin 1s linear infinite;"></div>
+                    <div style="flex: 1; min-width: 0;">
+                        <div id="progress-text" style="font-weight: 500;">Starting scan...</div>
+                        <div id="progress-path" style="font-size: 0.875rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"></div>
+                        <div id="progress-checking" style="font-size: 0.75rem; color: var(--primary); margin-top: 0.25rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"></div>
+                    </div>
+                </div>
+                <div style="background: var(--bg-dark); height: 8px; border-radius: 4px; overflow: hidden;">
+                    <div id="progress-bar" style="background: var(--primary); height: 100%; width: 0%; transition: width 0.2s;"></div>
+                </div>
+                <div id="progress-links" style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.5rem;">Links checked: 0</div>
+            </div>
+        </div>
+
+        <!-- Fix Link Modal -->
+        <div id="fix-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); z-index: 1000; align-items: center; justify-content: center;">
+            <div style="background: var(--bg-card); border-radius: 12px; padding: 1.5rem; max-width: 600px; width: 90%; max-height: 80vh; overflow-y: auto;">
+                <h3 style="margin: 0 0 1rem 0;">Fix Broken Link</h3>
+                <div style="margin-bottom: 1rem;">
+                    <label style="display: block; margin-bottom: 0.5rem; color: var(--text-muted); font-size: 0.875rem;">Page</label>
+                    <div id="fix-page-title" style="font-weight: 500;"></div>
+                </div>
+                <div style="margin-bottom: 1rem;">
+                    <label style="display: block; margin-bottom: 0.5rem; color: var(--text-muted); font-size: 0.875rem;">Field</label>
+                    <div id="fix-field-name" style="font-weight: 500;"></div>
+                </div>
+                <div style="margin-bottom: 1rem;">
+                    <label style="display: block; margin-bottom: 0.5rem; color: var(--text-muted); font-size: 0.875rem;">Current Link (broken)</label>
+                    <code id="fix-old-url" style="display: block; background: rgba(255,107,107,0.2); color: var(--danger); padding: 0.5rem; border-radius: 4px; word-break: break-all;"></code>
+                </div>
+                <div style="margin-bottom: 1.5rem;">
+                    <label for="fix-new-url" style="display: block; margin-bottom: 0.5rem; color: var(--text-muted); font-size: 0.875rem;">New Link</label>
+                    <input type="text" id="fix-new-url" style="width: 100%; padding: 0.75rem; background: var(--bg-dark); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: var(--text); font-size: 1rem;" placeholder="Enter the corrected URL">
+                    <small style="color: var(--text-muted); display: block; margin-top: 0.25rem;">Leave empty to remove the link entirely</small>
+                </div>
+                <div id="fix-status" style="display: none; margin-bottom: 1rem; padding: 0.75rem; border-radius: 6px;"></div>
+                <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+                    <button id="fix-cancel" class="btn btn-secondary">Cancel</button>
+                    <button id="fix-save" class="btn btn-primary">Save Fix</button>
+                </div>
+            </div>
+        </div>
+
+        <style>
+            @keyframes spin {
+                to { transform: rotate(360deg); }
+            }
+        </style>
+
+        <div class="stats-row" style="display: flex; gap: 1rem; margin-bottom: 1.5rem;">
+            <div class="stat-card" style="background: var(--bg-card); padding: 1rem 1.5rem; border-radius: 8px; flex: 1;">
+                <div id="stat-scanned" style="font-size: 2rem; font-weight: bold; color: var(--primary);">0</div>
+                <div style="color: var(--text-muted); font-size: 0.875rem;">Pages Scanned</div>
+            </div>
+            <div class="stat-card" style="background: var(--bg-card); padding: 1rem 1.5rem; border-radius: 8px; flex: 1;">
+                <div id="stat-links" style="font-size: 2rem; font-weight: bold; color: var(--primary);">0</div>
+                <div style="color: var(--text-muted); font-size: 0.875rem;">Links Checked</div>
+            </div>
+            <div class="stat-card" style="background: var(--bg-card); padding: 1rem 1.5rem; border-radius: 8px; flex: 1;">
+                <div id="stat-pages-broken" style="font-size: 2rem; font-weight: bold; color: var(--success);">0</div>
+                <div style="color: var(--text-muted); font-size: 0.875rem;">Pages with Issues</div>
+            </div>
+            <div class="stat-card" style="background: var(--bg-card); padding: 1rem 1.5rem; border-radius: 8px; flex: 1;">
+                <div id="stat-total-broken" style="font-size: 2rem; font-weight: bold; color: var(--success);">0</div>
+                <div style="color: var(--text-muted); font-size: 0.875rem;">Broken Links</div>
+            </div>
+        </div>
+
+        <div id="results-container">
+            <div class="table-container" id="results-table" style="display: none;">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Page</th>
+                            <th>Broken Links</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="results-body">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div id="no-results" class="empty-state" style="display: none; background: rgba(72, 187, 120, 0.1); border: 1px solid rgba(72, 187, 120, 0.3);">
+            <p style="color: var(--success); font-size: 1.25rem; margin: 0;">✓ No broken links found!</p>
+            <p style="color: var(--text-muted); margin-top: 0.5rem;">All links in your published content are valid.</p>
+        </div>
+
+        <script>
+        (function() {
+            var pagesWithBrokenLinks = 0;
+            var totalBrokenLinks = 0;
+            var currentFix = null;
+
+            function escapeHtml(text) {
+                var div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
+            }
+
+            function formatLinkError(link) {
+                var details = '';
+                if (link.status) {
+                    details = ' <span style="background: rgba(255,107,107,0.3); padding: 0.1rem 0.3rem; border-radius: 3px; font-size: 0.7rem;">HTTP ' + link.status + '</span>';
+                } else if (link.error) {
+                    var shortError = link.error;
+                    if (shortError.length > 40) shortError = shortError.substring(0, 40) + '...';
+                    details = ' <span style="background: rgba(255,107,107,0.3); padding: 0.1rem 0.3rem; border-radius: 3px; font-size: 0.7rem;" title="' + escapeHtml(link.error) + '">' + escapeHtml(shortError) + '</span>';
+                }
+                return details;
+            }
+
+            function openFixModal(contentId, title, field, oldUrl, linkElement) {
+                currentFix = { contentId: contentId, field: field, oldUrl: oldUrl, linkElement: linkElement };
+                document.getElementById('fix-page-title').textContent = title;
+                document.getElementById('fix-field-name').textContent = field;
+                document.getElementById('fix-old-url').textContent = oldUrl;
+                document.getElementById('fix-new-url').value = oldUrl;
+                document.getElementById('fix-status').style.display = 'none';
+                document.getElementById('fix-modal').style.display = 'flex';
+                document.getElementById('fix-new-url').focus();
+                document.getElementById('fix-new-url').select();
+            }
+
+            function closeFixModal() {
+                document.getElementById('fix-modal').style.display = 'none';
+                currentFix = null;
+            }
+
+            function showFixStatus(message, isError) {
+                var status = document.getElementById('fix-status');
+                status.textContent = message;
+                status.style.display = 'block';
+                status.style.background = isError ? 'rgba(255,107,107,0.2)' : 'rgba(72,187,120,0.2)';
+                status.style.color = isError ? 'var(--danger)' : 'var(--success)';
+            }
+
+            function saveFix() {
+                if (!currentFix) return;
+
+                var newUrl = document.getElementById('fix-new-url').value.trim();
+                var saveBtn = document.getElementById('fix-save');
+                saveBtn.disabled = true;
+                saveBtn.textContent = 'Saving...';
+
+                fetch('/api/tools/fix-link', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contentId: currentFix.contentId,
+                        field: currentFix.field,
+                        oldUrl: currentFix.oldUrl,
+                        newUrl: newUrl
+                    })
+                })
+                .then(function(resp) {
+                    return resp.json().then(function(data) {
+                        if (!resp.ok) throw new Error(data.error || 'Failed to save');
+                        return data;
+                    });
+                })
+                .then(function(data) {
+                    showFixStatus('Link fixed successfully! Version ' + data.version + ' created.', false);
+                    // Update the UI to show the link is fixed
+                    if (currentFix.linkElement) {
+                        currentFix.linkElement.style.background = 'rgba(72,187,120,0.2)';
+                        currentFix.linkElement.style.color = 'var(--success)';
+                        currentFix.linkElement.textContent = newUrl || '(removed)';
+                        // Remove the fix button
+                        var fixBtn = currentFix.linkElement.parentElement.querySelector('.fix-btn');
+                        if (fixBtn) fixBtn.remove();
+                    }
+                    setTimeout(closeFixModal, 1500);
+                })
+                .catch(function(err) {
+                    showFixStatus('Error: ' + err.message, true);
+                })
+                .finally(function() {
+                    saveBtn.disabled = false;
+                    saveBtn.textContent = 'Save Fix';
+                });
+            }
+
+            // Set up modal event listeners
+            document.getElementById('fix-cancel').addEventListener('click', closeFixModal);
+            document.getElementById('fix-save').addEventListener('click', saveFix);
+            document.getElementById('fix-modal').addEventListener('click', function(e) {
+                if (e.target === this) closeFixModal();
+            });
+            document.getElementById('fix-new-url').addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') saveFix();
+                if (e.key === 'Escape') closeFixModal();
+            });
+
+            function addResult(result) {
+                var table = document.getElementById('results-table');
+                var tbody = document.getElementById('results-body');
+                table.style.display = 'block';
+
+                pagesWithBrokenLinks++;
+                totalBrokenLinks += result.brokenLinks.length;
+
+                // Update stats with danger color
+                var statPagesBroken = document.getElementById('stat-pages-broken');
+                var statTotalBroken = document.getElementById('stat-total-broken');
+                statPagesBroken.textContent = pagesWithBrokenLinks;
+                statPagesBroken.style.color = 'var(--danger)';
+                statTotalBroken.textContent = totalBrokenLinks;
+                statTotalBroken.style.color = 'var(--danger)';
+
+                var linksHtml = result.brokenLinks.map(function(link, idx) {
+                    var isExternal = link.url.startsWith('http') || link.url.startsWith('//');
+                    var icon = isExternal ? '🌐' : '📄';
+                    var linkId = 'link-' + result.id + '-' + idx;
+                    return '<div style="margin-bottom: 0.5rem;">' +
+                        '<span style="margin-right: 0.25rem;">' + icon + '</span>' +
+                        '<code id="' + linkId + '" style="background: rgba(255,107,107,0.2); color: var(--danger); padding: 0.25rem 0.5rem; border-radius: 4px; word-break: break-all;">' +
+                        escapeHtml(link.url) + '</code>' +
+                        formatLinkError(link) +
+                        '<span style="color: var(--text-muted); font-size: 0.75rem; margin-left: 0.5rem;">in: ' + escapeHtml(link.field) + '</span>' +
+                        '</div>';
+                }).join('');
+
+                // Build fix buttons for each broken link
+                var fixButtonsHtml = result.brokenLinks.map(function(link, idx) {
+                    var linkId = 'link-' + result.id + '-' + idx;
+                    return '<button class="btn btn-small fix-btn" data-content-id="' + escapeHtml(result.id) + '" data-title="' + escapeHtml(result.title) + '" data-field="' + escapeHtml(link.field) + '" data-url="' + escapeHtml(link.url) + '" data-link-id="' + linkId + '" style="margin-bottom: 0.25rem;">Fix</button>';
+                }).join(' ');
+
+                var row = document.createElement('tr');
+                row.innerHTML = '<td><strong>' + escapeHtml(result.title) + '</strong>' +
+                    '<div style="font-size: 0.875rem; color: var(--text-muted);">' + escapeHtml(result.path) + '</div></td>' +
+                    '<td>' + linksHtml + '</td>' +
+                    '<td style="white-space: nowrap;">' +
+                    '<a href="' + escapeHtml(result.path) + '" target="_blank" class="btn btn-small">View</a> ' +
+                    '<a href="/cm/content/' + escapeHtml(result.id) + '" class="btn btn-small btn-secondary">Edit</a> ' +
+                    fixButtonsHtml + '</td>';
+
+                // Add click handlers for fix buttons
+                row.querySelectorAll('.fix-btn').forEach(function(btn) {
+                    btn.addEventListener('click', function() {
+                        var linkElement = document.getElementById(this.dataset.linkId);
+                        openFixModal(this.dataset.contentId, this.dataset.title, this.dataset.field, this.dataset.url, linkElement);
+                    });
+                });
+
+                tbody.appendChild(row);
+            }
+
+            function startScan() {
+                var eventSource = new EventSource('/api/tools/broken-links/scan');
+
+                eventSource.addEventListener('total', function(e) {
+                    var data = JSON.parse(e.data);
+                    document.getElementById('progress-text').textContent = 'Scanning ' + data.total + ' pages...';
+                });
+
+                eventSource.addEventListener('progress', function(e) {
+                    var data = JSON.parse(e.data);
+                    var percent = Math.round((data.current / data.total) * 100);
+                    document.getElementById('progress-bar').style.width = percent + '%';
+                    document.getElementById('progress-text').textContent = 'Scanning page ' + data.current + ' of ' + data.total + '...';
+                    document.getElementById('progress-path').textContent = data.title + ' (' + data.path + ')';
+                    document.getElementById('stat-scanned').textContent = data.current;
+
+                    if (data.linksChecked) {
+                        document.getElementById('progress-links').textContent = 'Links checked: ' + data.linksChecked;
+                        document.getElementById('stat-links').textContent = data.linksChecked;
+                    }
+
+                    if (data.checking) {
+                        document.getElementById('progress-checking').textContent = 'Checking: ' + data.checking;
+                    } else {
+                        document.getElementById('progress-checking').textContent = '';
+                    }
+                });
+
+                eventSource.addEventListener('result', function(e) {
+                    var result = JSON.parse(e.data);
+                    addResult(result);
+                });
+
+                eventSource.addEventListener('complete', function(e) {
+                    var data = JSON.parse(e.data);
+                    eventSource.close();
+
+                    // Hide progress section
+                    document.getElementById('scan-progress').style.display = 'none';
+
+                    // Update final stats
+                    document.getElementById('stat-scanned').textContent = data.totalPages;
+                    document.getElementById('stat-links').textContent = data.totalLinksChecked || 0;
+
+                    // Show "no results" message if no broken links
+                    if (data.pagesWithBrokenLinks === 0) {
+                        document.getElementById('no-results').style.display = 'block';
+                    }
+                });
+
+                eventSource.addEventListener('error', function(e) {
+                    try {
+                        var data = JSON.parse(e.data);
+                        document.getElementById('progress-text').textContent = 'Error: ' + data;
+                    } catch(err) {
+                        document.getElementById('progress-text').textContent = 'Connection error';
+                    }
+                    eventSource.close();
+                });
+
+                eventSource.onerror = function() {
+                    eventSource.close();
+                    document.getElementById('scan-progress').style.display = 'none';
+                };
+            }
+
+            startScan();
+        })();
+        </script>
+    ` + adminLayoutEnd,
+
 	"asset_upload": adminLayoutStart + `
         <div class="page-header">
             <h1>Upload Asset</h1>
@@ -2841,19 +4002,9 @@ var adminTemplates = map[string]string{
             </div>
 
             <div class="form-group">
-                <label for="filename">Filename (optional, defaults to uploaded filename)</label>
-                <input type="text" id="filename" name="filename" placeholder="e.g., logo.png">
-            </div>
-
-            <div class="form-group">
-                <label for="folder">Folder</label>
-                <input type="text" id="folder" name="folder" value="/" placeholder="e.g., /images or /documents" list="folder-list">
-                <datalist id="folder-list">
-                    {{range .Folders}}
-                    <option value="{{.}}">
-                    {{end}}
-                </datalist>
-                <small style="color: var(--text-muted);">Use / for root, or create folders like /images, /documents</small>
+                <label for="serve_path">Serve Path (URL where the file will be accessible)</label>
+                <input type="text" id="serve_path" name="serve_path" placeholder="e.g., /favicon.png or /images/logo.png" required>
+                <small style="color: var(--text-muted);">The full URL path where this file will be served. Use / for root level files like favicons.</small>
             </div>
 
             <div class="form-group">
@@ -2865,6 +4016,16 @@ var adminTemplates = map[string]string{
                 <button type="submit" class="btn btn-primary">Upload Asset</button>
             </div>
         </form>
+
+        <script>
+        // Auto-suggest serve path from filename
+        document.getElementById('file').addEventListener('change', function(e) {
+            var servePathInput = document.getElementById('serve_path');
+            if (servePathInput.value === '' && e.target.files.length > 0) {
+                servePathInput.value = '/' + e.target.files[0].name;
+            }
+        });
+        </script>
     ` + adminLayoutEnd,
 }
 
@@ -2874,6 +4035,11 @@ const adminLayoutStart = `<!DOCTYPE html>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LightCMS Admin</title>
+    <link rel="icon" type="image/x-icon" href="/static/images/favicon.ico">
+    <link rel="icon" type="image/png" sizes="16x16" href="/static/images/favicon-16x16.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="/static/images/favicon-32x32.png">
+    <link rel="icon" type="image/png" sizes="48x48" href="/static/images/favicon-48x48.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/static/images/apple-touch-icon.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -2917,14 +4083,12 @@ const adminLayoutStart = `<!DOCTYPE html>
             overflow-y: auto;
         }
         .sidebar-logo {
-            font-family: 'Space Grotesk', sans-serif;
-            font-size: 1.5rem;
-            font-weight: 700;
-            background: linear-gradient(135deg, var(--primary), var(--secondary), var(--accent));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
             margin-bottom: 2rem;
             display: block;
+        }
+        .sidebar-logo img {
+            height: 48px;
+            width: auto;
         }
         .nav-section {
             margin-bottom: 1.5rem;
@@ -3413,11 +4577,70 @@ const adminLayoutStart = `<!DOCTYPE html>
             }
         }
     </style>
+    <script>
+    // Show info/alert modal (replacement for alert())
+    function showAlert(message, title, callback) {
+        var modal = document.getElementById('info-modal');
+        var msgEl = document.getElementById('info-modal-message');
+        var titleEl = document.getElementById('info-modal-title');
+        var okBtn = document.getElementById('info-ok-btn');
+
+        titleEl.textContent = title || 'Information';
+        msgEl.innerHTML = message;
+        modal.style.display = 'flex';
+
+        function cleanup() {
+            modal.style.display = 'none';
+            okBtn.removeEventListener('click', onOk);
+        }
+
+        function onOk() {
+            cleanup();
+            if (callback) callback();
+        }
+
+        okBtn.addEventListener('click', onOk);
+    }
+
+    // Show confirm modal (replacement for confirm()) - returns a Promise
+    function showConfirm(message, title) {
+        return new Promise(function(resolve) {
+            var modal = document.getElementById('confirm-modal');
+            var msgEl = document.getElementById('confirm-modal-message');
+            var titleEl = document.getElementById('confirm-modal-title');
+            var okBtn = document.getElementById('confirm-ok-btn');
+            var cancelBtn = document.getElementById('confirm-cancel-btn');
+
+            titleEl.textContent = title || 'Confirm';
+            msgEl.innerHTML = message;
+            modal.style.display = 'flex';
+
+            function cleanup() {
+                modal.style.display = 'none';
+                okBtn.removeEventListener('click', onOk);
+                cancelBtn.removeEventListener('click', onCancel);
+            }
+
+            function onOk() {
+                cleanup();
+                resolve(true);
+            }
+
+            function onCancel() {
+                cleanup();
+                resolve(false);
+            }
+
+            okBtn.addEventListener('click', onOk);
+            cancelBtn.addEventListener('click', onCancel);
+        });
+    }
+    </script>
 </head>
 <body>
     <div class="admin-layout">
         <aside class="sidebar">
-            <a href="/cm" class="sidebar-logo">LightCMS</a>
+            <a href="/cm" class="sidebar-logo"><img src="/static/images/lightcms-logo.png" alt="LightCMS"></a>
             <nav>
                 <div class="nav-section">
                     <div class="nav-section-title">Content</div>
@@ -3439,11 +4662,15 @@ const adminLayoutStart = `<!DOCTYPE html>
                     <a href="/cm/security" class="nav-link">🔒 Security</a>
                 </div>
                 <div class="nav-section">
+                    <div class="nav-section-title">Tools</div>
+                    <a href="/cm/tools/broken-links" class="nav-link">🔗 Broken Link Finder</a>
+                </div>
+                <div class="nav-section">
                     <div class="nav-section-title">Inbox</div>
                     <a href="/cm/messages" class="nav-link">📬 Messages{{if .UnreadMessageCount}} <span class="nav-badge">{{.UnreadMessageCount}}</span>{{end}}</a>
                 </div>
                 <div class="nav-section">
-                    <a href="/" target="_blank" class="nav-link">🔗 View Site</a>
+                    <a href="/" target="_blank" class="nav-link">🌐 View Site</a>
                     <a href="/cm/logout" class="nav-link">🚪 Logout</a>
                 </div>
             </nav>
@@ -3453,5 +4680,142 @@ const adminLayoutStart = `<!DOCTYPE html>
 const adminLayoutEnd = `
         </main>
     </div>
+
+    <!-- Delete confirmation modal -->
+    <div id="delete-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.7); z-index: 10000; align-items: center; justify-content: center;">
+        <div style="background: #1e293b; border-radius: var(--radius); max-width: 450px; width: 90%; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8); border: 1px solid rgba(239, 68, 68, 0.3);">
+            <div style="padding: 1.5rem; border-bottom: 1px solid rgba(239, 68, 68, 0.2); background: #1a2332;">
+                <h3 style="margin: 0; color: var(--danger);">Confirm Delete</h3>
+            </div>
+            <div style="padding: 1.5rem; background: #1e293b;">
+                <p id="delete-modal-message" style="margin: 0;">Are you sure you want to delete this item?</p>
+            </div>
+            <div style="padding: 1rem 1.5rem; border-top: 1px solid rgba(239, 68, 68, 0.2); display: flex; gap: 0.75rem; justify-content: flex-end; background: #1a2332;">
+                <button type="button" class="btn btn-outline" id="delete-cancel-btn">Cancel</button>
+                <button type="button" class="btn" id="delete-confirm-btn" style="background: var(--danger); color: white;">Delete</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Info/Alert modal -->
+    <div id="info-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.7); z-index: 10000; align-items: center; justify-content: center;">
+        <div style="background: #1e293b; border-radius: var(--radius); max-width: 450px; width: 90%; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8); border: 1px solid rgba(99, 102, 241, 0.3);">
+            <div style="padding: 1.5rem; border-bottom: 1px solid rgba(99, 102, 241, 0.2); background: #1a2332;">
+                <h3 id="info-modal-title" style="margin: 0; color: var(--primary);">Information</h3>
+            </div>
+            <div style="padding: 1.5rem; background: #1e293b;">
+                <p id="info-modal-message" style="margin: 0;"></p>
+            </div>
+            <div style="padding: 1rem 1.5rem; border-top: 1px solid rgba(99, 102, 241, 0.2); display: flex; gap: 0.75rem; justify-content: flex-end; background: #1a2332;">
+                <button type="button" class="btn" id="info-ok-btn" style="background: var(--primary); color: white;">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Confirm modal -->
+    <div id="confirm-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.7); z-index: 10000; align-items: center; justify-content: center;">
+        <div style="background: #1e293b; border-radius: var(--radius); max-width: 500px; width: 90%; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8); border: 1px solid rgba(99, 102, 241, 0.3);">
+            <div style="padding: 1.5rem; border-bottom: 1px solid rgba(99, 102, 241, 0.2); background: #1a2332;">
+                <h3 id="confirm-modal-title" style="margin: 0; color: var(--primary);">Confirm</h3>
+            </div>
+            <div style="padding: 1.5rem; background: #1e293b;">
+                <p id="confirm-modal-message" style="margin: 0;"></p>
+            </div>
+            <div style="padding: 1rem 1.5rem; border-top: 1px solid rgba(99, 102, 241, 0.2); display: flex; gap: 0.75rem; justify-content: flex-end; background: #1a2332;">
+                <button type="button" class="btn btn-outline" id="confirm-cancel-btn">Cancel</button>
+                <button type="button" class="btn" id="confirm-ok-btn" style="background: var(--primary); color: white;">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Revert confirmation modal -->
+    <div id="revert-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.7); z-index: 10000; align-items: center; justify-content: center;">
+        <div style="background: #1e293b; border-radius: var(--radius); max-width: 450px; width: 90%; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8); border: 1px solid rgba(245, 158, 11, 0.3);">
+            <div style="padding: 1.5rem; border-bottom: 1px solid rgba(245, 158, 11, 0.2); background: #1a2332;">
+                <h3 style="margin: 0; color: var(--warning);">Confirm Revert</h3>
+            </div>
+            <div style="padding: 1.5rem; background: #1e293b;">
+                <p id="revert-modal-message" style="margin: 0;"></p>
+            </div>
+            <div style="padding: 1rem 1.5rem; border-top: 1px solid rgba(245, 158, 11, 0.2); display: flex; gap: 0.75rem; justify-content: flex-end; background: #1a2332;">
+                <button type="button" class="btn btn-outline" id="revert-cancel-btn">Cancel</button>
+                <button type="button" class="btn" id="revert-confirm-btn" style="background: var(--warning); color: white;">Revert</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    // Revert confirmation modal
+    var revertModalForm = null;
+    function confirmRevert(form, version) {
+        revertModalForm = form;
+        var modal = document.getElementById('revert-modal');
+        var msgEl = document.getElementById('revert-modal-message');
+        var confirmBtn = document.getElementById('revert-confirm-btn');
+        var cancelBtn = document.getElementById('revert-cancel-btn');
+
+        msgEl.innerHTML = 'Revert to version ' + version + '?<br><br>A new version will be saved with the reverted content.';
+        modal.style.display = 'flex';
+
+        function cleanup() {
+            modal.style.display = 'none';
+            confirmBtn.removeEventListener('click', onConfirm);
+            cancelBtn.removeEventListener('click', onCancel);
+        }
+
+        function onConfirm() {
+            cleanup();
+            if (revertModalForm) {
+                revertModalForm.submit();
+            }
+        }
+
+        function onCancel() {
+            cleanup();
+            revertModalForm = null;
+        }
+
+        confirmBtn.addEventListener('click', onConfirm);
+        cancelBtn.addEventListener('click', onCancel);
+
+        return false; // Prevent form submission
+    }
+
+    // Delete confirmation modal
+    var deleteModalForm = null;
+    function confirmDelete(form, message) {
+        deleteModalForm = form;
+        var modal = document.getElementById('delete-modal');
+        var msgEl = document.getElementById('delete-modal-message');
+        var confirmBtn = document.getElementById('delete-confirm-btn');
+        var cancelBtn = document.getElementById('delete-cancel-btn');
+
+        msgEl.innerHTML = message || 'Are you sure you want to delete this item?';
+        modal.style.display = 'flex';
+
+        function cleanup() {
+            modal.style.display = 'none';
+            confirmBtn.removeEventListener('click', onConfirm);
+            cancelBtn.removeEventListener('click', onCancel);
+        }
+
+        function onConfirm() {
+            cleanup();
+            if (deleteModalForm) {
+                deleteModalForm.submit();
+            }
+        }
+
+        function onCancel() {
+            cleanup();
+            deleteModalForm = null;
+        }
+
+        confirmBtn.addEventListener('click', onConfirm);
+        cancelBtn.addEventListener('click', onCancel);
+
+        return false; // Prevent form submission
+    }
+    </script>
 </body>
 </html>`
