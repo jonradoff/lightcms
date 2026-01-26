@@ -1,9 +1,19 @@
 # LightCMS
 
-A lightweight, modern content management system built with Go and MongoDB Atlas.
+A lightweight, AI-native content management system built with Go and MongoDB Atlas.
+
+## Why LightCMS?
+
+**Lightweight**: A clean, focused codebase (~5K lines of Go) that's easy to understand, modify, and extend. No bloated frameworks or complex abstractions.
+
+**AI-Native**: Built from the ground up for the AI era:
+- **MCP Integration**: Full Model Context Protocol server with 38 tools for content management. Control your entire site through Claude Code or other agentic workflows.
+- **Fork-Friendly**: Designed to be forked and customized by Claude Code. Ask Claude to add new content types, modify templates, or build custom features—the codebase is structured for AI-assisted development.
+- **Natural Language CMS**: Skip the admin UI entirely. Create pages, manage assets, customize themes, and publish content through conversation.
 
 ## Features
 
+- **AI-Powered Management**: MCP server for agentic content control
 - **Template System**: Define reusable content structures with custom fields
 - **Static Page Generation**: Fast page loads from pre-rendered HTML
 - **Content Collections**: Group and display content by category
