@@ -7,6 +7,9 @@ server
 static/uploads/*
 !static/uploads/.gitkeep
 
+# Generated sitemap (site-specific, not part of software)
+static/sitemap.xml
+
 # Generated content (site-specific, not part of software)
 content/
 
