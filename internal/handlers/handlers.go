@@ -2363,13 +2363,19 @@ func (h *Handler) ThemeSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	settings, err := h.db.GetThemeSettings(r.Context())
+	ctx := r.Context()
+	settings, err := h.db.GetThemeSettings(ctx)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	h.renderAdmin(w, r, "theme", map[string]interface{}{"Settings": settings})
+	versions, _ := h.db.GetThemeVersions(ctx)
+
+	h.renderAdmin(w, r, "theme", map[string]interface{}{
+		"Settings": settings,
+		"Versions": versions,
+	})
 }
 
 func (h *Handler) UpdateTheme(w http.ResponseWriter, r *http.Request) {

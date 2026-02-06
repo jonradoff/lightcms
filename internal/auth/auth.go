@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"lightcms/internal/database"
+	"lightcms/internal/middleware"
 
 	"github.com/gorilla/sessions"
 	"golang.org/x/crypto/bcrypt"
@@ -19,14 +20,25 @@ const (
 )
 
 type Manager struct {
-	db    *database.DB
-	store *sessions.CookieStore
+	db          *database.DB
+	store       *sessions.CookieStore
+	proxyConfig *middleware.TrustedProxyConfig
 }
 
 func NewManager(store *sessions.CookieStore, db *database.DB) *Manager {
 	return &Manager{
-		db:    db,
-		store: store,
+		db:          db,
+		store:       store,
+		proxyConfig: middleware.DefaultCloudConfig(),
+	}
+}
+
+// NewManagerWithProxyConfig creates a new auth manager with custom proxy configuration
+func NewManagerWithProxyConfig(store *sessions.CookieStore, db *database.DB, proxyConfig *middleware.TrustedProxyConfig) *Manager {
+	return &Manager{
+		db:          db,
+		store:       store,
+		proxyConfig: proxyConfig,
 	}
 }
 
@@ -119,7 +131,7 @@ func (m *Manager) IsDefaultPassword(ctx context.Context) bool {
 
 // CheckRateLimit checks if the IP is rate limited
 func (m *Manager) CheckRateLimit(ctx context.Context, r *http.Request) (bool, string) {
-	ip := getClientIP(r)
+	ip := m.getClientIP(r)
 	locked, duration := m.db.IsLoginLocked(ctx, ip)
 	if locked {
 		minutes := int(duration.Minutes())
@@ -134,13 +146,13 @@ func (m *Manager) CheckRateLimit(ctx context.Context, r *http.Request) (bool, st
 
 // RecordFailedLogin records a failed login attempt
 func (m *Manager) RecordFailedLogin(ctx context.Context, r *http.Request) {
-	ip := getClientIP(r)
+	ip := m.getClientIP(r)
 	m.db.RecordFailedLogin(ctx, ip)
 }
 
 // ClearRateLimit clears rate limiting on successful login
 func (m *Manager) ClearRateLimit(ctx context.Context, r *http.Request) {
-	ip := getClientIP(r)
+	ip := m.getClientIP(r)
 	m.db.ClearLoginAttempts(ctx, ip)
 }
 
@@ -149,13 +161,9 @@ func (m *Manager) Login(w http.ResponseWriter, r *http.Request) error {
 	session, err := m.store.Get(r, sessionName)
 	if err != nil {
 		log.Printf("[LOGIN] store.Get error: %v, creating fresh session", err)
-		// Create a completely new session, ignoring any existing cookie
+		// Create a completely new session, inheriting options from store
 		session = sessions.NewSession(m.store, sessionName)
-		session.Options = &sessions.Options{
-			Path:     "/",
-			MaxAge:   86400 * 7,
-			HttpOnly: true,
-		}
+		session.Options = m.store.Options // Use store's secure options
 		session.IsNew = true
 	}
 	session.Values["authenticated"] = true
@@ -250,29 +258,9 @@ func ValidatePasswordStrength(password string) error {
 	return nil
 }
 
-// getClientIP extracts the client IP address
-func getClientIP(r *http.Request) string {
-	// Check X-Forwarded-For header (for proxies)
-	forwarded := r.Header.Get("X-Forwarded-For")
-	if forwarded != "" {
-		// Take the first IP in the list
-		parts := strings.Split(forwarded, ",")
-		return strings.TrimSpace(parts[0])
-	}
-
-	// Check X-Real-IP header
-	realIP := r.Header.Get("X-Real-IP")
-	if realIP != "" {
-		return realIP
-	}
-
-	// Fall back to RemoteAddr
-	ip := r.RemoteAddr
-	// Remove port if present
-	if colonIdx := strings.LastIndex(ip, ":"); colonIdx != -1 {
-		ip = ip[:colonIdx]
-	}
-	return ip
+// getClientIP extracts the client IP address using the configured proxy settings
+func (m *Manager) getClientIP(r *http.Request) string {
+	return middleware.GetClientIP(r, m.proxyConfig)
 }
 
 func formatDuration(minutes, seconds int) string {

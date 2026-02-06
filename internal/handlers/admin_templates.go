@@ -3013,7 +3013,6 @@ var adminTemplates = map[string]string{
 	"theme": adminLayoutStart + `
         <div class="page-header">
             <h1>Theme Settings</h1>
-            <a href="/cm/theme/versions" class="btn btn-outline">Version History</a>
         </div>
         {{if .Error}}<div class="error-message">{{.Error}}</div>{{end}}
         {{if .Success}}<div class="success-message">{{.Success}}</div>{{end}}
@@ -3118,6 +3117,45 @@ var adminTemplates = map[string]string{
                 <button type="submit" class="btn btn-primary">Save Theme</button>
             </div>
         </form>
+
+        {{if .Versions}}
+        <div class="form-card" style="margin-top: 2rem;">
+            <div class="form-section">
+                <h3>Version History</h3>
+                <p style="color: var(--text-muted); margin-bottom: 1rem;">Previous versions of theme settings are saved automatically when you update.</p>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Version</th>
+                                <th>Site Name</th>
+                                <th>Comment</th>
+                                <th>Saved</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {{range .Versions}}
+                            <tr>
+                                <td>v{{.Version}}</td>
+                                <td>{{.SiteName}}</td>
+                                <td style="color: var(--text-muted); font-size: 0.9rem; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{.Comment}}">{{if .Comment}}{{.Comment}}{{else}}-{{end}}</td>
+                                <td>{{.CreatedAt.Format "Jan 2, 2006 3:04 PM"}}</td>
+                                <td class="actions">
+                                    <a href="/cm/theme/versions/{{.Version}}" class="btn btn-sm btn-outline">View Diff</a>
+                                    <form method="POST" action="/cm/theme/versions/{{.Version}}/revert" style="display:inline" onsubmit="return confirm('Revert to version {{.Version}}? This will create a new version with the old settings.')">
+                                        {{$.CSRFField}}
+                                        <button type="submit" class="btn btn-sm btn-secondary">Revert</button>
+                                    </form>
+                                </td>
+                            </tr>
+                            {{end}}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        {{end}}
 
         <link href="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.snow.css" rel="stylesheet">
         <script src="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.js"></script>

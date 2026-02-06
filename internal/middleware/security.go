@@ -21,8 +21,7 @@ func SecurityHeaders(next http.Handler) http.Handler {
 			w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 		}
 
-		// Content Security Policy - restrictive but allows inline styles/scripts for admin
-		// Note: This is a baseline CSP. For public pages, a stricter CSP could be used
+		// Content Security Policy
 		if strings.HasPrefix(r.URL.Path, "/cm") {
 			// Admin pages - need inline scripts/styles for the UI
 			w.Header().Set("Content-Security-Policy",
@@ -35,6 +34,22 @@ func SecurityHeaders(next http.Handler) http.Handler {
 					"frame-ancestors 'none'; "+
 					"base-uri 'self'; "+
 					"form-action 'self'")
+		} else if !strings.HasPrefix(r.URL.Path, "/static/") && !strings.HasPrefix(r.URL.Path, "/assets/") {
+			// Public pages - more permissive for CMS content but still protective
+			// Allows inline scripts/styles for admin-authored content (analytics, widgets, etc.)
+			// Allows external resources for embeds, CDN images, etc.
+			w.Header().Set("Content-Security-Policy",
+				"default-src 'self'; "+
+					"script-src 'self' 'unsafe-inline' https:; "+
+					"style-src 'self' 'unsafe-inline' https:; "+
+					"font-src 'self' https: data:; "+
+					"img-src 'self' data: https:; "+
+					"media-src 'self' https:; "+
+					"frame-src https:; "+
+					"connect-src 'self' https:; "+
+					"frame-ancestors 'none'; "+
+					"base-uri 'self'; "+
+					"form-action 'self' https:")
 		}
 
 		next.ServeHTTP(w, r)
