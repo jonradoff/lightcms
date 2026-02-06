@@ -30,6 +30,16 @@ type UpdateThemeInput struct {
 	FooterHTML      string `json:"footer_html,omitempty" jsonschema:"Custom footer HTML (changing regenerates all content)"`
 }
 
+// Theme version input types
+type GetThemeVersionInput struct {
+	Version int `json:"version" jsonschema:"Version number,required"`
+}
+
+type RevertThemeVersionInput struct {
+	Version        int    `json:"version" jsonschema:"Version number to revert to,required"`
+	VersionComment string `json:"version_comment,omitempty" jsonschema:"Optional comment for the revert (e.g., 'Reverted to v3')"`
+}
+
 // Site config input types
 type UpdateSiteConfigInput struct {
 	TitleTemplate        string `json:"title_template,omitempty" jsonschema:"Page title template with {{title}} and {{site_name}} placeholders"`
@@ -174,6 +184,62 @@ func (s *Server) registerSettingsTools() {
 		}
 
 		return textResult("Theme updated successfully"), nil, nil
+	})
+
+	// Get theme versions
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "get_theme_versions",
+		Description: "Get the version history for theme settings. Returns list of versions with timestamps.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args struct{}) (*mcp.CallToolResult, any, error) {
+		versions, err := s.settingsService.GetThemeVersions(ctx)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+
+		// Return summary for each version
+		type VersionSummary struct {
+			Version   int    `json:"version"`
+			SiteName  string `json:"site_name"`
+			Comment   string `json:"comment,omitempty"`
+			CreatedAt string `json:"created_at"`
+		}
+
+		summaries := make([]VersionSummary, len(versions))
+		for i, v := range versions {
+			summaries[i] = VersionSummary{
+				Version:   v.Version,
+				SiteName:  v.SiteName,
+				Comment:   v.Comment,
+				CreatedAt: v.CreatedAt.Format("2006-01-02 15:04:05"),
+			}
+		}
+
+		return jsonResult(summaries), nil, nil
+	})
+
+	// Get specific theme version
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "get_theme_version",
+		Description: "Get a specific version of theme settings with full data.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args GetThemeVersionInput) (*mcp.CallToolResult, any, error) {
+		version, err := s.settingsService.GetThemeVersion(ctx, args.Version)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+
+		return jsonResult(version), nil, nil
+	})
+
+	// Revert to theme version
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "revert_theme_to_version",
+		Description: "Revert theme to a previous version. Creates a new version with the old data.",
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args RevertThemeVersionInput) (*mcp.CallToolResult, any, error) {
+		if err := s.settingsService.RevertThemeToVersion(ctx, args.Version, args.VersionComment); err != nil {
+			return errorResult(err), nil, nil
+		}
+
+		return textResult(fmt.Sprintf("Theme reverted to version %d successfully", args.Version)), nil, nil
 	})
 
 	// === Site Config ===

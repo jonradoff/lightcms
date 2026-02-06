@@ -2379,9 +2379,10 @@ func (h *Handler) UpdateTheme(w http.ResponseWriter, r *http.Request) {
 	}
 
 	r.ParseForm()
+	ctx := r.Context()
 
-	// Get old settings to check if header/footer changed
-	oldSettings, _ := h.db.GetThemeSettings(r.Context())
+	// Get old settings to check if header/footer changed and for versioning
+	oldSettings, _ := h.db.GetThemeSettings(ctx)
 	headerChanged := oldSettings == nil || oldSettings.HeaderHTML != r.FormValue("header_html")
 	footerChanged := oldSettings == nil || oldSettings.FooterHTML != r.FormValue("footer_html")
 
@@ -2403,7 +2404,7 @@ func (h *Handler) UpdateTheme(w http.ResponseWriter, r *http.Request) {
 		FooterHTML:      r.FormValue("footer_html"),
 	}
 
-	if err := h.db.SaveThemeSettings(r.Context(), settings); err != nil {
+	if err := h.db.SaveThemeSettings(ctx, settings); err != nil {
 		h.renderAdmin(w, r, "theme", map[string]interface{}{
 			"Settings": settings,
 			"Error":    err.Error(),
@@ -2411,18 +2412,77 @@ func (h *Handler) UpdateTheme(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Save theme version
+	h.saveThemeVersion(ctx, settings, oldSettings)
+
 	// Regenerate CSS file
 	h.generateThemeCSS(settings)
 
 	// If header or footer changed, regenerate all published content
 	if headerChanged || footerChanged {
-		h.regenerateAllContent(r.Context())
+		h.regenerateAllContent(ctx)
 	}
 
 	h.renderAdmin(w, r, "theme", map[string]interface{}{
 		"Settings": settings,
 		"Success":  "Theme updated successfully!",
 	})
+}
+
+// saveThemeVersion saves a new version of the theme settings
+func (h *Handler) saveThemeVersion(ctx context.Context, theme *database.ThemeSettings, original *database.ThemeSettings) {
+	// Get the current version count
+	count, err := h.db.GetThemeVersionCount(ctx)
+	if err != nil {
+		return
+	}
+
+	// If no versions exist and we have original theme, save it as v1 first
+	if count == 0 && original != nil {
+		v1 := &database.ThemeVersion{
+			Version:         1,
+			PrimaryColor:    original.PrimaryColor,
+			SecondaryColor:  original.SecondaryColor,
+			AccentColor:     original.AccentColor,
+			BackgroundColor: original.BackgroundColor,
+			TextColor:       original.TextColor,
+			FontFamily:      original.FontFamily,
+			HeadingFont:     original.HeadingFont,
+			BorderRadius:    original.BorderRadius,
+			CustomCSS:       original.CustomCSS,
+			SiteName:        original.SiteName,
+			SiteTagline:     original.SiteTagline,
+			LogoURL:         original.LogoURL,
+			HeadHTML:        original.HeadHTML,
+			HeaderHTML:      original.HeaderHTML,
+			FooterHTML:      original.FooterHTML,
+		}
+		h.db.SaveThemeVersion(ctx, v1)
+		count = 1
+	}
+
+	version := int(count) + 1
+
+	themeVersion := &database.ThemeVersion{
+		Version:         version,
+		PrimaryColor:    theme.PrimaryColor,
+		SecondaryColor:  theme.SecondaryColor,
+		AccentColor:     theme.AccentColor,
+		BackgroundColor: theme.BackgroundColor,
+		TextColor:       theme.TextColor,
+		FontFamily:      theme.FontFamily,
+		HeadingFont:     theme.HeadingFont,
+		BorderRadius:    theme.BorderRadius,
+		CustomCSS:       theme.CustomCSS,
+		SiteName:        theme.SiteName,
+		SiteTagline:     theme.SiteTagline,
+		LogoURL:         theme.LogoURL,
+		HeadHTML:        theme.HeadHTML,
+		HeaderHTML:      theme.HeaderHTML,
+		FooterHTML:      theme.FooterHTML,
+	}
+
+	h.db.SaveThemeVersion(ctx, themeVersion)
 }
 
 func (h *Handler) generateThemeCSS(settings *database.ThemeSettings) {
@@ -2442,6 +2502,148 @@ func (h *Handler) generateThemeCSS(settings *database.ThemeSettings) {
 		settings.HeadingFont, settings.BorderRadius, settings.CustomCSS)
 
 	os.WriteFile("static/css/theme-vars.css", []byte(css), 0644)
+}
+
+// ThemeVersions shows the theme version history
+func (h *Handler) ThemeVersions(w http.ResponseWriter, r *http.Request) {
+	if !h.auth.IsAuthenticated(r) {
+		http.Redirect(w, r, "/cm/login", http.StatusSeeOther)
+		return
+	}
+
+	ctx := r.Context()
+	versions, err := h.db.GetThemeVersions(ctx)
+	if err != nil {
+		h.renderAdmin(w, r, "theme_versions", map[string]interface{}{
+			"Error": "Failed to load theme versions",
+		})
+		return
+	}
+
+	h.renderAdmin(w, r, "theme_versions", map[string]interface{}{
+		"Versions": versions,
+	})
+}
+
+// ThemeVersionDiff shows the diff between a version and current theme
+func (h *Handler) ThemeVersionDiff(w http.ResponseWriter, r *http.Request) {
+	if !h.auth.IsAuthenticated(r) {
+		http.Redirect(w, r, "/cm/login", http.StatusSeeOther)
+		return
+	}
+
+	vars := mux.Vars(r)
+	versionNum, err := strconv.Atoi(vars["version"])
+	if err != nil {
+		http.Error(w, "Invalid version number", http.StatusBadRequest)
+		return
+	}
+
+	ctx := r.Context()
+	version, err := h.db.GetThemeVersion(ctx, versionNum)
+	if err != nil {
+		h.renderAdmin(w, r, "theme_version_diff", map[string]interface{}{
+			"Error": "Version not found",
+		})
+		return
+	}
+
+	current, err := h.db.GetThemeSettings(ctx)
+	if err != nil {
+		h.renderAdmin(w, r, "theme_version_diff", map[string]interface{}{
+			"Error": "Failed to load current theme",
+		})
+		return
+	}
+
+	h.renderAdmin(w, r, "theme_version_diff", map[string]interface{}{
+		"Version": version,
+		"Current": current,
+	})
+}
+
+// RevertThemeVersion reverts the theme to a previous version
+func (h *Handler) RevertThemeVersion(w http.ResponseWriter, r *http.Request) {
+	if !h.auth.IsAuthenticated(r) {
+		http.Redirect(w, r, "/cm/login", http.StatusSeeOther)
+		return
+	}
+
+	vars := mux.Vars(r)
+	versionNum, err := strconv.Atoi(vars["version"])
+	if err != nil {
+		http.Error(w, "Invalid version number", http.StatusBadRequest)
+		return
+	}
+
+	ctx := r.Context()
+	version, err := h.db.GetThemeVersion(ctx, versionNum)
+	if err != nil {
+		http.Redirect(w, r, "/cm/theme/versions", http.StatusSeeOther)
+		return
+	}
+
+	// Create theme settings from version
+	theme := &database.ThemeSettings{
+		PrimaryColor:    version.PrimaryColor,
+		SecondaryColor:  version.SecondaryColor,
+		AccentColor:     version.AccentColor,
+		BackgroundColor: version.BackgroundColor,
+		TextColor:       version.TextColor,
+		FontFamily:      version.FontFamily,
+		HeadingFont:     version.HeadingFont,
+		BorderRadius:    version.BorderRadius,
+		CustomCSS:       version.CustomCSS,
+		SiteName:        version.SiteName,
+		SiteTagline:     version.SiteTagline,
+		LogoURL:         version.LogoURL,
+		HeadHTML:        version.HeadHTML,
+		HeaderHTML:      version.HeaderHTML,
+		FooterHTML:      version.FooterHTML,
+	}
+
+	// Get old settings to check if header/footer changed
+	oldSettings, _ := h.db.GetThemeSettings(ctx)
+	headerChanged := oldSettings == nil || oldSettings.HeaderHTML != theme.HeaderHTML
+	footerChanged := oldSettings == nil || oldSettings.FooterHTML != theme.FooterHTML
+
+	if err := h.db.SaveThemeSettings(ctx, theme); err != nil {
+		http.Redirect(w, r, "/cm/theme/versions", http.StatusSeeOther)
+		return
+	}
+
+	// Save as new version with revert comment
+	count, _ := h.db.GetThemeVersionCount(ctx)
+	newVersion := &database.ThemeVersion{
+		Version:         int(count) + 1,
+		Comment:         fmt.Sprintf("Reverted to version %d", versionNum),
+		PrimaryColor:    theme.PrimaryColor,
+		SecondaryColor:  theme.SecondaryColor,
+		AccentColor:     theme.AccentColor,
+		BackgroundColor: theme.BackgroundColor,
+		TextColor:       theme.TextColor,
+		FontFamily:      theme.FontFamily,
+		HeadingFont:     theme.HeadingFont,
+		BorderRadius:    theme.BorderRadius,
+		CustomCSS:       theme.CustomCSS,
+		SiteName:        theme.SiteName,
+		SiteTagline:     theme.SiteTagline,
+		LogoURL:         theme.LogoURL,
+		HeadHTML:        theme.HeadHTML,
+		HeaderHTML:      theme.HeaderHTML,
+		FooterHTML:      theme.FooterHTML,
+	}
+	h.db.SaveThemeVersion(ctx, newVersion)
+
+	// Regenerate CSS
+	h.generateThemeCSS(theme)
+
+	// If header or footer changed, regenerate all published content
+	if headerChanged || footerChanged {
+		h.regenerateAllContent(ctx)
+	}
+
+	http.Redirect(w, r, "/cm/theme/versions", http.StatusSeeOther)
 }
 
 // SecuritySettings shows the password change form

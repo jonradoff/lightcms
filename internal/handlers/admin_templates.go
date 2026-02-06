@@ -3013,6 +3013,7 @@ var adminTemplates = map[string]string{
 	"theme": adminLayoutStart + `
         <div class="page-header">
             <h1>Theme Settings</h1>
+            <a href="/cm/theme/versions" class="btn btn-outline">Version History</a>
         </div>
         {{if .Error}}<div class="error-message">{{.Error}}</div>{{end}}
         {{if .Success}}<div class="success-message">{{.Success}}</div>{{end}}
@@ -3533,6 +3534,428 @@ var adminTemplates = map[string]string{
 
             document.querySelectorAll('.richtext').forEach(function(textarea) {
                 initQuillEditor(textarea);
+            });
+        });
+        </script>
+    ` + adminLayoutEnd,
+
+	"theme_versions": adminLayoutStart + `
+        <div class="page-header">
+            <h1>Theme Version History</h1>
+            <a href="/cm/theme" class="btn btn-outline">← Back to Theme</a>
+        </div>
+        <p class="page-subtitle">View and restore previous theme configurations. Each change to the theme settings creates a new version.</p>
+        {{if not .Versions}}
+        <div class="empty-state">
+            <p>No theme versions yet. Make changes to the theme to create version history.</p>
+        </div>
+        {{else}}
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Version</th>
+                        <th>Site Name</th>
+                        <th>Comment</th>
+                        <th>Created</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range $i, $v := .Versions}}
+                    <tr{{if eq $i 0}} class="current-version"{{end}}>
+                        <td>
+                            <strong>v{{$v.Version}}</strong>
+                            {{if eq $i 0}}<span class="badge badge-success">Current</span>{{end}}
+                        </td>
+                        <td>{{$v.SiteName}}</td>
+                        <td>{{if $v.Comment}}{{$v.Comment}}{{else}}<span class="text-muted">—</span>{{end}}</td>
+                        <td>{{$v.CreatedAt.Format "Jan 2, 2006 3:04 PM"}}</td>
+                        <td class="actions">
+                            <a href="/cm/theme/versions/{{$v.Version}}" class="btn btn-sm">View Diff</a>
+                            {{if ne $i 0}}
+                            <form method="POST" action="/cm/theme/versions/{{$v.Version}}/revert" style="display:inline" onsubmit="return confirmRevert(this, {{$v.Version}})">
+                                {{$.CSRFField}}
+                                <button type="submit" class="btn btn-sm btn-primary">Revert</button>
+                            </form>
+                            {{end}}
+                        </td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+        {{end}}
+        <style>
+            .empty-state {
+                background: var(--bg-card);
+                border: 1px dashed var(--border);
+                border-radius: var(--radius);
+                padding: 3rem;
+                text-align: center;
+                color: var(--text-muted);
+            }
+            .current-version {
+                background: rgba(99, 102, 241, 0.1);
+            }
+            .badge {
+                display: inline-block;
+                padding: 0.2rem 0.5rem;
+                border-radius: 4px;
+                font-size: 0.7rem;
+                font-weight: 600;
+                text-transform: uppercase;
+                margin-left: 0.5rem;
+            }
+            .badge-success {
+                background: rgba(16, 185, 129, 0.2);
+                color: #10b981;
+            }
+            .text-muted {
+                color: var(--text-muted);
+            }
+        </style>
+        <script>
+        function confirmRevert(form, version) {
+            event.preventDefault();
+
+            var overlay = document.createElement('div');
+            overlay.className = 'modal-overlay';
+            overlay.innerHTML = '<div class="modal-box">' +
+                '<h3>Revert Theme to Version ' + version + '?</h3>' +
+                '<p style="color: var(--text-muted); margin-bottom: 1.5rem;">This will restore the theme settings from version ' + version + '. A new version will be created with the restored settings.</p>' +
+                '<div class="modal-actions">' +
+                '<button type="button" class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button>' +
+                '<button type="button" class="btn btn-primary" id="confirmRevertBtn">Revert Theme</button>' +
+                '</div></div>';
+            document.body.appendChild(overlay);
+
+            document.getElementById('confirmRevertBtn').addEventListener('click', function() {
+                form.submit();
+            });
+
+            overlay.addEventListener('click', function(e) {
+                if (e.target === overlay) overlay.remove();
+            });
+
+            return false;
+        }
+        </script>
+    ` + adminLayoutEnd,
+
+	"theme_version_diff": adminLayoutStart + `
+        <div class="page-header">
+            <h1>Theme Version Comparison</h1>
+            <a href="/cm/theme/versions" class="btn btn-outline">← Back to Versions</a>
+        </div>
+        <p style="color: var(--muted); margin-bottom: 2rem;">
+            Comparing <strong>Version {{.Version.Version}}</strong> (saved {{.Version.CreatedAt.Format "Jan 2, 2006 3:04 PM"}})
+            with <strong>Current Theme</strong>
+        </p>
+
+        <div class="diff-container">
+            <!-- Site Identity -->
+            <div class="diff-section" data-field="site_name">
+                <h3>Site Name <span class="diff-badge"></span></h3>
+                <div class="diff-row">
+                    <div class="diff-col diff-old">
+                        <div class="diff-label">Version {{.Version.Version}}</div>
+                        <div class="diff-content" data-old="{{.Version.SiteName}}">{{.Version.SiteName}}</div>
+                    </div>
+                    <div class="diff-col diff-new">
+                        <div class="diff-label">Current</div>
+                        <div class="diff-content" data-new="{{.Current.SiteName}}">{{.Current.SiteName}}</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="diff-section" data-field="site_tagline">
+                <h3>Tagline <span class="diff-badge"></span></h3>
+                <div class="diff-row">
+                    <div class="diff-col diff-old">
+                        <div class="diff-label">Version {{.Version.Version}}</div>
+                        <div class="diff-content" data-old="{{.Version.SiteTagline}}">{{.Version.SiteTagline}}</div>
+                    </div>
+                    <div class="diff-col diff-new">
+                        <div class="diff-label">Current</div>
+                        <div class="diff-content" data-new="{{.Current.SiteTagline}}">{{.Current.SiteTagline}}</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Colors -->
+            <div class="diff-section" data-field="colors">
+                <h3>Colors <span class="diff-badge"></span></h3>
+                <div class="diff-row">
+                    <div class="diff-col diff-old">
+                        <div class="diff-label">Version {{.Version.Version}}</div>
+                        <div class="diff-content" data-old="{{.Version.PrimaryColor}}|{{.Version.SecondaryColor}}|{{.Version.AccentColor}}|{{.Version.BackgroundColor}}|{{.Version.TextColor}}">
+                            <div class="color-row"><span class="color-swatch" style="background: {{.Version.PrimaryColor}}"></span> Primary: {{.Version.PrimaryColor}}</div>
+                            <div class="color-row"><span class="color-swatch" style="background: {{.Version.SecondaryColor}}"></span> Secondary: {{.Version.SecondaryColor}}</div>
+                            <div class="color-row"><span class="color-swatch" style="background: {{.Version.AccentColor}}"></span> Accent: {{.Version.AccentColor}}</div>
+                            <div class="color-row"><span class="color-swatch" style="background: {{.Version.BackgroundColor}}"></span> Background: {{.Version.BackgroundColor}}</div>
+                            <div class="color-row"><span class="color-swatch" style="background: {{.Version.TextColor}}"></span> Text: {{.Version.TextColor}}</div>
+                        </div>
+                    </div>
+                    <div class="diff-col diff-new">
+                        <div class="diff-label">Current</div>
+                        <div class="diff-content" data-new="{{.Current.PrimaryColor}}|{{.Current.SecondaryColor}}|{{.Current.AccentColor}}|{{.Current.BackgroundColor}}|{{.Current.TextColor}}">
+                            <div class="color-row"><span class="color-swatch" style="background: {{.Current.PrimaryColor}}"></span> Primary: {{.Current.PrimaryColor}}</div>
+                            <div class="color-row"><span class="color-swatch" style="background: {{.Current.SecondaryColor}}"></span> Secondary: {{.Current.SecondaryColor}}</div>
+                            <div class="color-row"><span class="color-swatch" style="background: {{.Current.AccentColor}}"></span> Accent: {{.Current.AccentColor}}</div>
+                            <div class="color-row"><span class="color-swatch" style="background: {{.Current.BackgroundColor}}"></span> Background: {{.Current.BackgroundColor}}</div>
+                            <div class="color-row"><span class="color-swatch" style="background: {{.Current.TextColor}}"></span> Text: {{.Current.TextColor}}</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Typography -->
+            <div class="diff-section" data-field="typography">
+                <h3>Typography <span class="diff-badge"></span></h3>
+                <div class="diff-row">
+                    <div class="diff-col diff-old">
+                        <div class="diff-label">Version {{.Version.Version}}</div>
+                        <div class="diff-content" data-old="{{.Version.FontFamily}}|{{.Version.HeadingFont}}|{{.Version.BorderRadius}}">
+                            <p>Body Font: {{.Version.FontFamily}}</p>
+                            <p>Heading Font: {{.Version.HeadingFont}}</p>
+                            <p>Border Radius: {{.Version.BorderRadius}}</p>
+                        </div>
+                    </div>
+                    <div class="diff-col diff-new">
+                        <div class="diff-label">Current</div>
+                        <div class="diff-content" data-new="{{.Current.FontFamily}}|{{.Current.HeadingFont}}|{{.Current.BorderRadius}}">
+                            <p>Body Font: {{.Current.FontFamily}}</p>
+                            <p>Heading Font: {{.Current.HeadingFont}}</p>
+                            <p>Border Radius: {{.Current.BorderRadius}}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Custom CSS -->
+            <div class="diff-section diff-field-section" data-field="custom_css">
+                <h3>Custom CSS <span class="diff-badge"></span></h3>
+                <div class="diff-row">
+                    <div class="diff-col diff-old">
+                        <div class="diff-label">Version {{.Version.Version}}</div>
+                        <div class="diff-content diff-code" data-old="{{.Version.CustomCSS}}"><pre>{{.Version.CustomCSS}}</pre></div>
+                    </div>
+                    <div class="diff-col diff-new">
+                        <div class="diff-label">Current</div>
+                        <div class="diff-content diff-code" data-new="{{.Current.CustomCSS}}"><pre>{{.Current.CustomCSS}}</pre></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Head HTML -->
+            <div class="diff-section diff-field-section" data-field="head_html">
+                <h3>Head HTML <span class="diff-badge"></span></h3>
+                <div class="diff-row">
+                    <div class="diff-col diff-old">
+                        <div class="diff-label">Version {{.Version.Version}}</div>
+                        <div class="diff-content diff-code" data-old="{{.Version.HeadHTML}}"><pre>{{.Version.HeadHTML}}</pre></div>
+                    </div>
+                    <div class="diff-col diff-new">
+                        <div class="diff-label">Current</div>
+                        <div class="diff-content diff-code" data-new="{{.Current.HeadHTML}}"><pre>{{.Current.HeadHTML}}</pre></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Header HTML -->
+            <div class="diff-section diff-field-section" data-field="header_html">
+                <h3>Header HTML <span class="diff-badge"></span></h3>
+                <div class="diff-row">
+                    <div class="diff-col diff-old">
+                        <div class="diff-label">Version {{.Version.Version}}</div>
+                        <div class="diff-content diff-code" data-old="{{.Version.HeaderHTML}}"><pre>{{.Version.HeaderHTML}}</pre></div>
+                    </div>
+                    <div class="diff-col diff-new">
+                        <div class="diff-label">Current</div>
+                        <div class="diff-content diff-code" data-new="{{.Current.HeaderHTML}}"><pre>{{.Current.HeaderHTML}}</pre></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Footer HTML -->
+            <div class="diff-section diff-field-section" data-field="footer_html">
+                <h3>Footer HTML <span class="diff-badge"></span></h3>
+                <div class="diff-row">
+                    <div class="diff-col diff-old">
+                        <div class="diff-label">Version {{.Version.Version}}</div>
+                        <div class="diff-content diff-code" data-old="{{.Version.FooterHTML}}"><pre>{{.Version.FooterHTML}}</pre></div>
+                    </div>
+                    <div class="diff-col diff-new">
+                        <div class="diff-label">Current</div>
+                        <div class="diff-content diff-code" data-new="{{.Current.FooterHTML}}"><pre>{{.Current.FooterHTML}}</pre></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="form-actions" style="margin-top: 2rem;">
+            <a href="/cm/theme/versions" class="btn btn-outline">Back to Versions</a>
+            <form method="POST" action="/cm/theme/versions/{{.Version.Version}}/revert" style="display:inline" onsubmit="return confirmRevert(this, {{.Version.Version}})">
+            {{.CSRFField}}
+                <button type="submit" class="btn btn-primary">Revert to Version {{.Version.Version}}</button>
+            </form>
+        </div>
+
+        <style>
+            .diff-container {
+                display: flex;
+                flex-direction: column;
+                gap: 1.5rem;
+            }
+            .diff-section {
+                background: var(--card-bg);
+                border: 1px solid var(--border);
+                border-radius: var(--radius);
+                padding: 1rem;
+            }
+            .diff-section.has-changes {
+                border-color: #f59e0b;
+            }
+            .diff-section.no-changes {
+                opacity: 0.6;
+            }
+            .diff-section h3 {
+                margin: 0 0 1rem 0;
+                font-size: 1rem;
+                color: var(--accent);
+                border-bottom: 1px solid var(--border);
+                padding-bottom: 0.5rem;
+                display: flex;
+                align-items: center;
+                gap: 0.75rem;
+            }
+            .diff-badge {
+                font-size: 0.7rem;
+                padding: 0.15rem 0.5rem;
+                border-radius: 4px;
+                text-transform: uppercase;
+                font-weight: 600;
+            }
+            .diff-badge.changed {
+                background: rgba(245, 158, 11, 0.2);
+                color: #f59e0b;
+            }
+            .diff-badge.unchanged {
+                background: rgba(107, 114, 128, 0.2);
+                color: #6b7280;
+            }
+            .diff-row {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 1rem;
+            }
+            .diff-col {
+                min-width: 0;
+            }
+            .diff-label {
+                font-size: 0.75rem;
+                text-transform: uppercase;
+                color: var(--muted);
+                margin-bottom: 0.5rem;
+                font-weight: 600;
+            }
+            .diff-old .diff-label {
+                color: #f59e0b;
+            }
+            .diff-new .diff-label {
+                color: #10b981;
+            }
+            .diff-content {
+                background: rgba(15, 23, 42, 0.5);
+                border: 1px solid var(--border);
+                border-radius: 4px;
+                padding: 0.75rem;
+                font-size: 0.9rem;
+                overflow-x: auto;
+                max-height: 400px;
+                overflow-y: auto;
+            }
+            .diff-old .diff-content {
+                border-left: 3px solid #f59e0b;
+            }
+            .diff-new .diff-content {
+                border-left: 3px solid #10b981;
+            }
+            .diff-code pre {
+                white-space: pre-wrap;
+                word-break: break-word;
+                font-family: 'JetBrains Mono', monospace;
+                font-size: 0.8rem;
+                margin: 0;
+            }
+            .color-row {
+                display: flex;
+                align-items: center;
+                gap: 0.5rem;
+                margin-bottom: 0.25rem;
+            }
+            .color-swatch {
+                display: inline-block;
+                width: 20px;
+                height: 20px;
+                border-radius: 4px;
+                border: 1px solid rgba(255,255,255,0.2);
+            }
+            @media (max-width: 768px) {
+                .diff-row {
+                    grid-template-columns: 1fr;
+                }
+            }
+        </style>
+
+        <script>
+        function confirmRevert(form, version) {
+            event.preventDefault();
+
+            var overlay = document.createElement('div');
+            overlay.className = 'modal-overlay';
+            overlay.innerHTML = '<div class="modal-box">' +
+                '<h3>Revert Theme to Version ' + version + '?</h3>' +
+                '<p style="color: var(--text-muted); margin-bottom: 1.5rem;">This will restore the theme settings from version ' + version + '. A new version will be created with the restored settings.</p>' +
+                '<div class="modal-actions">' +
+                '<button type="button" class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button>' +
+                '<button type="button" class="btn btn-primary" id="confirmRevertBtn">Revert Theme</button>' +
+                '</div></div>';
+            document.body.appendChild(overlay);
+
+            document.getElementById('confirmRevertBtn').addEventListener('click', function() {
+                form.submit();
+            });
+
+            overlay.addEventListener('click', function(e) {
+                if (e.target === overlay) overlay.remove();
+            });
+
+            return false;
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            // Process each diff section
+            document.querySelectorAll('.diff-section').forEach(function(section) {
+                var oldEl = section.querySelector('[data-old]');
+                var newEl = section.querySelector('[data-new]');
+                var badge = section.querySelector('.diff-badge');
+
+                if (!oldEl || !newEl || !badge) return;
+
+                var oldVal = oldEl.getAttribute('data-old') || '';
+                var newVal = newEl.getAttribute('data-new') || '';
+
+                if (oldVal === newVal) {
+                    badge.textContent = 'Unchanged';
+                    badge.className = 'diff-badge unchanged';
+                    section.classList.add('no-changes');
+                } else {
+                    badge.textContent = 'Changed';
+                    badge.className = 'diff-badge changed';
+                    section.classList.add('has-changes');
+                }
             });
         });
         </script>

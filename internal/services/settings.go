@@ -31,7 +31,7 @@ func (s *SettingsService) GetTheme(ctx context.Context) (*database.ThemeSettings
 }
 
 // UpdateTheme updates theme settings and regenerates content if header/footer changed
-func (s *SettingsService) UpdateTheme(ctx context.Context, theme *database.ThemeSettings) error {
+func (s *SettingsService) UpdateTheme(ctx context.Context, theme *database.ThemeSettings, versionComment ...string) error {
 	// Get current theme to check for header/footer changes
 	current, err := s.db.GetThemeSettings(ctx)
 	if err != nil {
@@ -48,6 +48,15 @@ func (s *SettingsService) UpdateTheme(ctx context.Context, theme *database.Theme
 		return fmt.Errorf("failed to save theme: %w", err)
 	}
 
+	// Save theme version
+	comment := ""
+	if len(versionComment) > 0 {
+		comment = versionComment[0]
+	}
+	if err := s.saveThemeVersion(ctx, theme, current, comment); err != nil {
+		fmt.Printf("Warning: failed to save theme version: %v\n", err)
+	}
+
 	// Generate theme CSS
 	if err := s.generateThemeCSS(theme); err != nil {
 		fmt.Printf("Warning: failed to generate theme CSS: %v\n", err)
@@ -59,6 +68,148 @@ func (s *SettingsService) UpdateTheme(ctx context.Context, theme *database.Theme
 	}
 
 	return nil
+}
+
+// saveThemeVersion saves a new version of the theme settings
+func (s *SettingsService) saveThemeVersion(ctx context.Context, theme *database.ThemeSettings, original *database.ThemeSettings, comment string) error {
+	// Get the current version count
+	count, err := s.db.GetThemeVersionCount(ctx)
+	if err != nil {
+		return err
+	}
+
+	// If no versions exist and we have original theme, save it as v1 first
+	if count == 0 && original != nil {
+		v1 := database.ThemeVersion{
+			Version:         1,
+			PrimaryColor:    original.PrimaryColor,
+			SecondaryColor:  original.SecondaryColor,
+			AccentColor:     original.AccentColor,
+			BackgroundColor: original.BackgroundColor,
+			TextColor:       original.TextColor,
+			FontFamily:      original.FontFamily,
+			HeadingFont:     original.HeadingFont,
+			BorderRadius:    original.BorderRadius,
+			CustomCSS:       original.CustomCSS,
+			SiteName:        original.SiteName,
+			SiteTagline:     original.SiteTagline,
+			LogoURL:         original.LogoURL,
+			HeadHTML:        original.HeadHTML,
+			HeaderHTML:      original.HeaderHTML,
+			FooterHTML:      original.FooterHTML,
+		}
+		if err := s.db.SaveThemeVersion(ctx, &v1); err != nil {
+			return err
+		}
+		count = 1
+	}
+
+	version := int(count) + 1
+
+	themeVersion := database.ThemeVersion{
+		Version:         version,
+		Comment:         comment,
+		PrimaryColor:    theme.PrimaryColor,
+		SecondaryColor:  theme.SecondaryColor,
+		AccentColor:     theme.AccentColor,
+		BackgroundColor: theme.BackgroundColor,
+		TextColor:       theme.TextColor,
+		FontFamily:      theme.FontFamily,
+		HeadingFont:     theme.HeadingFont,
+		BorderRadius:    theme.BorderRadius,
+		CustomCSS:       theme.CustomCSS,
+		SiteName:        theme.SiteName,
+		SiteTagline:     theme.SiteTagline,
+		LogoURL:         theme.LogoURL,
+		HeadHTML:        theme.HeadHTML,
+		HeaderHTML:      theme.HeaderHTML,
+		FooterHTML:      theme.FooterHTML,
+	}
+
+	return s.db.SaveThemeVersion(ctx, &themeVersion)
+}
+
+// GetThemeVersions retrieves all theme versions
+func (s *SettingsService) GetThemeVersions(ctx context.Context) ([]database.ThemeVersion, error) {
+	return s.db.GetThemeVersions(ctx)
+}
+
+// GetThemeVersion retrieves a specific theme version
+func (s *SettingsService) GetThemeVersion(ctx context.Context, version int) (*database.ThemeVersion, error) {
+	return s.db.GetThemeVersion(ctx, version)
+}
+
+// RevertThemeToVersion reverts the theme to a previous version
+func (s *SettingsService) RevertThemeToVersion(ctx context.Context, version int, versionComment ...string) error {
+	// Get the version to revert to
+	v, err := s.GetThemeVersion(ctx, version)
+	if err != nil {
+		return fmt.Errorf("version not found: %w", err)
+	}
+
+	// Create theme settings from version
+	theme := &database.ThemeSettings{
+		PrimaryColor:    v.PrimaryColor,
+		SecondaryColor:  v.SecondaryColor,
+		AccentColor:     v.AccentColor,
+		BackgroundColor: v.BackgroundColor,
+		TextColor:       v.TextColor,
+		FontFamily:      v.FontFamily,
+		HeadingFont:     v.HeadingFont,
+		BorderRadius:    v.BorderRadius,
+		CustomCSS:       v.CustomCSS,
+		SiteName:        v.SiteName,
+		SiteTagline:     v.SiteTagline,
+		LogoURL:         v.LogoURL,
+		HeadHTML:        v.HeadHTML,
+		HeaderHTML:      v.HeaderHTML,
+		FooterHTML:      v.FooterHTML,
+	}
+
+	// Pass through the version comment if provided
+	return s.UpdateTheme(ctx, theme, versionComment...)
+}
+
+// EnsureThemeVersion1 creates version 1 from current theme if no versions exist
+func (s *SettingsService) EnsureThemeVersion1(ctx context.Context) error {
+	count, err := s.db.GetThemeVersionCount(ctx)
+	if err != nil {
+		return err
+	}
+
+	// Already have versions
+	if count > 0 {
+		return nil
+	}
+
+	// Get current theme
+	theme, err := s.db.GetThemeSettings(ctx)
+	if err != nil {
+		return err
+	}
+
+	// Save as version 1
+	v1 := database.ThemeVersion{
+		Version:         1,
+		Comment:         "Initial theme version",
+		PrimaryColor:    theme.PrimaryColor,
+		SecondaryColor:  theme.SecondaryColor,
+		AccentColor:     theme.AccentColor,
+		BackgroundColor: theme.BackgroundColor,
+		TextColor:       theme.TextColor,
+		FontFamily:      theme.FontFamily,
+		HeadingFont:     theme.HeadingFont,
+		BorderRadius:    theme.BorderRadius,
+		CustomCSS:       theme.CustomCSS,
+		SiteName:        theme.SiteName,
+		SiteTagline:     theme.SiteTagline,
+		LogoURL:         theme.LogoURL,
+		HeadHTML:        theme.HeadHTML,
+		HeaderHTML:      theme.HeaderHTML,
+		FooterHTML:      theme.FooterHTML,
+	}
+
+	return s.db.SaveThemeVersion(ctx, &v1)
 }
 
 // generateThemeCSS generates CSS variables file from theme settings

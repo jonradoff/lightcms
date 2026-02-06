@@ -243,6 +243,29 @@ type ThemeSettings struct {
 	UpdatedAt       time.Time          `bson:"updated_at"`
 }
 
+// ThemeVersion represents a historical version of theme settings
+type ThemeVersion struct {
+	ID              primitive.ObjectID `bson:"_id,omitempty" json:"id"`
+	Version         int                `bson:"version" json:"version"`
+	Comment         string             `bson:"comment,omitempty" json:"comment,omitempty"`
+	PrimaryColor    string             `bson:"primary_color" json:"primary_color"`
+	SecondaryColor  string             `bson:"secondary_color" json:"secondary_color"`
+	AccentColor     string             `bson:"accent_color" json:"accent_color"`
+	BackgroundColor string             `bson:"background_color" json:"background_color"`
+	TextColor       string             `bson:"text_color" json:"text_color"`
+	FontFamily      string             `bson:"font_family" json:"font_family"`
+	HeadingFont     string             `bson:"heading_font" json:"heading_font"`
+	BorderRadius    string             `bson:"border_radius" json:"border_radius"`
+	CustomCSS       string             `bson:"custom_css" json:"custom_css"`
+	SiteName        string             `bson:"site_name" json:"site_name"`
+	SiteTagline     string             `bson:"site_tagline" json:"site_tagline"`
+	LogoURL         string             `bson:"logo_url" json:"logo_url"`
+	HeadHTML        string             `bson:"head_html" json:"head_html"`
+	HeaderHTML      string             `bson:"header_html" json:"header_html"`
+	FooterHTML      string             `bson:"footer_html" json:"footer_html"`
+	CreatedAt       time.Time          `bson:"created_at" json:"created_at"`
+}
+
 func (db *DB) GetThemeSettings(ctx context.Context) (*ThemeSettings, error) {
 	var settings ThemeSettings
 	err := db.Settings().FindOne(ctx, bson.M{"type": "theme"}).Decode(&settings)
@@ -277,6 +300,53 @@ func (db *DB) SaveThemeSettings(ctx context.Context, settings *ThemeSettings) er
 		options.Update().SetUpsert(true),
 	)
 	return err
+}
+
+// ThemeVersions returns the theme_versions collection
+func (db *DB) ThemeVersions() *mongo.Collection {
+	return db.database.Collection("theme_versions")
+}
+
+// SaveThemeVersion saves a new version of the theme settings
+func (db *DB) SaveThemeVersion(ctx context.Context, version *ThemeVersion) error {
+	version.CreatedAt = time.Now()
+	id, err := db.InsertOne(ctx, "theme_versions", version)
+	if err != nil {
+		return err
+	}
+	version.ID = id
+	return nil
+}
+
+// GetThemeVersions retrieves all theme versions sorted by version number descending
+func (db *DB) GetThemeVersions(ctx context.Context) ([]ThemeVersion, error) {
+	cursor, err := db.FindMany(ctx, "theme_versions", bson.M{},
+		options.Find().SetSort(bson.D{{Key: "version", Value: -1}}))
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+
+	var versions []ThemeVersion
+	if err := cursor.All(ctx, &versions); err != nil {
+		return nil, err
+	}
+	return versions, nil
+}
+
+// GetThemeVersion retrieves a specific theme version by version number
+func (db *DB) GetThemeVersion(ctx context.Context, version int) (*ThemeVersion, error) {
+	var v ThemeVersion
+	err := db.FindOne(ctx, "theme_versions", bson.M{"version": version}, &v)
+	if err != nil {
+		return nil, err
+	}
+	return &v, nil
+}
+
+// GetThemeVersionCount returns the number of theme versions
+func (db *DB) GetThemeVersionCount(ctx context.Context) (int64, error) {
+	return db.Count(ctx, "theme_versions", bson.M{})
 }
 
 // AdminSettings stores admin configuration including password hash

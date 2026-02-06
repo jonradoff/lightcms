@@ -92,6 +92,12 @@ func main() {
 		log.Printf("Warning: Failed to migrate asset serve paths: %v", err)
 	}
 
+	// Ensure theme version 1 exists (save current theme as first version if no versions exist)
+	settingsService := services.NewSettingsService(db, services.NewContentService(db))
+	if err := settingsService.EnsureThemeVersion1(context.Background()); err != nil {
+		log.Printf("Warning: Failed to ensure theme version 1: %v", err)
+	}
+
 	// Start content change watcher for real-time sync with database changes
 	// This enables automatic static page regeneration when content is modified via MCP
 	contentService := services.NewContentService(db)
@@ -169,6 +175,9 @@ func main() {
 	admin.HandleFunc("/collections/{id}/delete", h.DeleteCollection).Methods("POST")
 	admin.HandleFunc("/theme", h.ThemeSettings).Methods("GET")
 	admin.HandleFunc("/theme", h.UpdateTheme).Methods("POST")
+	admin.HandleFunc("/theme/versions", h.ThemeVersions).Methods("GET")
+	admin.HandleFunc("/theme/versions/{version}", h.ThemeVersionDiff).Methods("GET")
+	admin.HandleFunc("/theme/versions/{version}/revert", h.RevertThemeVersion).Methods("POST")
 	admin.HandleFunc("/security", h.SecuritySettings).Methods("GET")
 	admin.HandleFunc("/security", h.UpdatePassword).Methods("POST")
 	admin.HandleFunc("/config", h.SiteConfiguration).Methods("GET")
