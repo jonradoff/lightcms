@@ -4848,6 +4848,135 @@ var adminTemplates = map[string]string{
         });
         </script>
     ` + adminLayoutEnd,
+
+	"api_keys": adminLayoutStart + `
+        <div class="page-header">
+            <h1>API Keys</h1>
+            <a href="/cm/api-keys/new" class="btn btn-primary">+ New API Key</a>
+        </div>
+        {{if .Error}}<div class="error-message">{{.Error}}</div>{{end}}
+        {{if .Success}}<div class="success-message">{{.Success}}</div>{{end}}
+
+        <p class="help-text" style="margin-bottom: 1.5rem;">API keys provide programmatic access to the LightCMS REST API. Use them with the CLI tool, MCP server, or custom integrations.</p>
+
+        {{if .APIKeys}}
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Description</th>
+                        <th>Key Prefix</th>
+                        <th>Created</th>
+                        <th>Last Used</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range .APIKeys}}
+                    <tr>
+                        <td><strong>{{.Name}}</strong></td>
+                        <td>{{if .Description}}{{.Description}}{{else}}<em>—</em>{{end}}</td>
+                        <td><code>{{.Prefix}}...</code></td>
+                        <td>{{.CreatedAt.Format "Jan 2, 2006"}}</td>
+                        <td>{{if .LastUsedAt}}{{.LastUsedAt.Format "Jan 2, 2006 3:04 PM"}}{{else}}<em>Never</em>{{end}}</td>
+                        <td>
+                            <form method="POST" action="/cm/api-keys/{{.ID.Hex}}/delete" style="display:inline;">
+                                {{$.CSRFField}}
+                                <button type="submit" class="btn btn-danger btn-sm delete-btn" data-message="Are you sure you want to delete the API key '{{.Name}}'? Any integrations using this key will stop working.">Delete</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+        {{else}}
+        <div class="empty-state">
+            <p>No API keys yet. Create one to enable programmatic access.</p>
+        </div>
+        {{end}}
+    ` + adminLayoutEnd,
+
+	"api_key_new": adminLayoutStart + `
+        <div class="page-header">
+            <h1>New API Key</h1>
+        </div>
+        {{if .Error}}<div class="error-message">{{.Error}}</div>{{end}}
+
+        <form method="POST" class="form-card">
+            {{.CSRFField}}
+            <div class="form-section">
+                <div class="form-group">
+                    <label for="name">Name <span class="required">*</span></label>
+                    <input type="text" id="name" name="name" required placeholder="e.g., CLI Access, MCP Server, CI/CD">
+                </div>
+                <div class="form-group">
+                    <label for="description">Description</label>
+                    <input type="text" id="description" name="description" placeholder="What this key is used for">
+                </div>
+            </div>
+            <div class="form-actions">
+                <a href="/cm/api-keys" class="btn btn-outline">Cancel</a>
+                <button type="submit" class="btn btn-primary">Create API Key</button>
+            </div>
+        </form>
+    ` + adminLayoutEnd,
+
+	"api_key_created": adminLayoutStart + `
+        <div class="page-header">
+            <h1>API Key Created</h1>
+        </div>
+
+        <div class="form-card">
+            <div class="form-section">
+                <div style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: var(--radius); padding: 1.5rem; margin-bottom: 1.5rem;">
+                    <p style="margin: 0 0 0.5rem; color: #10b981; font-weight: 600;">Your API key has been created</p>
+                    <p style="margin: 0 0 1rem; color: var(--text-muted);">Copy this key now — it will not be shown again.</p>
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                        <code id="api-key-value" style="flex: 1; background: var(--bg-primary); padding: 0.75rem 1rem; border-radius: 6px; font-size: 1rem; word-break: break-all; border: 1px solid var(--border);">{{.RawKey}}</code>
+                        <button type="button" class="btn btn-primary" onclick="copyKey()" id="copy-btn">Copy</button>
+                    </div>
+                </div>
+
+                <table style="width: 100%;">
+                    <tr>
+                        <td style="padding: 0.5rem 0; color: var(--text-muted); width: 120px;">Name</td>
+                        <td style="padding: 0.5rem 0;"><strong>{{.APIKey.Name}}</strong></td>
+                    </tr>
+                    {{if .APIKey.Description}}
+                    <tr>
+                        <td style="padding: 0.5rem 0; color: var(--text-muted);">Description</td>
+                        <td style="padding: 0.5rem 0;">{{.APIKey.Description}}</td>
+                    </tr>
+                    {{end}}
+                    <tr>
+                        <td style="padding: 0.5rem 0; color: var(--text-muted);">Prefix</td>
+                        <td style="padding: 0.5rem 0;"><code>{{.APIKey.Prefix}}...</code></td>
+                    </tr>
+                </table>
+            </div>
+
+            <div class="form-actions">
+                <a href="/cm/api-keys" class="btn btn-primary">Done</a>
+            </div>
+        </div>
+
+        <script>
+        function copyKey() {
+            var key = document.getElementById('api-key-value').textContent;
+            navigator.clipboard.writeText(key).then(function() {
+                var btn = document.getElementById('copy-btn');
+                btn.textContent = 'Copied!';
+                btn.style.background = '#10b981';
+                setTimeout(function() {
+                    btn.textContent = 'Copy';
+                    btn.style.background = '';
+                }, 2000);
+            });
+        }
+        </script>
+    ` + adminLayoutEnd,
 }
 
 const adminLayoutStart = `<!DOCTYPE html>
@@ -5488,6 +5617,7 @@ const adminLayoutStart = `<!DOCTYPE html>
                     <a href="/cm/theme" class="nav-link">🎨 Theme</a>
                     <a href="/cm/redirects" class="nav-link">↪️ Redirects</a>
                     <a href="/cm/config" class="nav-link">⚙️ Configuration</a>
+                    <a href="/cm/api-keys" class="nav-link">🔑 API Keys</a>
                     <a href="/cm/security" class="nav-link">🔒 Security</a>
                 </div>
                 <div class="nav-section">

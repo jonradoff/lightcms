@@ -22,6 +22,7 @@ import (
 	"lightcms/internal/errors"
 	"lightcms/internal/middleware"
 	"lightcms/internal/models"
+	"lightcms/internal/services"
 
 	"github.com/gorilla/csrf"
 	"github.com/gorilla/mux"
@@ -32,21 +33,23 @@ import (
 )
 
 type Handler struct {
-	db      *database.DB
-	auth    *auth.Manager
-	baseURL string
-	env     string
-	errors  *errors.Handler
+	db            *database.DB
+	auth          *auth.Manager
+	baseURL       string
+	env           string
+	errors        *errors.Handler
+	apiKeyService *services.APIKeyService
 }
 
 func New(db *database.DB, authManager *auth.Manager, baseURL string, env string) *Handler {
 	isDev := env == "development" || env == "dev"
 	return &Handler{
-		db:      db,
-		auth:    authManager,
-		baseURL: baseURL,
-		env:     env,
-		errors:  errors.NewHandler(isDev),
+		db:            db,
+		auth:          authManager,
+		baseURL:       baseURL,
+		env:           env,
+		errors:        errors.NewHandler(isDev),
+		apiKeyService: services.NewAPIKeyService(db),
 	}
 }
 
@@ -2704,6 +2707,85 @@ func (h *Handler) UpdatePassword(w http.ResponseWriter, r *http.Request) {
 		"Success":           "Password changed successfully!",
 		"IsDefaultPassword": false,
 	})
+}
+
+// APIKeysPage lists all API keys
+func (h *Handler) APIKeysPage(w http.ResponseWriter, r *http.Request) {
+	if !h.auth.IsAuthenticated(r) {
+		http.Redirect(w, r, "/cm/login", http.StatusSeeOther)
+		return
+	}
+
+	keys, err := h.apiKeyService.ListAPIKeys(r.Context())
+	if err != nil {
+		log.Printf("Failed to list API keys: %v", err)
+	}
+
+	h.renderAdmin(w, r, "api_keys", map[string]interface{}{
+		"APIKeys": keys,
+	})
+}
+
+// NewAPIKeyPage shows the form to create a new API key
+func (h *Handler) NewAPIKeyPage(w http.ResponseWriter, r *http.Request) {
+	if !h.auth.IsAuthenticated(r) {
+		http.Redirect(w, r, "/cm/login", http.StatusSeeOther)
+		return
+	}
+
+	h.renderAdmin(w, r, "api_key_new", nil)
+}
+
+// CreateAPIKey creates a new API key and shows it once
+func (h *Handler) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
+	if !h.auth.IsAuthenticated(r) {
+		http.Redirect(w, r, "/cm/login", http.StatusSeeOther)
+		return
+	}
+
+	name := strings.TrimSpace(r.FormValue("name"))
+	description := strings.TrimSpace(r.FormValue("description"))
+
+	if name == "" {
+		h.renderAdmin(w, r, "api_key_new", map[string]interface{}{
+			"Error": "Name is required",
+		})
+		return
+	}
+
+	rawKey, apiKey, err := h.apiKeyService.CreateAPIKey(r.Context(), name, description)
+	if err != nil {
+		h.renderAdmin(w, r, "api_key_new", map[string]interface{}{
+			"Error": "Failed to create API key: " + err.Error(),
+		})
+		return
+	}
+
+	h.renderAdmin(w, r, "api_key_created", map[string]interface{}{
+		"RawKey": rawKey,
+		"APIKey": apiKey,
+	})
+}
+
+// DeleteAPIKey deletes an API key
+func (h *Handler) DeleteAPIKey(w http.ResponseWriter, r *http.Request) {
+	if !h.auth.IsAuthenticated(r) {
+		http.Redirect(w, r, "/cm/login", http.StatusSeeOther)
+		return
+	}
+
+	vars := mux.Vars(r)
+	id, err := primitive.ObjectIDFromHex(vars["id"])
+	if err != nil {
+		http.Redirect(w, r, "/cm/api-keys", http.StatusSeeOther)
+		return
+	}
+
+	if err := h.apiKeyService.DeleteAPIKey(r.Context(), id); err != nil {
+		log.Printf("Failed to delete API key: %v", err)
+	}
+
+	http.Redirect(w, r, "/cm/api-keys", http.StatusSeeOther)
 }
 
 // SiteConfiguration shows the site configuration page

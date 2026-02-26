@@ -5,30 +5,19 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"lightcms/internal/database"
-	"lightcms/internal/services"
+	"lightcms/internal/apiclient"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// Server wraps the MCP server and services
+// Server wraps the MCP server and API client
 type Server struct {
-	mcpServer       *mcp.Server
-	db              *database.DB
-	contentService  *services.ContentService
-	templateService *services.TemplateService
-	assetService    *services.AssetService
-	settingsService *services.SettingsService
+	mcpServer *mcp.Server
+	client    *apiclient.Client
 }
 
 // NewServer creates a new MCP server with all tools registered
-func NewServer(db *database.DB) *Server {
-	// Create services
-	contentService := services.NewContentService(db)
-	templateService := services.NewTemplateService(db, contentService)
-	assetService := services.NewAssetService(db)
-	settingsService := services.NewSettingsService(db, contentService)
-
+func NewServer(client *apiclient.Client) *Server {
 	// Create MCP server
 	mcpServer := mcp.NewServer(
 		&mcp.Implementation{
@@ -39,12 +28,8 @@ func NewServer(db *database.DB) *Server {
 	)
 
 	s := &Server{
-		mcpServer:       mcpServer,
-		db:              db,
-		contentService:  contentService,
-		templateService: templateService,
-		assetService:    assetService,
-		settingsService: settingsService,
+		mcpServer: mcpServer,
+		client:    client,
 	}
 
 	// Register all tools

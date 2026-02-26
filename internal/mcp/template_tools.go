@@ -4,10 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"lightcms/internal/models"
+	"lightcms/internal/apiclient"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 // Template tool input types
@@ -21,22 +20,22 @@ type GetTemplateInput struct {
 }
 
 type CreateTemplateInput struct {
-	Name        string                `json:"name" jsonschema:"Template name,required"`
-	Slug        string                `json:"slug" jsonschema:"Template slug for URLs,required"`
-	Description string                `json:"description,omitempty" jsonschema:"Template description"`
-	Category    string                `json:"category,omitempty" jsonschema:"Template category for grouping"`
-	Fields      []models.TemplateField `json:"fields" jsonschema:"Template fields definition,required"`
-	HTMLLayout  string                `json:"html_layout" jsonschema:"HTML layout with {{.FieldName}} placeholders,required"`
+	Name        string                   `json:"name" jsonschema:"Template name,required"`
+	Slug        string                   `json:"slug" jsonschema:"Template slug for URLs,required"`
+	Description string                   `json:"description,omitempty" jsonschema:"Template description"`
+	Category    string                   `json:"category,omitempty" jsonschema:"Template category for grouping"`
+	Fields      []apiclient.TemplateField `json:"fields" jsonschema:"Template fields definition,required"`
+	HTMLLayout  string                   `json:"html_layout" jsonschema:"HTML layout with {{.FieldName}} placeholders,required"`
 }
 
 type UpdateTemplateInput struct {
-	ID          string                `json:"id" jsonschema:"Template ID (MongoDB ObjectID),required"`
-	Name        string                `json:"name,omitempty" jsonschema:"Template name"`
-	Slug        string                `json:"slug,omitempty" jsonschema:"Template slug"`
-	Description string                `json:"description,omitempty" jsonschema:"Template description"`
-	Category    string                `json:"category,omitempty" jsonschema:"Template category"`
-	Fields      []models.TemplateField `json:"fields,omitempty" jsonschema:"Template fields definition"`
-	HTMLLayout  string                `json:"html_layout,omitempty" jsonschema:"HTML layout (changing this regenerates all content using this template)"`
+	ID          string                   `json:"id" jsonschema:"Template ID (MongoDB ObjectID),required"`
+	Name        string                   `json:"name,omitempty" jsonschema:"Template name"`
+	Slug        string                   `json:"slug,omitempty" jsonschema:"Template slug"`
+	Description string                   `json:"description,omitempty" jsonschema:"Template description"`
+	Category    string                   `json:"category,omitempty" jsonschema:"Template category"`
+	Fields      []apiclient.TemplateField `json:"fields,omitempty" jsonschema:"Template fields definition"`
+	HTMLLayout  string                   `json:"html_layout,omitempty" jsonschema:"HTML layout (changing this regenerates all content using this template)"`
 }
 
 func (s *Server) registerTemplateTools() {
@@ -51,12 +50,11 @@ func (s *Server) registerTemplateTools() {
 			OpenWorldHint: boolPtr(false),
 		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args struct{}) (*mcp.CallToolResult, any, error) {
-		templates, err := s.templateService.ListTemplates(ctx)
+		templates, err := s.client.ListTemplates(ctx)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
 
-		// Return summary for each template
 		type TemplateSummary struct {
 			ID          string `json:"id"`
 			Name        string `json:"name"`
@@ -70,7 +68,7 @@ func (s *Server) registerTemplateTools() {
 		summaries := make([]TemplateSummary, len(templates))
 		for i, t := range templates {
 			summaries[i] = TemplateSummary{
-				ID:          t.ID.Hex(),
+				ID:          t.ID,
 				Name:        t.Name,
 				Slug:        t.Slug,
 				Description: t.Description,
@@ -94,21 +92,17 @@ func (s *Server) registerTemplateTools() {
 			OpenWorldHint: boolPtr(false),
 		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args GetTemplateInput) (*mcp.CallToolResult, any, error) {
-		var tmpl *models.Template
-		var err error
-
-		if args.ID != "" {
-			id, err := primitive.ObjectIDFromHex(args.ID)
-			if err != nil {
-				return errorResult(fmt.Errorf("invalid id: %w", err)), nil, nil
-			}
-			tmpl, err = s.templateService.GetTemplate(ctx, id)
-		} else if args.Slug != "" {
-			tmpl, err = s.templateService.GetTemplateBySlug(ctx, args.Slug)
-		} else {
+		if args.ID == "" && args.Slug == "" {
 			return errorResult(fmt.Errorf("either id or slug is required")), nil, nil
 		}
 
+		// The API supports both ID and slug on the same endpoint
+		lookup := args.ID
+		if lookup == "" {
+			lookup = args.Slug
+		}
+
+		tmpl, err := s.client.GetTemplate(ctx, lookup)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
@@ -129,23 +123,23 @@ func (s *Server) registerTemplateTools() {
 			OpenWorldHint:   boolPtr(false),
 		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args CreateTemplateInput) (*mcp.CallToolResult, any, error) {
-		tmpl := &models.Template{
+		createReq := apiclient.CreateTemplateRequest{
 			Name:        args.Name,
 			Slug:        args.Slug,
 			Description: args.Description,
 			Category:    args.Category,
 			Fields:      args.Fields,
 			HTMLLayout:  args.HTMLLayout,
-			IsSystem:    false,
 		}
 
-		if err := s.templateService.CreateTemplate(ctx, tmpl); err != nil {
+		tmpl, err := s.client.CreateTemplate(ctx, createReq)
+		if err != nil {
 			return errorResult(err), nil, nil
 		}
 
 		return jsonResult(map[string]interface{}{
 			"success": true,
-			"id":      tmpl.ID.Hex(),
+			"id":      tmpl.ID,
 			"message": fmt.Sprintf("Template '%s' created successfully", tmpl.Name),
 		}), nil, nil
 	})
@@ -163,44 +157,35 @@ func (s *Server) registerTemplateTools() {
 			OpenWorldHint:   boolPtr(false),
 		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args UpdateTemplateInput) (*mcp.CallToolResult, any, error) {
-		id, err := primitive.ObjectIDFromHex(args.ID)
-		if err != nil {
-			return errorResult(fmt.Errorf("invalid id: %w", err)), nil, nil
-		}
+		updates := make(apiclient.UpdateTemplateRequest)
 
-		// Get existing template
-		tmpl, err := s.templateService.GetTemplate(ctx, id)
-		if err != nil {
-			return errorResult(err), nil, nil
-		}
-
-		// Update fields if provided
 		if args.Name != "" {
-			tmpl.Name = args.Name
+			updates["name"] = args.Name
 		}
 		if args.Slug != "" {
-			tmpl.Slug = args.Slug
+			updates["slug"] = args.Slug
 		}
 		if args.Description != "" {
-			tmpl.Description = args.Description
+			updates["description"] = args.Description
 		}
 		if args.Category != "" {
-			tmpl.Category = args.Category
+			updates["category"] = args.Category
 		}
 		if args.Fields != nil {
-			tmpl.Fields = args.Fields
+			updates["fields"] = args.Fields
 		}
 		if args.HTMLLayout != "" {
-			tmpl.HTMLLayout = args.HTMLLayout
+			updates["html_layout"] = args.HTMLLayout
 		}
 
-		if err := s.templateService.UpdateTemplate(ctx, tmpl); err != nil {
+		tmpl, err := s.client.UpdateTemplate(ctx, args.ID, updates)
+		if err != nil {
 			return errorResult(err), nil, nil
 		}
 
 		return jsonResult(map[string]interface{}{
 			"success": true,
-			"id":      tmpl.ID.Hex(),
+			"id":      tmpl.ID,
 			"message": fmt.Sprintf("Template '%s' updated successfully", tmpl.Name),
 		}), nil, nil
 	})
@@ -218,15 +203,9 @@ func (s *Server) registerTemplateTools() {
 			OpenWorldHint:   boolPtr(false),
 		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args TemplateIDInput) (*mcp.CallToolResult, any, error) {
-		id, err := primitive.ObjectIDFromHex(args.ID)
-		if err != nil {
-			return errorResult(fmt.Errorf("invalid id: %w", err)), nil, nil
-		}
-
-		if err := s.templateService.DeleteTemplate(ctx, id); err != nil {
+		if err := s.client.DeleteTemplate(ctx, args.ID); err != nil {
 			return errorResult(err), nil, nil
 		}
-
 		return textResult(fmt.Sprintf("Template %s deleted successfully", args.ID)), nil, nil
 	})
 }

@@ -98,9 +98,13 @@ func main() {
 		log.Printf("Warning: Failed to ensure theme version 1: %v", err)
 	}
 
+	// Initialize services for API and change watcher
+	contentService := services.NewContentService(db)
+	templateService := services.NewTemplateService(db, contentService)
+	assetService := services.NewAssetService(db)
+
 	// Start content change watcher for real-time sync with database changes
 	// This enables automatic static page regeneration when content is modified via MCP
-	contentService := services.NewContentService(db)
 	watchCtx, watchCancel := context.WithCancel(context.Background())
 	defer watchCancel()
 	go contentService.WatchForChanges(watchCtx)
@@ -202,11 +206,99 @@ func main() {
 	admin.HandleFunc("/assets/upload", h.AssetUploadForm).Methods("GET")
 	admin.HandleFunc("/assets/upload", h.AssetUpload).Methods("POST")
 	admin.HandleFunc("/assets/{id}/delete", h.DeleteAsset).Methods("POST")
+	admin.HandleFunc("/api-keys", h.APIKeysPage).Methods("GET")
+	admin.HandleFunc("/api-keys/new", h.NewAPIKeyPage).Methods("GET")
+	admin.HandleFunc("/api-keys/new", h.CreateAPIKey).Methods("POST")
+	admin.HandleFunc("/api-keys/{id}/delete", h.DeleteAPIKey).Methods("POST")
 
 	// Tools routes
 	admin.HandleFunc("/tools/broken-links", h.BrokenLinkFinder).Methods("GET")
 
-	// API routes for AJAX
+	// REST API v1 routes (API key authenticated, JSON only)
+	apiKeyService := services.NewAPIKeyService(db)
+	apiHandler := handlers.NewAPIHandler(contentService, templateService, assetService, settingsService, apiKeyService)
+	apiAuthMiddleware := middleware.NewAPIAuth(func(ctx context.Context, rawKey string) error {
+		_, err := apiKeyService.ValidateAPIKey(ctx, rawKey)
+		return err
+	})
+
+	apiv1 := r.PathPrefix("/api/v1").Subrouter()
+	apiv1.Use(apiAuthMiddleware.Middleware)
+
+	// Content
+	apiv1.HandleFunc("/content", apiHandler.APIListContent).Methods("GET")
+	apiv1.HandleFunc("/content", apiHandler.APICreateContent).Methods("POST")
+	apiv1.HandleFunc("/content/by-path", apiHandler.APIGetContentByPath).Methods("GET")
+	apiv1.HandleFunc("/content/{id}", apiHandler.APIGetContent).Methods("GET")
+	apiv1.HandleFunc("/content/{id}", apiHandler.APIUpdateContent).Methods("PUT")
+	apiv1.HandleFunc("/content/{id}", apiHandler.APIDeleteContent).Methods("DELETE")
+	apiv1.HandleFunc("/content/{id}/restore", apiHandler.APIRestoreContent).Methods("POST")
+	apiv1.HandleFunc("/content/{id}/publish", apiHandler.APIPublishContent).Methods("POST")
+	apiv1.HandleFunc("/content/{id}/unpublish", apiHandler.APIUnpublishContent).Methods("POST")
+	apiv1.HandleFunc("/content/{id}/versions", apiHandler.APIListContentVersions).Methods("GET")
+	apiv1.HandleFunc("/content/{id}/versions/{version}", apiHandler.APIGetContentVersion).Methods("GET")
+	apiv1.HandleFunc("/content/{id}/versions/{version}/revert", apiHandler.APIRevertContentVersion).Methods("POST")
+
+	// Templates
+	apiv1.HandleFunc("/templates", apiHandler.APIListTemplates).Methods("GET")
+	apiv1.HandleFunc("/templates", apiHandler.APICreateTemplate).Methods("POST")
+	apiv1.HandleFunc("/templates/{id}", apiHandler.APIGetTemplate).Methods("GET")
+	apiv1.HandleFunc("/templates/{id}", apiHandler.APIUpdateTemplate).Methods("PUT")
+	apiv1.HandleFunc("/templates/{id}", apiHandler.APIDeleteTemplate).Methods("DELETE")
+
+	// Assets
+	apiv1.HandleFunc("/assets", apiHandler.APIListAssets).Methods("GET")
+	apiv1.HandleFunc("/assets", apiHandler.APIUploadAsset).Methods("POST")
+	apiv1.HandleFunc("/assets/folders", apiHandler.APIListAssetFolders).Methods("GET")
+	apiv1.HandleFunc("/assets/by-path", apiHandler.APIGetAssetByPath).Methods("GET")
+	apiv1.HandleFunc("/assets/{id}", apiHandler.APIGetAsset).Methods("GET")
+	apiv1.HandleFunc("/assets/{id}", apiHandler.APIDeleteAsset).Methods("DELETE")
+
+	// Theme
+	apiv1.HandleFunc("/theme", apiHandler.APIGetTheme).Methods("GET")
+	apiv1.HandleFunc("/theme", apiHandler.APIUpdateTheme).Methods("PUT")
+	apiv1.HandleFunc("/theme/versions", apiHandler.APIListThemeVersions).Methods("GET")
+	apiv1.HandleFunc("/theme/versions/{version}", apiHandler.APIGetThemeVersion).Methods("GET")
+	apiv1.HandleFunc("/theme/versions/{version}/revert", apiHandler.APIRevertThemeVersion).Methods("POST")
+
+	// Site Config
+	apiv1.HandleFunc("/config", apiHandler.APIGetSiteConfig).Methods("GET")
+	apiv1.HandleFunc("/config", apiHandler.APIUpdateSiteConfig).Methods("PUT")
+
+	// Redirects
+	apiv1.HandleFunc("/redirects", apiHandler.APIListRedirects).Methods("GET")
+	apiv1.HandleFunc("/redirects", apiHandler.APICreateRedirect).Methods("POST")
+	apiv1.HandleFunc("/redirects/{id}", apiHandler.APIGetRedirect).Methods("GET")
+	apiv1.HandleFunc("/redirects/{id}", apiHandler.APIUpdateRedirect).Methods("PUT")
+	apiv1.HandleFunc("/redirects/{id}", apiHandler.APIDeleteRedirect).Methods("DELETE")
+
+	// Folders
+	apiv1.HandleFunc("/folders", apiHandler.APIListFolders).Methods("GET")
+	apiv1.HandleFunc("/folders", apiHandler.APICreateFolder).Methods("POST")
+	apiv1.HandleFunc("/folders/{id}", apiHandler.APIGetFolder).Methods("GET")
+	apiv1.HandleFunc("/folders/{id}", apiHandler.APIDeleteFolder).Methods("DELETE")
+
+	// Collections
+	apiv1.HandleFunc("/collections", apiHandler.APIListCollections).Methods("GET")
+	apiv1.HandleFunc("/collections", apiHandler.APICreateCollection).Methods("POST")
+	apiv1.HandleFunc("/collections/{id}", apiHandler.APIGetCollection).Methods("GET")
+	apiv1.HandleFunc("/collections/{id}", apiHandler.APIUpdateCollection).Methods("PUT")
+	apiv1.HandleFunc("/collections/{id}", apiHandler.APIDeleteCollection).Methods("DELETE")
+
+	// Search
+	apiv1.HandleFunc("/search", apiHandler.APISearchContent).Methods("GET")
+	apiv1.HandleFunc("/search-replace/preview", apiHandler.APISearchReplacePreview).Methods("POST")
+	apiv1.HandleFunc("/search-replace/execute", apiHandler.APISearchReplaceExecute).Methods("POST")
+
+	// API Keys
+	apiv1.HandleFunc("/api-keys", apiHandler.APIListAPIKeys).Methods("GET")
+	apiv1.HandleFunc("/api-keys", apiHandler.APICreateAPIKey).Methods("POST")
+	apiv1.HandleFunc("/api-keys/{id}", apiHandler.APIDeleteAPIKey).Methods("DELETE")
+
+	// Regenerate
+	apiv1.HandleFunc("/regenerate", apiHandler.APIRegenerateAllContent).Methods("POST")
+
+	// API routes for AJAX (admin panel internal use)
 	// Note: Most API routes require authentication (checked in handlers)
 	// The /api/contact route is public for contact form submissions
 	api := r.PathPrefix("/api").Subrouter()

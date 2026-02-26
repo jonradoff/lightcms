@@ -5,11 +5,10 @@
 # Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Set config directory so the MCP server can find config files
-export LIGHTCMS_CONFIG_DIR="$SCRIPT_DIR"
+# Load API key from .env file if it exists
+if [ -f "$SCRIPT_DIR/.env" ]; then
+    export $(grep -v '^#' "$SCRIPT_DIR/.env" | xargs)
+fi
 
-# Change to the script directory so relative paths work correctly
-cd "$SCRIPT_DIR"
-
-# Run the MCP server
+# Run the MCP server (requires LIGHTCMS_URL and LIGHTCMS_API_KEY env vars)
 exec "$SCRIPT_DIR/bin/lightcms-mcp"

@@ -2,31 +2,36 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 
-	"lightcms/config"
-	"lightcms/internal/database"
+	"lightcms/internal/apiclient"
 	"lightcms/internal/mcp"
 )
 
 func main() {
-	// Load configuration
-	cfg, err := config.Load()
-	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
+	// Read configuration from environment variables
+	baseURL := os.Getenv("LIGHTCMS_URL")
+	apiKey := os.Getenv("LIGHTCMS_API_KEY")
+
+	if baseURL == "" {
+		// Default to localhost
+		baseURL = "http://localhost:8082"
 	}
 
-	// Connect to database
-	ctx := context.Background()
-	db, err := database.Connect(ctx, cfg.MongoURI, "lightcms")
-	if err != nil {
-		log.Fatalf("Failed to connect to database: %v", err)
+	if apiKey == "" {
+		fmt.Fprintf(os.Stderr, "Error: LIGHTCMS_API_KEY environment variable is required\n")
+		fmt.Fprintf(os.Stderr, "Create an API key in the admin panel at /cm/api-keys\n")
+		os.Exit(1)
 	}
-	defer db.Disconnect(ctx)
+
+	// Create API client
+	client := apiclient.New(baseURL, apiKey)
 
 	// Create and run MCP server
-	server := mcp.NewServer(db)
+	ctx := context.Background()
+	server := mcp.NewServer(client)
 	if err := server.Run(ctx); err != nil {
 		log.Printf("MCP server error: %v", err)
 		os.Exit(1)

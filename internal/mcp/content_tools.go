@@ -4,10 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"lightcms/internal/models"
+	"lightcms/internal/apiclient"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 // Content tool input types
@@ -82,21 +81,12 @@ func (s *Server) registerContentTools() {
 		Title:       "List Content",
 		Description: "List all content items with optional filters. Returns content metadata including title, path, publish status, and timestamps.",
 		Annotations: &mcp.ToolAnnotations{
-			Title:        "List Content",
-			ReadOnlyHint: true,
+			Title:         "List Content",
+			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
 		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args ListContentInput) (*mcp.CallToolResult, any, error) {
-		var folderID *primitive.ObjectID
-		if args.FolderID != "" {
-			id, err := primitive.ObjectIDFromHex(args.FolderID)
-			if err != nil {
-				return errorResult(fmt.Errorf("invalid folder_id: %w", err)), nil, nil
-			}
-			folderID = &id
-		}
-
-		contents, err := s.contentService.ListContent(ctx, args.IncludeDeleted, args.Category, folderID)
+		contents, err := s.client.ListContent(ctx, args.IncludeDeleted, args.Category, args.FolderID)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
@@ -120,7 +110,7 @@ func (s *Server) registerContentTools() {
 		draftCount := 0
 		for i, c := range contents {
 			summary := ContentSummary{
-				ID:        c.ID.Hex(),
+				ID:        c.ID,
 				Title:     c.Title,
 				Slug:      c.Slug,
 				FullPath:  c.FullPath,
@@ -134,7 +124,6 @@ func (s *Server) registerContentTools() {
 			}
 			summaries[i] = summary
 
-			// Count stats
 			if c.Deleted {
 				deletedCount++
 			} else if c.Published {
@@ -144,7 +133,6 @@ func (s *Server) registerContentTools() {
 			}
 		}
 
-		// Return response with summary stats
 		type ListContentResponse struct {
 			Total           int              `json:"total"`
 			Published       int              `json:"published"`
@@ -172,22 +160,18 @@ func (s *Server) registerContentTools() {
 		Title:       "Get Content",
 		Description: "Get a single content item by ID or path. Returns full content including all field data.",
 		Annotations: &mcp.ToolAnnotations{
-			Title:        "Get Content",
-			ReadOnlyHint: true,
+			Title:         "Get Content",
+			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
 		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args GetContentInput) (*mcp.CallToolResult, any, error) {
-		var content *models.Content
+		var content *apiclient.Content
 		var err error
 
 		if args.ID != "" {
-			id, err := primitive.ObjectIDFromHex(args.ID)
-			if err != nil {
-				return errorResult(fmt.Errorf("invalid id: %w", err)), nil, nil
-			}
-			content, err = s.contentService.GetContent(ctx, id)
+			content, err = s.client.GetContent(ctx, args.ID)
 		} else if args.Path != "" {
-			content, err = s.contentService.GetContentByPath(ctx, args.Path)
+			content, err = s.client.GetContentByPath(ctx, args.Path)
 		} else {
 			return errorResult(fmt.Errorf("either id or path is required")), nil, nil
 		}
@@ -212,20 +196,8 @@ func (s *Server) registerContentTools() {
 			OpenWorldHint:   boolPtr(false),
 		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args CreateContentInput) (*mcp.CallToolResult, any, error) {
-		templateID, err := primitive.ObjectIDFromHex(args.TemplateID)
-		if err != nil {
-			return errorResult(fmt.Errorf("invalid template_id: %w", err)), nil, nil
-		}
-
-		// Get template name
-		tmpl, err := s.templateService.GetTemplate(ctx, templateID)
-		if err != nil {
-			return errorResult(fmt.Errorf("template not found: %w", err)), nil, nil
-		}
-
-		content := &models.Content{
-			TemplateID:      templateID,
-			TemplateName:    tmpl.Name,
+		createReq := apiclient.CreateContentRequest{
+			TemplateID:      args.TemplateID,
 			Title:           args.Title,
 			Slug:            args.Slug,
 			FolderPath:      args.FolderPath,
@@ -233,20 +205,22 @@ func (s *Server) registerContentTools() {
 			MetaDescription: args.MetaDescription,
 			OGImage:         args.OGImage,
 			Data:            args.Data,
+			Published:       args.Published,
 			UseHeader:       args.UseHeader,
 			UseFooter:       args.UseFooter,
 			UseTheme:        args.UseTheme,
 			RawMode:         args.RawMode,
-			Published:       args.Published,
+			VersionComment:  args.VersionComment,
 		}
 
-		if err := s.contentService.CreateContent(ctx, content, args.VersionComment); err != nil {
+		content, err := s.client.CreateContent(ctx, createReq)
+		if err != nil {
 			return errorResult(err), nil, nil
 		}
 
 		return jsonResult(map[string]interface{}{
 			"success":   true,
-			"id":        content.ID.Hex(),
+			"id":        content.ID,
 			"full_path": content.FullPath,
 			"message":   fmt.Sprintf("Content '%s' created successfully", content.Title),
 		}), nil, nil
@@ -265,74 +239,69 @@ func (s *Server) registerContentTools() {
 			OpenWorldHint:   boolPtr(false),
 		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args UpdateContentInput) (*mcp.CallToolResult, any, error) {
-		id, err := primitive.ObjectIDFromHex(args.ID)
-		if err != nil {
-			return errorResult(fmt.Errorf("invalid id: %w", err)), nil, nil
-		}
+		updates := make(apiclient.UpdateContentRequest)
 
-		// Get existing content
-		content, err := s.contentService.GetContent(ctx, id)
-		if err != nil {
-			return errorResult(err), nil, nil
-		}
-
-		// Update fields if provided
 		if args.TemplateID != "" {
-			templateID, err := primitive.ObjectIDFromHex(args.TemplateID)
-			if err != nil {
-				return errorResult(fmt.Errorf("invalid template_id: %w", err)), nil, nil
-			}
-			tmpl, err := s.templateService.GetTemplate(ctx, templateID)
-			if err != nil {
-				return errorResult(fmt.Errorf("template not found: %w", err)), nil, nil
-			}
-			content.TemplateID = templateID
-			content.TemplateName = tmpl.Name
+			updates["template_id"] = args.TemplateID
 		}
 		if args.Title != "" {
-			content.Title = args.Title
+			updates["title"] = args.Title
 		}
 		if args.Slug != "" {
-			content.Slug = args.Slug
+			updates["slug"] = args.Slug
 		}
 		if args.FolderPath != "" {
-			content.FolderPath = args.FolderPath
+			updates["folder_path"] = args.FolderPath
 		}
 		if args.Category != "" {
-			content.Category = args.Category
+			updates["category"] = args.Category
 		}
 		if args.MetaDescription != "" {
-			content.MetaDescription = args.MetaDescription
+			updates["meta_description"] = args.MetaDescription
 		}
 		if args.OGImage != "" {
-			content.OGImage = args.OGImage
-		}
-		if args.Data != nil {
-			// Merge data fields
-			for k, v := range args.Data {
-				content.Data[k] = v
-			}
+			updates["og_image"] = args.OGImage
 		}
 		if args.UseHeader != nil {
-			content.UseHeader = *args.UseHeader
+			updates["use_header"] = *args.UseHeader
 		}
 		if args.UseFooter != nil {
-			content.UseFooter = *args.UseFooter
+			updates["use_footer"] = *args.UseFooter
 		}
 		if args.UseTheme != nil {
-			content.UseTheme = *args.UseTheme
+			updates["use_theme"] = *args.UseTheme
 		}
 		if args.RawMode != nil {
-			content.RawMode = *args.RawMode
+			updates["raw_mode"] = *args.RawMode
+		}
+		if args.VersionComment != "" {
+			updates["version_comment"] = args.VersionComment
 		}
 
-		if err := s.contentService.UpdateContent(ctx, content, args.VersionComment); err != nil {
+		// For data fields, merge with existing content data
+		if args.Data != nil {
+			existing, err := s.client.GetContent(ctx, args.ID)
+			if err != nil {
+				return errorResult(err), nil, nil
+			}
+			mergedData := existing.Data
+			if mergedData == nil {
+				mergedData = make(map[string]interface{})
+			}
+			for k, v := range args.Data {
+				mergedData[k] = v
+			}
+			updates["data"] = mergedData
+		}
+
+		content, err := s.client.UpdateContent(ctx, args.ID, updates)
+		if err != nil {
 			return errorResult(err), nil, nil
 		}
 
 		return jsonResult(map[string]interface{}{
 			"success":   true,
-			"id":        content.ID.Hex(),
+			"id":        content.ID,
 			"full_path": content.FullPath,
 			"message":   fmt.Sprintf("Content '%s' updated successfully", content.Title),
 		}), nil, nil
@@ -351,15 +320,9 @@ func (s *Server) registerContentTools() {
 			OpenWorldHint:   boolPtr(false),
 		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args ContentIDInput) (*mcp.CallToolResult, any, error) {
-		id, err := primitive.ObjectIDFromHex(args.ID)
-		if err != nil {
-			return errorResult(fmt.Errorf("invalid id: %w", err)), nil, nil
-		}
-
-		if err := s.contentService.PublishContent(ctx, id); err != nil {
+		if err := s.client.PublishContent(ctx, args.ID); err != nil {
 			return errorResult(err), nil, nil
 		}
-
 		return textResult(fmt.Sprintf("Content %s published successfully", args.ID)), nil, nil
 	})
 
@@ -376,15 +339,9 @@ func (s *Server) registerContentTools() {
 			OpenWorldHint:   boolPtr(false),
 		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args ContentIDInput) (*mcp.CallToolResult, any, error) {
-		id, err := primitive.ObjectIDFromHex(args.ID)
-		if err != nil {
-			return errorResult(fmt.Errorf("invalid id: %w", err)), nil, nil
-		}
-
-		if err := s.contentService.UnpublishContent(ctx, id); err != nil {
+		if err := s.client.UnpublishContent(ctx, args.ID); err != nil {
 			return errorResult(err), nil, nil
 		}
-
 		return textResult(fmt.Sprintf("Content %s unpublished successfully", args.ID)), nil, nil
 	})
 
@@ -401,15 +358,9 @@ func (s *Server) registerContentTools() {
 			OpenWorldHint:   boolPtr(false),
 		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args ContentIDInput) (*mcp.CallToolResult, any, error) {
-		id, err := primitive.ObjectIDFromHex(args.ID)
-		if err != nil {
-			return errorResult(fmt.Errorf("invalid id: %w", err)), nil, nil
-		}
-
-		if err := s.contentService.DeleteContent(ctx, id); err != nil {
+		if err := s.client.DeleteContent(ctx, args.ID); err != nil {
 			return errorResult(err), nil, nil
 		}
-
 		return textResult(fmt.Sprintf("Content %s deleted successfully", args.ID)), nil, nil
 	})
 
@@ -426,15 +377,9 @@ func (s *Server) registerContentTools() {
 			OpenWorldHint:   boolPtr(false),
 		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args ContentIDInput) (*mcp.CallToolResult, any, error) {
-		id, err := primitive.ObjectIDFromHex(args.ID)
-		if err != nil {
-			return errorResult(fmt.Errorf("invalid id: %w", err)), nil, nil
-		}
-
-		if err := s.contentService.RestoreContent(ctx, id); err != nil {
+		if err := s.client.RestoreContent(ctx, args.ID); err != nil {
 			return errorResult(err), nil, nil
 		}
-
 		return textResult(fmt.Sprintf("Content %s restored successfully", args.ID)), nil, nil
 	})
 
@@ -444,22 +389,16 @@ func (s *Server) registerContentTools() {
 		Title:       "Get Content Versions",
 		Description: "Get the version history for a content item. Returns list of versions with timestamps.",
 		Annotations: &mcp.ToolAnnotations{
-			Title:        "Get Content Versions",
-			ReadOnlyHint: true,
+			Title:         "Get Content Versions",
+			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
 		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args GetVersionsInput) (*mcp.CallToolResult, any, error) {
-		contentID, err := primitive.ObjectIDFromHex(args.ContentID)
-		if err != nil {
-			return errorResult(fmt.Errorf("invalid content_id: %w", err)), nil, nil
-		}
-
-		versions, err := s.contentService.GetVersions(ctx, contentID)
+		versions, err := s.client.GetContentVersions(ctx, args.ContentID)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
 
-		// Return summary for each version
 		type VersionSummary struct {
 			Version   int    `json:"version"`
 			Title     string `json:"title"`
@@ -492,21 +431,15 @@ func (s *Server) registerContentTools() {
 		Title:       "Get Content Version",
 		Description: "Get a specific version of a content item with full field data.",
 		Annotations: &mcp.ToolAnnotations{
-			Title:        "Get Content Version",
-			ReadOnlyHint: true,
+			Title:         "Get Content Version",
+			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
 		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args GetVersionInput) (*mcp.CallToolResult, any, error) {
-		contentID, err := primitive.ObjectIDFromHex(args.ContentID)
-		if err != nil {
-			return errorResult(fmt.Errorf("invalid content_id: %w", err)), nil, nil
-		}
-
-		version, err := s.contentService.GetVersion(ctx, contentID, args.Version)
+		version, err := s.client.GetContentVersion(ctx, args.ContentID, args.Version)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
-
 		return jsonResult(version), nil, nil
 	})
 
@@ -523,15 +456,9 @@ func (s *Server) registerContentTools() {
 			OpenWorldHint:   boolPtr(false),
 		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args RevertToVersionInput) (*mcp.CallToolResult, any, error) {
-		contentID, err := primitive.ObjectIDFromHex(args.ContentID)
-		if err != nil {
-			return errorResult(fmt.Errorf("invalid content_id: %w", err)), nil, nil
-		}
-
-		if err := s.contentService.RevertToVersion(ctx, contentID, args.Version, args.VersionComment); err != nil {
+		if err := s.client.RevertContentVersion(ctx, args.ContentID, args.Version, args.VersionComment); err != nil {
 			return errorResult(err), nil, nil
 		}
-
 		return textResult(fmt.Sprintf("Content reverted to version %d successfully", args.Version)), nil, nil
 	})
 }

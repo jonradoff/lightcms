@@ -4,11 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"lightcms/internal/database"
-	"lightcms/internal/models"
+	"lightcms/internal/apiclient"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 // Theme settings input types
@@ -121,7 +119,7 @@ func (s *Server) registerSettingsTools() {
 			OpenWorldHint: boolPtr(false),
 		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args struct{}) (*mcp.CallToolResult, any, error) {
-		theme, err := s.settingsService.GetTheme(ctx)
+		theme, err := s.client.GetTheme(ctx)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
@@ -141,59 +139,55 @@ func (s *Server) registerSettingsTools() {
 			OpenWorldHint:   boolPtr(false),
 		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args UpdateThemeInput) (*mcp.CallToolResult, any, error) {
-		theme, err := s.settingsService.GetTheme(ctx)
-		if err != nil {
-			return errorResult(err), nil, nil
-		}
+		updates := make(map[string]interface{})
 
-		// Update fields if provided
 		if args.PrimaryColor != "" {
-			theme.PrimaryColor = args.PrimaryColor
+			updates["primary_color"] = args.PrimaryColor
 		}
 		if args.SecondaryColor != "" {
-			theme.SecondaryColor = args.SecondaryColor
+			updates["secondary_color"] = args.SecondaryColor
 		}
 		if args.AccentColor != "" {
-			theme.AccentColor = args.AccentColor
+			updates["accent_color"] = args.AccentColor
 		}
 		if args.BackgroundColor != "" {
-			theme.BackgroundColor = args.BackgroundColor
+			updates["background_color"] = args.BackgroundColor
 		}
 		if args.TextColor != "" {
-			theme.TextColor = args.TextColor
+			updates["text_color"] = args.TextColor
 		}
 		if args.FontFamily != "" {
-			theme.FontFamily = args.FontFamily
+			updates["font_family"] = args.FontFamily
 		}
 		if args.HeadingFont != "" {
-			theme.HeadingFont = args.HeadingFont
+			updates["heading_font"] = args.HeadingFont
 		}
 		if args.BorderRadius != "" {
-			theme.BorderRadius = args.BorderRadius
+			updates["border_radius"] = args.BorderRadius
 		}
 		if args.CustomCSS != "" {
-			theme.CustomCSS = args.CustomCSS
+			updates["custom_css"] = args.CustomCSS
 		}
 		if args.SiteName != "" {
-			theme.SiteName = args.SiteName
+			updates["site_name"] = args.SiteName
 		}
 		if args.SiteTagline != "" {
-			theme.SiteTagline = args.SiteTagline
+			updates["site_tagline"] = args.SiteTagline
 		}
 		if args.LogoURL != "" {
-			theme.LogoURL = args.LogoURL
+			updates["logo_url"] = args.LogoURL
 		}
 		if args.HeadHTML != "" {
-			theme.HeadHTML = args.HeadHTML
+			updates["head_html"] = args.HeadHTML
 		}
 		if args.HeaderHTML != "" {
-			theme.HeaderHTML = args.HeaderHTML
+			updates["header_html"] = args.HeaderHTML
 		}
 		if args.FooterHTML != "" {
-			theme.FooterHTML = args.FooterHTML
+			updates["footer_html"] = args.FooterHTML
 		}
 
-		if err := s.settingsService.UpdateTheme(ctx, theme); err != nil {
+		if _, err := s.client.UpdateTheme(ctx, updates); err != nil {
 			return errorResult(err), nil, nil
 		}
 
@@ -211,12 +205,11 @@ func (s *Server) registerSettingsTools() {
 			OpenWorldHint: boolPtr(false),
 		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args struct{}) (*mcp.CallToolResult, any, error) {
-		versions, err := s.settingsService.GetThemeVersions(ctx)
+		versions, err := s.client.ListThemeVersions(ctx)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
 
-		// Return summary for each version
 		type VersionSummary struct {
 			Version   int    `json:"version"`
 			SiteName  string `json:"site_name"`
@@ -248,11 +241,10 @@ func (s *Server) registerSettingsTools() {
 			OpenWorldHint: boolPtr(false),
 		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args GetThemeVersionInput) (*mcp.CallToolResult, any, error) {
-		version, err := s.settingsService.GetThemeVersion(ctx, args.Version)
+		version, err := s.client.GetThemeVersion(ctx, args.Version)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
-
 		return jsonResult(version), nil, nil
 	})
 
@@ -269,10 +261,9 @@ func (s *Server) registerSettingsTools() {
 			OpenWorldHint:   boolPtr(false),
 		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args RevertThemeVersionInput) (*mcp.CallToolResult, any, error) {
-		if err := s.settingsService.RevertThemeToVersion(ctx, args.Version, args.VersionComment); err != nil {
+		if err := s.client.RevertThemeVersion(ctx, args.Version, args.VersionComment); err != nil {
 			return errorResult(err), nil, nil
 		}
-
 		return textResult(fmt.Sprintf("Theme reverted to version %d successfully", args.Version)), nil, nil
 	})
 
@@ -289,7 +280,7 @@ func (s *Server) registerSettingsTools() {
 			OpenWorldHint: boolPtr(false),
 		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args struct{}) (*mcp.CallToolResult, any, error) {
-		config, err := s.settingsService.GetSiteConfig(ctx)
+		config, err := s.client.GetSiteConfig(ctx)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
@@ -309,19 +300,16 @@ func (s *Server) registerSettingsTools() {
 			OpenWorldHint:   boolPtr(false),
 		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args UpdateSiteConfigInput) (*mcp.CallToolResult, any, error) {
-		config, err := s.settingsService.GetSiteConfig(ctx)
-		if err != nil {
-			return errorResult(err), nil, nil
-		}
+		updates := make(map[string]interface{})
 
 		if args.TitleTemplate != "" {
-			config.TitleTemplate = args.TitleTemplate
+			updates["title_template"] = args.TitleTemplate
 		}
 		if args.TitleTemplateNoTitle != "" {
-			config.TitleTemplateNoTitle = args.TitleTemplateNoTitle
+			updates["title_template_no_title"] = args.TitleTemplateNoTitle
 		}
 
-		if err := s.settingsService.UpdateSiteConfig(ctx, config); err != nil {
+		if _, err := s.client.UpdateSiteConfig(ctx, updates); err != nil {
 			return errorResult(err), nil, nil
 		}
 
@@ -341,7 +329,7 @@ func (s *Server) registerSettingsTools() {
 			OpenWorldHint: boolPtr(false),
 		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args struct{}) (*mcp.CallToolResult, any, error) {
-		redirects, err := s.settingsService.ListRedirects(ctx)
+		redirects, err := s.client.ListRedirects(ctx)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
@@ -361,20 +349,21 @@ func (s *Server) registerSettingsTools() {
 			OpenWorldHint:   boolPtr(false),
 		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args CreateRedirectInput) (*mcp.CallToolResult, any, error) {
-		redirect := &models.Redirect{
+		createReq := apiclient.CreateRedirectRequest{
 			FromPath:    args.FromPath,
 			ToPath:      args.ToPath,
 			StatusCode:  args.StatusCode,
 			Description: args.Description,
 		}
 
-		if err := s.settingsService.CreateRedirect(ctx, redirect); err != nil {
+		redirect, err := s.client.CreateRedirect(ctx, createReq)
+		if err != nil {
 			return errorResult(err), nil, nil
 		}
 
 		return jsonResult(map[string]interface{}{
 			"success": true,
-			"id":      redirect.ID.Hex(),
+			"id":      redirect.ID,
 			"message": fmt.Sprintf("Redirect from %s to %s created", args.FromPath, args.ToPath),
 		}), nil, nil
 	})
@@ -392,30 +381,22 @@ func (s *Server) registerSettingsTools() {
 			OpenWorldHint:   boolPtr(false),
 		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args UpdateRedirectInput) (*mcp.CallToolResult, any, error) {
-		id, err := primitive.ObjectIDFromHex(args.ID)
-		if err != nil {
-			return errorResult(fmt.Errorf("invalid id: %w", err)), nil, nil
-		}
-
-		redirect, err := s.settingsService.GetRedirect(ctx, id)
-		if err != nil {
-			return errorResult(err), nil, nil
-		}
+		updates := make(map[string]interface{})
 
 		if args.FromPath != "" {
-			redirect.FromPath = args.FromPath
+			updates["from_path"] = args.FromPath
 		}
 		if args.ToPath != "" {
-			redirect.ToPath = args.ToPath
+			updates["to_path"] = args.ToPath
 		}
 		if args.StatusCode != 0 {
-			redirect.StatusCode = args.StatusCode
+			updates["status_code"] = args.StatusCode
 		}
 		if args.Description != "" {
-			redirect.Description = args.Description
+			updates["description"] = args.Description
 		}
 
-		if err := s.settingsService.UpdateRedirect(ctx, redirect); err != nil {
+		if _, err := s.client.UpdateRedirect(ctx, args.ID, updates); err != nil {
 			return errorResult(err), nil, nil
 		}
 
@@ -435,15 +416,9 @@ func (s *Server) registerSettingsTools() {
 			OpenWorldHint:   boolPtr(false),
 		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args RedirectIDInput) (*mcp.CallToolResult, any, error) {
-		id, err := primitive.ObjectIDFromHex(args.ID)
-		if err != nil {
-			return errorResult(fmt.Errorf("invalid id: %w", err)), nil, nil
-		}
-
-		if err := s.settingsService.DeleteRedirect(ctx, id); err != nil {
+		if err := s.client.DeleteRedirect(ctx, args.ID); err != nil {
 			return errorResult(err), nil, nil
 		}
-
 		return textResult("Redirect deleted successfully"), nil, nil
 	})
 
@@ -460,7 +435,7 @@ func (s *Server) registerSettingsTools() {
 			OpenWorldHint: boolPtr(false),
 		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args struct{}) (*mcp.CallToolResult, any, error) {
-		folders, err := s.settingsService.ListFolders(ctx)
+		folders, err := s.client.ListFolders(ctx)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
@@ -480,26 +455,20 @@ func (s *Server) registerSettingsTools() {
 			OpenWorldHint:   boolPtr(false),
 		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args CreateFolderInput) (*mcp.CallToolResult, any, error) {
-		folder := &models.Folder{
-			Name: args.Name,
-			Slug: args.Slug,
+		createReq := apiclient.CreateFolderRequest{
+			Name:     args.Name,
+			Slug:     args.Slug,
+			ParentID: args.ParentID,
 		}
 
-		if args.ParentID != "" {
-			parentID, err := primitive.ObjectIDFromHex(args.ParentID)
-			if err != nil {
-				return errorResult(fmt.Errorf("invalid parent_id: %w", err)), nil, nil
-			}
-			folder.ParentID = &parentID
-		}
-
-		if err := s.settingsService.CreateFolder(ctx, folder); err != nil {
+		folder, err := s.client.CreateFolder(ctx, createReq)
+		if err != nil {
 			return errorResult(err), nil, nil
 		}
 
 		return jsonResult(map[string]interface{}{
 			"success": true,
-			"id":      folder.ID.Hex(),
+			"id":      folder.ID,
 			"path":    folder.Path,
 			"message": fmt.Sprintf("Folder '%s' created at %s", folder.Name, folder.Path),
 		}), nil, nil
@@ -516,16 +485,10 @@ func (s *Server) registerSettingsTools() {
 			OpenWorldHint: boolPtr(false),
 		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args FolderIDInput) (*mcp.CallToolResult, any, error) {
-		id, err := primitive.ObjectIDFromHex(args.ID)
-		if err != nil {
-			return errorResult(fmt.Errorf("invalid id: %w", err)), nil, nil
-		}
-
-		folder, err := s.settingsService.GetFolder(ctx, id)
+		folder, err := s.client.GetFolder(ctx, args.ID)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
-
 		return jsonResult(folder), nil, nil
 	})
 
@@ -542,15 +505,9 @@ func (s *Server) registerSettingsTools() {
 			OpenWorldHint:   boolPtr(false),
 		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args FolderIDInput) (*mcp.CallToolResult, any, error) {
-		id, err := primitive.ObjectIDFromHex(args.ID)
-		if err != nil {
-			return errorResult(fmt.Errorf("invalid id: %w", err)), nil, nil
-		}
-
-		if err := s.settingsService.DeleteFolder(ctx, id); err != nil {
+		if err := s.client.DeleteFolder(ctx, args.ID); err != nil {
 			return errorResult(err), nil, nil
 		}
-
 		return textResult("Folder deleted successfully"), nil, nil
 	})
 
@@ -567,7 +524,7 @@ func (s *Server) registerSettingsTools() {
 			OpenWorldHint: boolPtr(false),
 		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args struct{}) (*mcp.CallToolResult, any, error) {
-		collections, err := s.settingsService.ListCollections(ctx)
+		collections, err := s.client.ListCollections(ctx)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
@@ -587,25 +544,40 @@ func (s *Server) registerSettingsTools() {
 			OpenWorldHint:   boolPtr(false),
 		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args CreateCollectionInput) (*mcp.CallToolResult, any, error) {
-		collection := &models.Collection{
-			Name:         args.Name,
-			Slug:         args.Slug,
-			Description:  args.Description,
-			Category:     args.Category,
-			SortField:    args.SortField,
-			SortOrder:    args.SortOrder,
-			ItemTemplate: args.ItemTemplate,
-			PageTemplate: args.PageTemplate,
-			ItemsPerPage: args.ItemsPerPage,
+		createReq := map[string]interface{}{
+			"name": args.Name,
+			"slug": args.Slug,
+		}
+		if args.Description != "" {
+			createReq["description"] = args.Description
+		}
+		if args.Category != "" {
+			createReq["category"] = args.Category
+		}
+		if args.SortField != "" {
+			createReq["sort_field"] = args.SortField
+		}
+		if args.SortOrder != "" {
+			createReq["sort_order"] = args.SortOrder
+		}
+		if args.ItemTemplate != "" {
+			createReq["item_template"] = args.ItemTemplate
+		}
+		if args.PageTemplate != "" {
+			createReq["page_template"] = args.PageTemplate
+		}
+		if args.ItemsPerPage != 0 {
+			createReq["items_per_page"] = args.ItemsPerPage
 		}
 
-		if err := s.settingsService.CreateCollection(ctx, collection); err != nil {
+		collection, err := s.client.CreateCollection(ctx, createReq)
+		if err != nil {
 			return errorResult(err), nil, nil
 		}
 
 		return jsonResult(map[string]interface{}{
 			"success": true,
-			"id":      collection.ID.Hex(),
+			"id":      collection.ID,
 			"message": fmt.Sprintf("Collection '%s' created", collection.Name),
 		}), nil, nil
 	})
@@ -621,16 +593,10 @@ func (s *Server) registerSettingsTools() {
 			OpenWorldHint: boolPtr(false),
 		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args CollectionIDInput) (*mcp.CallToolResult, any, error) {
-		id, err := primitive.ObjectIDFromHex(args.ID)
-		if err != nil {
-			return errorResult(fmt.Errorf("invalid id: %w", err)), nil, nil
-		}
-
-		collection, err := s.settingsService.GetCollection(ctx, id)
+		collection, err := s.client.GetCollection(ctx, args.ID)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
-
 		return jsonResult(collection), nil, nil
 	})
 
@@ -647,45 +613,37 @@ func (s *Server) registerSettingsTools() {
 			OpenWorldHint:   boolPtr(false),
 		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args UpdateCollectionInput) (*mcp.CallToolResult, any, error) {
-		id, err := primitive.ObjectIDFromHex(args.ID)
-		if err != nil {
-			return errorResult(fmt.Errorf("invalid id: %w", err)), nil, nil
-		}
-
-		collection, err := s.settingsService.GetCollection(ctx, id)
-		if err != nil {
-			return errorResult(err), nil, nil
-		}
+		updates := make(map[string]interface{})
 
 		if args.Name != "" {
-			collection.Name = args.Name
+			updates["name"] = args.Name
 		}
 		if args.Slug != "" {
-			collection.Slug = args.Slug
+			updates["slug"] = args.Slug
 		}
 		if args.Description != "" {
-			collection.Description = args.Description
+			updates["description"] = args.Description
 		}
 		if args.Category != "" {
-			collection.Category = args.Category
+			updates["category"] = args.Category
 		}
 		if args.SortField != "" {
-			collection.SortField = args.SortField
+			updates["sort_field"] = args.SortField
 		}
 		if args.SortOrder != "" {
-			collection.SortOrder = args.SortOrder
+			updates["sort_order"] = args.SortOrder
 		}
 		if args.ItemTemplate != "" {
-			collection.ItemTemplate = args.ItemTemplate
+			updates["item_template"] = args.ItemTemplate
 		}
 		if args.PageTemplate != "" {
-			collection.PageTemplate = args.PageTemplate
+			updates["page_template"] = args.PageTemplate
 		}
 		if args.ItemsPerPage != 0 {
-			collection.ItemsPerPage = args.ItemsPerPage
+			updates["items_per_page"] = args.ItemsPerPage
 		}
 
-		if err := s.settingsService.UpdateCollection(ctx, collection); err != nil {
+		if _, err := s.client.UpdateCollection(ctx, args.ID, updates); err != nil {
 			return errorResult(err), nil, nil
 		}
 
@@ -705,15 +663,9 @@ func (s *Server) registerSettingsTools() {
 			OpenWorldHint:   boolPtr(false),
 		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args CollectionIDInput) (*mcp.CallToolResult, any, error) {
-		id, err := primitive.ObjectIDFromHex(args.ID)
-		if err != nil {
-			return errorResult(fmt.Errorf("invalid id: %w", err)), nil, nil
-		}
-
-		if err := s.settingsService.DeleteCollection(ctx, id); err != nil {
+		if err := s.client.DeleteCollection(ctx, args.ID); err != nil {
 			return errorResult(err), nil, nil
 		}
-
 		return textResult("Collection deleted successfully"), nil, nil
 	})
 
@@ -732,19 +684,9 @@ func (s *Server) registerSettingsTools() {
 			OpenWorldHint:   boolPtr(false),
 		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args struct{}) (*mcp.CallToolResult, any, error) {
-		if err := s.contentService.RegenerateAllContent(ctx); err != nil {
+		if err := s.client.RegenerateAllContent(ctx); err != nil {
 			return errorResult(err), nil, nil
 		}
 		return textResult("All published content regenerated successfully"), nil, nil
 	})
-}
-
-// Helper to get UpdateThemeInput fields that need special handling
-func setThemeFieldIfProvided(theme *database.ThemeSettings, field, value string) {
-	if value != "" {
-		switch field {
-		case "custom_css":
-			theme.CustomCSS = value
-		}
-	}
 }

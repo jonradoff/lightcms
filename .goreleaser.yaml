@@ -1,6 +1,6 @@
 version: 2
 
-project_name: lightcms-mcp
+project_name: lightcms
 
 before:
   hooks:
@@ -22,12 +22,36 @@ builds:
     ldflags:
       - -s -w
 
+  - id: lightcms
+    main: ./cmd/cli
+    binary: lightcms
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+
 archives:
   - id: lightcms-mcp
     builds:
       - lightcms-mcp
     format: tar.gz
-    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    name_template: "lightcms-mcp_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        format: zip
+
+  - id: lightcms
+    builds:
+      - lightcms
+    format: tar.gz
+    name_template: "lightcms_{{ .Os }}_{{ .Arch }}"
     format_overrides:
       - goos: windows
         format: zip

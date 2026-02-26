@@ -155,6 +155,15 @@ func (db *DB) createIndexes(ctx context.Context) error {
 		return err
 	}
 
+	// API key hash index (unique)
+	_, err = db.database.Collection("api_keys").Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    bson.D{{Key: "key_hash", Value: 1}},
+		Options: options.Index().SetUnique(true),
+	})
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -698,6 +707,11 @@ func (db *DB) GetAssetFolders(ctx context.Context) ([]string, error) {
 		}
 	}
 	return folders, nil
+}
+
+// APIKeys returns the api_keys collection
+func (db *DB) APIKeys() *mongo.Collection {
+	return db.database.Collection("api_keys")
 }
 
 // WatchCollection returns a change stream for the specified collection.

@@ -29,6 +29,13 @@ config.prod.json
 .DS_Store
 Thumbs.db
 
+# MCPB bundles (platform-specific, distributed via GitHub Releases)
+*.mcpb
+bundle/
+
+# GoReleaser dist
+dist/
+
 # Go
 *.exe
 *.exe~

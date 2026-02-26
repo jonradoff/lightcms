@@ -2,11 +2,11 @@ package mcp
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 
+	"lightcms/internal/apiclient"
+
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 // Asset tool input types
@@ -42,38 +42,11 @@ func (s *Server) registerAssetTools() {
 			OpenWorldHint: boolPtr(false),
 		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args ListAssetsInput) (*mcp.CallToolResult, any, error) {
-		assets, err := s.assetService.ListAssets(ctx, args.Folder)
+		assets, err := s.client.ListAssets(ctx, args.Folder)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
-
-		// Return summary for each asset
-		type AssetSummary struct {
-			ID          string `json:"id"`
-			Filename    string `json:"filename"`
-			Folder      string `json:"folder"`
-			ServePath   string `json:"serve_path"`
-			MimeType    string `json:"mime_type"`
-			Size        int64  `json:"size"`
-			Description string `json:"description"`
-			CreatedAt   string `json:"created_at"`
-		}
-
-		summaries := make([]AssetSummary, len(assets))
-		for i, a := range assets {
-			summaries[i] = AssetSummary{
-				ID:          a.ID.Hex(),
-				Filename:    a.Filename,
-				Folder:      a.Folder,
-				ServePath:   a.ServePath,
-				MimeType:    a.MimeType,
-				Size:        a.Size,
-				Description: a.Description,
-				CreatedAt:   a.CreatedAt.Format("2006-01-02 15:04:05"),
-			}
-		}
-
-		return jsonResult(summaries), nil, nil
+		return jsonResult(assets), nil, nil
 	})
 
 	// List asset folders
@@ -87,11 +60,10 @@ func (s *Server) registerAssetTools() {
 			OpenWorldHint: boolPtr(false),
 		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args struct{}) (*mcp.CallToolResult, any, error) {
-		folders, err := s.assetService.ListFolders(ctx)
+		folders, err := s.client.ListAssetFolders(ctx)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
-
 		return jsonResult(folders), nil, nil
 	})
 
@@ -107,22 +79,15 @@ func (s *Server) registerAssetTools() {
 		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args GetAssetInput) (*mcp.CallToolResult, any, error) {
 		if args.ID != "" {
-			id, err := primitive.ObjectIDFromHex(args.ID)
-			if err != nil {
-				return errorResult(fmt.Errorf("invalid id: %w", err)), nil, nil
-			}
-			asset, err := s.assetService.GetAsset(ctx, id)
+			asset, err := s.client.GetAsset(ctx, args.ID)
 			if err != nil {
 				return errorResult(err), nil, nil
 			}
 			return jsonResult(asset), nil, nil
 		} else if args.Path != "" {
-			asset, err := s.assetService.GetAssetByPath(ctx, args.Path)
+			asset, err := s.client.GetAssetByPath(ctx, args.Path)
 			if err != nil {
 				return errorResult(err), nil, nil
-			}
-			if asset == nil {
-				return errorResult(fmt.Errorf("asset not found")), nil, nil
 			}
 			return jsonResult(asset), nil, nil
 		}
@@ -142,20 +107,21 @@ func (s *Server) registerAssetTools() {
 			OpenWorldHint:   boolPtr(false),
 		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args UploadAssetInput) (*mcp.CallToolResult, any, error) {
-		// Decode base64 data
-		data, err := base64.StdEncoding.DecodeString(args.DataBase64)
-		if err != nil {
-			return errorResult(fmt.Errorf("invalid base64 data: %w", err)), nil, nil
+		uploadReq := apiclient.UploadAssetRequest{
+			Filename:    args.Filename,
+			ServePath:   args.ServePath,
+			DataBase64:  args.DataBase64,
+			Description: args.Description,
 		}
 
-		asset, err := s.assetService.UploadAsset(ctx, data, args.Filename, args.ServePath, args.Description)
+		asset, err := s.client.UploadAsset(ctx, uploadReq)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
 
 		return jsonResult(map[string]interface{}{
 			"success":    true,
-			"id":         asset.ID.Hex(),
+			"id":         asset.ID,
 			"serve_path": asset.ServePath,
 			"mime_type":  asset.MimeType,
 			"size":       asset.Size,
@@ -176,15 +142,9 @@ func (s *Server) registerAssetTools() {
 			OpenWorldHint:   boolPtr(false),
 		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args AssetIDInput) (*mcp.CallToolResult, any, error) {
-		id, err := primitive.ObjectIDFromHex(args.ID)
-		if err != nil {
-			return errorResult(fmt.Errorf("invalid id: %w", err)), nil, nil
-		}
-
-		if err := s.assetService.DeleteAsset(ctx, id); err != nil {
+		if err := s.client.DeleteAsset(ctx, args.ID); err != nil {
 			return errorResult(err), nil, nil
 		}
-
 		return textResult(fmt.Sprintf("Asset %s deleted successfully", args.ID)), nil, nil
 	})
 }
