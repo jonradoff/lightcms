@@ -322,6 +322,12 @@ func main() {
 		w.Write([]byte("OK"))
 	}).Methods("GET")
 
+	// MCP well-known server card (for Smithery registry discovery)
+	r.HandleFunc("/.well-known/mcp/server-card.json", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		http.ServeFile(w, r, ".well-known/mcp/server-card.json")
+	}).Methods("GET")
+
 	// Sitemap and robots.txt
 	r.HandleFunc("/sitemap.xml", h.ServeSitemap).Methods("GET")
 	r.HandleFunc("/robots.txt", h.ServeRobotsTxt).Methods("GET")
