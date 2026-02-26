@@ -1,5 +1,9 @@
 # Smithery configuration file: https://smithery.ai/docs/config#smitheryyaml
 
+runtime: container
+build:
+  dockerfile: Dockerfile.smithery
+  dockerBuildPath: "."
 startCommand:
   type: stdio
   configSchema:
@@ -16,4 +20,4 @@ startCommand:
         description: API key for authentication. Create one in the admin panel at /cm → Settings → API Keys.
   commandFunction:
     |-
-    (config) => ({ command: 'lightcms-mcp', args: [], env: { LIGHTCMS_URL: config.serverUrl, LIGHTCMS_API_KEY: config.apiKey } })
+    (config) => ({ command: './lightcms-mcp', args: [], env: { LIGHTCMS_URL: config.serverUrl, LIGHTCMS_API_KEY: config.apiKey } })
