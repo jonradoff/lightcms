@@ -113,7 +113,13 @@ func (s *Server) registerSettingsTools() {
 	// Get theme
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "get_theme",
+		Title:       "Get Theme",
 		Description: "Get current theme settings including colors, fonts, and custom HTML for header/footer.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:         "Get Theme",
+			ReadOnlyHint:  true,
+			OpenWorldHint: boolPtr(false),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args struct{}) (*mcp.CallToolResult, any, error) {
 		theme, err := s.settingsService.GetTheme(ctx)
 		if err != nil {
@@ -125,7 +131,15 @@ func (s *Server) registerSettingsTools() {
 	// Update theme
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "update_theme",
+		Title:       "Update Theme",
 		Description: "Update theme settings. Changing header or footer HTML will regenerate all published content.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Update Theme",
+			ReadOnlyHint:    false,
+			DestructiveHint: boolPtr(true),
+			IdempotentHint:  true,
+			OpenWorldHint:   boolPtr(false),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args UpdateThemeInput) (*mcp.CallToolResult, any, error) {
 		theme, err := s.settingsService.GetTheme(ctx)
 		if err != nil {
@@ -189,7 +203,13 @@ func (s *Server) registerSettingsTools() {
 	// Get theme versions
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "get_theme_versions",
+		Title:       "Get Theme Versions",
 		Description: "Get the version history for theme settings. Returns list of versions with timestamps.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:         "Get Theme Versions",
+			ReadOnlyHint:  true,
+			OpenWorldHint: boolPtr(false),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args struct{}) (*mcp.CallToolResult, any, error) {
 		versions, err := s.settingsService.GetThemeVersions(ctx)
 		if err != nil {
@@ -220,7 +240,13 @@ func (s *Server) registerSettingsTools() {
 	// Get specific theme version
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "get_theme_version",
+		Title:       "Get Theme Version",
 		Description: "Get a specific version of theme settings with full data.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:         "Get Theme Version",
+			ReadOnlyHint:  true,
+			OpenWorldHint: boolPtr(false),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args GetThemeVersionInput) (*mcp.CallToolResult, any, error) {
 		version, err := s.settingsService.GetThemeVersion(ctx, args.Version)
 		if err != nil {
@@ -233,7 +259,15 @@ func (s *Server) registerSettingsTools() {
 	// Revert to theme version
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "revert_theme_to_version",
+		Title:       "Revert Theme to Version",
 		Description: "Revert theme to a previous version. Creates a new version with the old data.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Revert Theme to Version",
+			ReadOnlyHint:    false,
+			DestructiveHint: boolPtr(true),
+			IdempotentHint:  false,
+			OpenWorldHint:   boolPtr(false),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args RevertThemeVersionInput) (*mcp.CallToolResult, any, error) {
 		if err := s.settingsService.RevertThemeToVersion(ctx, args.Version, args.VersionComment); err != nil {
 			return errorResult(err), nil, nil
@@ -247,7 +281,13 @@ func (s *Server) registerSettingsTools() {
 	// Get site config
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "get_site_config",
+		Title:       "Get Site Config",
 		Description: "Get site configuration including title templates.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:         "Get Site Config",
+			ReadOnlyHint:  true,
+			OpenWorldHint: boolPtr(false),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args struct{}) (*mcp.CallToolResult, any, error) {
 		config, err := s.settingsService.GetSiteConfig(ctx)
 		if err != nil {
@@ -259,7 +299,15 @@ func (s *Server) registerSettingsTools() {
 	// Update site config
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "update_site_config",
+		Title:       "Update Site Config",
 		Description: "Update site configuration. Title templates support {{title}} and {{site_name}} placeholders.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Update Site Config",
+			ReadOnlyHint:    false,
+			DestructiveHint: boolPtr(true),
+			IdempotentHint:  true,
+			OpenWorldHint:   boolPtr(false),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args UpdateSiteConfigInput) (*mcp.CallToolResult, any, error) {
 		config, err := s.settingsService.GetSiteConfig(ctx)
 		if err != nil {
@@ -285,7 +333,13 @@ func (s *Server) registerSettingsTools() {
 	// List redirects
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "list_redirects",
+		Title:       "List Redirects",
 		Description: "List all URL redirects configured for the site.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:         "List Redirects",
+			ReadOnlyHint:  true,
+			OpenWorldHint: boolPtr(false),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args struct{}) (*mcp.CallToolResult, any, error) {
 		redirects, err := s.settingsService.ListRedirects(ctx)
 		if err != nil {
@@ -297,7 +351,15 @@ func (s *Server) registerSettingsTools() {
 	// Create redirect
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "create_redirect",
+		Title:       "Create Redirect",
 		Description: "Create a new URL redirect. Use 301 for permanent redirects, 302 for temporary.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Create Redirect",
+			ReadOnlyHint:    false,
+			DestructiveHint: boolPtr(false),
+			IdempotentHint:  false,
+			OpenWorldHint:   boolPtr(false),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args CreateRedirectInput) (*mcp.CallToolResult, any, error) {
 		redirect := &models.Redirect{
 			FromPath:    args.FromPath,
@@ -320,7 +382,15 @@ func (s *Server) registerSettingsTools() {
 	// Update redirect
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "update_redirect",
+		Title:       "Update Redirect",
 		Description: "Update an existing redirect.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Update Redirect",
+			ReadOnlyHint:    false,
+			DestructiveHint: boolPtr(true),
+			IdempotentHint:  true,
+			OpenWorldHint:   boolPtr(false),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args UpdateRedirectInput) (*mcp.CallToolResult, any, error) {
 		id, err := primitive.ObjectIDFromHex(args.ID)
 		if err != nil {
@@ -355,7 +425,15 @@ func (s *Server) registerSettingsTools() {
 	// Delete redirect
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "delete_redirect",
+		Title:       "Delete Redirect",
 		Description: "Delete a redirect.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Delete Redirect",
+			ReadOnlyHint:    false,
+			DestructiveHint: boolPtr(true),
+			IdempotentHint:  true,
+			OpenWorldHint:   boolPtr(false),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args RedirectIDInput) (*mcp.CallToolResult, any, error) {
 		id, err := primitive.ObjectIDFromHex(args.ID)
 		if err != nil {
@@ -374,7 +452,13 @@ func (s *Server) registerSettingsTools() {
 	// List folders
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "list_folders",
+		Title:       "List Folders",
 		Description: "List all content folders. Folders organize content into URL path segments.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:         "List Folders",
+			ReadOnlyHint:  true,
+			OpenWorldHint: boolPtr(false),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args struct{}) (*mcp.CallToolResult, any, error) {
 		folders, err := s.settingsService.ListFolders(ctx)
 		if err != nil {
@@ -386,7 +470,15 @@ func (s *Server) registerSettingsTools() {
 	// Create folder
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "create_folder",
+		Title:       "Create Folder",
 		Description: "Create a new content folder. Folders create URL path segments for organizing content.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Create Folder",
+			ReadOnlyHint:    false,
+			DestructiveHint: boolPtr(false),
+			IdempotentHint:  false,
+			OpenWorldHint:   boolPtr(false),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args CreateFolderInput) (*mcp.CallToolResult, any, error) {
 		folder := &models.Folder{
 			Name: args.Name,
@@ -416,7 +508,13 @@ func (s *Server) registerSettingsTools() {
 	// Get folder
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "get_folder",
+		Title:       "Get Folder",
 		Description: "Get a folder by ID.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:         "Get Folder",
+			ReadOnlyHint:  true,
+			OpenWorldHint: boolPtr(false),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args FolderIDInput) (*mcp.CallToolResult, any, error) {
 		id, err := primitive.ObjectIDFromHex(args.ID)
 		if err != nil {
@@ -434,7 +532,15 @@ func (s *Server) registerSettingsTools() {
 	// Delete folder
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "delete_folder",
+		Title:       "Delete Folder",
 		Description: "Delete an empty folder. Cannot delete folders that contain content or subfolders.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Delete Folder",
+			ReadOnlyHint:    false,
+			DestructiveHint: boolPtr(true),
+			IdempotentHint:  true,
+			OpenWorldHint:   boolPtr(false),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args FolderIDInput) (*mcp.CallToolResult, any, error) {
 		id, err := primitive.ObjectIDFromHex(args.ID)
 		if err != nil {
@@ -453,7 +559,13 @@ func (s *Server) registerSettingsTools() {
 	// List collections
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "list_collections",
+		Title:       "List Collections",
 		Description: "List all content collections. Collections group and display content by category.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:         "List Collections",
+			ReadOnlyHint:  true,
+			OpenWorldHint: boolPtr(false),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args struct{}) (*mcp.CallToolResult, any, error) {
 		collections, err := s.settingsService.ListCollections(ctx)
 		if err != nil {
@@ -465,7 +577,15 @@ func (s *Server) registerSettingsTools() {
 	// Create collection
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "create_collection",
+		Title:       "Create Collection",
 		Description: "Create a new content collection. Collections display grouped content with custom templates.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Create Collection",
+			ReadOnlyHint:    false,
+			DestructiveHint: boolPtr(false),
+			IdempotentHint:  false,
+			OpenWorldHint:   boolPtr(false),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args CreateCollectionInput) (*mcp.CallToolResult, any, error) {
 		collection := &models.Collection{
 			Name:         args.Name,
@@ -493,7 +613,13 @@ func (s *Server) registerSettingsTools() {
 	// Get collection
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "get_collection",
+		Title:       "Get Collection",
 		Description: "Get a collection by ID.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:         "Get Collection",
+			ReadOnlyHint:  true,
+			OpenWorldHint: boolPtr(false),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args CollectionIDInput) (*mcp.CallToolResult, any, error) {
 		id, err := primitive.ObjectIDFromHex(args.ID)
 		if err != nil {
@@ -511,7 +637,15 @@ func (s *Server) registerSettingsTools() {
 	// Update collection
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "update_collection",
+		Title:       "Update Collection",
 		Description: "Update a collection's settings.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Update Collection",
+			ReadOnlyHint:    false,
+			DestructiveHint: boolPtr(true),
+			IdempotentHint:  true,
+			OpenWorldHint:   boolPtr(false),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args UpdateCollectionInput) (*mcp.CallToolResult, any, error) {
 		id, err := primitive.ObjectIDFromHex(args.ID)
 		if err != nil {
@@ -561,7 +695,15 @@ func (s *Server) registerSettingsTools() {
 	// Delete collection
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "delete_collection",
+		Title:       "Delete Collection",
 		Description: "Delete a collection. This does not delete the content in the collection.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Delete Collection",
+			ReadOnlyHint:    false,
+			DestructiveHint: boolPtr(true),
+			IdempotentHint:  true,
+			OpenWorldHint:   boolPtr(false),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args CollectionIDInput) (*mcp.CallToolResult, any, error) {
 		id, err := primitive.ObjectIDFromHex(args.ID)
 		if err != nil {
@@ -580,7 +722,15 @@ func (s *Server) registerSettingsTools() {
 	// Regenerate all content
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "regenerate_all_content",
+		Title:       "Regenerate All Content",
 		Description: "Regenerate all published static HTML pages. Use after major theme or template changes.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Regenerate All Content",
+			ReadOnlyHint:    false,
+			DestructiveHint: boolPtr(false),
+			IdempotentHint:  true,
+			OpenWorldHint:   boolPtr(false),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args struct{}) (*mcp.CallToolResult, any, error) {
 		if err := s.contentService.RegenerateAllContent(ctx); err != nil {
 			return errorResult(err), nil, nil

@@ -34,7 +34,13 @@ func (s *Server) registerAssetTools() {
 	// List assets
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "list_assets",
+		Title:       "List Assets",
 		Description: "List all assets in the asset library. Assets are files like images, documents, CSS, JS, etc.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:         "List Assets",
+			ReadOnlyHint:  true,
+			OpenWorldHint: boolPtr(false),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args ListAssetsInput) (*mcp.CallToolResult, any, error) {
 		assets, err := s.assetService.ListAssets(ctx, args.Folder)
 		if err != nil {
@@ -73,7 +79,13 @@ func (s *Server) registerAssetTools() {
 	// List asset folders
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "list_asset_folders",
+		Title:       "List Asset Folders",
 		Description: "List all unique folder paths in the asset library.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:         "List Asset Folders",
+			ReadOnlyHint:  true,
+			OpenWorldHint: boolPtr(false),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args struct{}) (*mcp.CallToolResult, any, error) {
 		folders, err := s.assetService.ListFolders(ctx)
 		if err != nil {
@@ -86,7 +98,13 @@ func (s *Server) registerAssetTools() {
 	// Get asset
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "get_asset",
+		Title:       "Get Asset",
 		Description: "Get asset metadata by ID or path. Does not return file content (use the serve path to access the file).",
+		Annotations: &mcp.ToolAnnotations{
+			Title:         "Get Asset",
+			ReadOnlyHint:  true,
+			OpenWorldHint: boolPtr(false),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args GetAssetInput) (*mcp.CallToolResult, any, error) {
 		if args.ID != "" {
 			id, err := primitive.ObjectIDFromHex(args.ID)
@@ -114,7 +132,15 @@ func (s *Server) registerAssetTools() {
 	// Upload asset
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "upload_asset",
+		Title:       "Upload Asset",
 		Description: "Upload a new asset to the asset library. Provide file content as base64. Validates file type and MIME type for security.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Upload Asset",
+			ReadOnlyHint:    false,
+			DestructiveHint: boolPtr(false),
+			IdempotentHint:  false,
+			OpenWorldHint:   boolPtr(false),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args UploadAssetInput) (*mcp.CallToolResult, any, error) {
 		// Decode base64 data
 		data, err := base64.StdEncoding.DecodeString(args.DataBase64)
@@ -140,7 +166,15 @@ func (s *Server) registerAssetTools() {
 	// Delete asset
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "delete_asset",
+		Title:       "Delete Asset",
 		Description: "Delete an asset from the library. Removes both the file and database record.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Delete Asset",
+			ReadOnlyHint:    false,
+			DestructiveHint: boolPtr(true),
+			IdempotentHint:  true,
+			OpenWorldHint:   boolPtr(false),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args AssetIDInput) (*mcp.CallToolResult, any, error) {
 		id, err := primitive.ObjectIDFromHex(args.ID)
 		if err != nil {

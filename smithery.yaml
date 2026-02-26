@@ -1,0 +1,35 @@
+# Smithery configuration for LightCMS MCP server
+# https://smithery.ai/docs/build
+
+runtime: go
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    properties:
+      mongoUri:
+        type: string
+        description: "MongoDB Atlas connection string (mongodb+srv://...)"
+      sessionSecret:
+        type: string
+        description: "Random string for session encryption (32+ characters)"
+      baseUrl:
+        type: string
+        description: "Public site URL (optional)"
+      configDir:
+        type: string
+        description: "Directory containing config JSON files (optional)"
+    required:
+      - mongoUri
+      - sessionSecret
+  commandFunction: |
+    (config) => ({
+      command: "./lightcms-mcp",
+      args: [],
+      env: {
+        MONGO_URI: config.mongoUri,
+        SESSION_SECRET: config.sessionSecret,
+        ...(config.baseUrl && { BASE_URL: config.baseUrl }),
+        ...(config.configDir && { LIGHTCMS_CONFIG_DIR: config.configDir })
+      }
+    })

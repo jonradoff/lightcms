@@ -62,6 +62,12 @@ func (s *Server) Run(ctx context.Context) error {
 	return s.mcpServer.Run(ctx, &mcp.StdioTransport{})
 }
 
+// boolPtr returns a pointer to a bool value.
+// Needed for ToolAnnotations fields where nil means "use spec default" (true).
+func boolPtr(b bool) *bool {
+	return &b
+}
+
 // Helper to create a text result
 func textResult(text string) *mcp.CallToolResult {
 	return &mcp.CallToolResult{

@@ -1,0 +1,18 @@
+{
+  "manifest_version": "0.2",
+  "name": "lightcms-mcp",
+  "display_name": "LightCMS",
+  "description": "A lightweight, AI-native content management system. Manage websites, content, templates, assets, and themes through 41 MCP tools.",
+  "version": "1.0.0",
+  "author": "Metavert LLC",
+  "homepage": "https://github.com/jonradoff/lightcms",
+  "repository": "https://github.com/jonradoff/lightcms",
+  "license": "MIT",
+  "privacy_policies": [
+    "https://www.metavert.io/lightcms-privacy-policy"
+  ],
+  "contact": {
+    "email": "privacy@metavert.io",
+    "support": "https://github.com/jonradoff/lightcms/issues"
+  }
+}

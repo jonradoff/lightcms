@@ -1,0 +1,50 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.jonradoff/lightcms",
+  "description": "A lightweight, AI-native content management system. Manage websites, content, templates, assets, and themes through 41 MCP tools.",
+  "repository": {
+    "url": "https://github.com/jonradoff/lightcms",
+    "source": "github"
+  },
+  "version": "1.0.0",
+  "packages": [
+    {
+      "registryType": "mcpb",
+      "identifier": "https://github.com/jonradoff/lightcms/releases",
+      "version": "1.0.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "MONGO_URI",
+          "description": "MongoDB Atlas connection string (mongodb+srv://...)",
+          "isRequired": true,
+          "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "SESSION_SECRET",
+          "description": "Random string for session encryption (32+ characters recommended)",
+          "isRequired": true,
+          "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "BASE_URL",
+          "description": "Public site URL (e.g., https://example.com)",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "string"
+        },
+        {
+          "name": "LIGHTCMS_CONFIG_DIR",
+          "description": "Directory containing config.dev.json or config.prod.json (alternative to env vars)",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "string"
+        }
+      ]
+    }
+  ]
+}

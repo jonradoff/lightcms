@@ -43,7 +43,13 @@ func (s *Server) registerTemplateTools() {
 	// List templates
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "list_templates",
+		Title:       "List Templates",
 		Description: "List all available templates. Templates define content structure with fields and HTML layout.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:         "List Templates",
+			ReadOnlyHint:  true,
+			OpenWorldHint: boolPtr(false),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args struct{}) (*mcp.CallToolResult, any, error) {
 		templates, err := s.templateService.ListTemplates(ctx)
 		if err != nil {
@@ -80,7 +86,13 @@ func (s *Server) registerTemplateTools() {
 	// Get template
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "get_template",
+		Title:       "Get Template",
 		Description: "Get a single template by ID or slug. Returns full template including fields and HTML layout.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:         "Get Template",
+			ReadOnlyHint:  true,
+			OpenWorldHint: boolPtr(false),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args GetTemplateInput) (*mcp.CallToolResult, any, error) {
 		var tmpl *models.Template
 		var err error
@@ -107,7 +119,15 @@ func (s *Server) registerTemplateTools() {
 	// Create template
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "create_template",
+		Title:       "Create Template",
 		Description: "Create a new template. Define fields with name, label, type (text, textarea, richtext, date, image, select), and options.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Create Template",
+			ReadOnlyHint:    false,
+			DestructiveHint: boolPtr(false),
+			IdempotentHint:  false,
+			OpenWorldHint:   boolPtr(false),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args CreateTemplateInput) (*mcp.CallToolResult, any, error) {
 		tmpl := &models.Template{
 			Name:        args.Name,
@@ -133,7 +153,15 @@ func (s *Server) registerTemplateTools() {
 	// Update template
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "update_template",
+		Title:       "Update Template",
 		Description: "Update an existing template. Changing the HTML layout will regenerate all content using this template.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Update Template",
+			ReadOnlyHint:    false,
+			DestructiveHint: boolPtr(true),
+			IdempotentHint:  true,
+			OpenWorldHint:   boolPtr(false),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args UpdateTemplateInput) (*mcp.CallToolResult, any, error) {
 		id, err := primitive.ObjectIDFromHex(args.ID)
 		if err != nil {
@@ -180,7 +208,15 @@ func (s *Server) registerTemplateTools() {
 	// Delete template
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "delete_template",
+		Title:       "Delete Template",
 		Description: "Delete a template. Cannot delete system templates or templates that have content using them.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Delete Template",
+			ReadOnlyHint:    false,
+			DestructiveHint: boolPtr(true),
+			IdempotentHint:  true,
+			OpenWorldHint:   boolPtr(false),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args TemplateIDInput) (*mcp.CallToolResult, any, error) {
 		id, err := primitive.ObjectIDFromHex(args.ID)
 		if err != nil {

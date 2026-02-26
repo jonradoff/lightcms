@@ -7,7 +7,7 @@ A lightweight, AI-native content management system for building and managing web
 **Lightweight**: A clean, focused codebase (~5K lines of Go) that's easy to understand, modify, and extend. No bloated frameworks or complex abstractions.
 
 **AI-Native**: Built from the ground up for the AI era:
-- **MCP Integration**: Full Model Context Protocol server with 38 tools for website management. Control your entire site through Claude Code or other agentic workflows.
+- **MCP Integration**: Full Model Context Protocol server with 41 tools for website management. Control your entire site through Claude Code or other agentic workflows.
 - **Fork-Friendly**: Designed to be forked and customized by Claude Code. Ask Claude to add new content types, modify templates, or build custom features—the codebase is structured for AI-assisted development.
 - **Natural Language Website Management**: Skip the admin UI entirely. Create pages, manage assets, customize themes, and publish content through conversation.
 
@@ -281,21 +281,42 @@ The MCP server supports these environment variables:
 - `SESSION_SECRET` - Session encryption key (required with MONGO_URI)
 - `BASE_URL` - Public site URL (optional)
 
-### Example Commands
+### Usage Examples
 
 Once connected, you can manage your site with natural language:
 
-- "Create a new blog post about machine learning"
-- "List all my draft content"
-- "Update the homepage title to 'Welcome to My Site'"
-- "Delete the /old-page content"
-- "Show me all templates"
-- "Upload an image for my latest blog post"
-- "Change the site's primary color to blue"
+#### Example 1: Create and Publish a Blog Post
+**User prompt:** "Create a blog post titled 'Introduction to AI Agents' with a short excerpt and publish it"
+**What happens:**
+- Server calls `list_templates` to find the Blog Post template
+- Server calls `create_content` with the template ID, title, excerpt, and content fields
+- Server calls `publish_content` to make it live on the public site
+- A static HTML page is generated and accessible at the content's URL path
+
+#### Example 2: Update Site Theme
+**User prompt:** "Change the site's primary color to dark blue and update the header with a new navigation bar"
+**What happens:**
+- Server calls `get_theme` to read current theme settings
+- Server calls `update_theme` with the new primary color and header HTML
+- All published content pages are automatically regenerated with the new theme
+
+#### Example 3: Search and Replace Across Content
+**User prompt:** "Replace all instances of 'old-company-name' with 'new-company-name' across the site"
+**What happens:**
+- Server calls `search_replace_preview` to show which pages and fields would be affected
+- After user confirms, server calls `search_replace_execute` to apply the changes
+- Each affected content item gets a new version (for rollback capability)
+- Published pages are regenerated with the updated text
+
+#### More Examples
+- "List all my draft content" — lists unpublished content items
+- "Show me all templates" — displays available content templates
+- "Upload an image for my latest blog post" — uploads a base64-encoded image asset
+- "Revert the homepage to version 3" — rolls back to a previous content version
 
 ### Available Tools
 
-The MCP server provides 38 tools for complete content management:
+The MCP server provides 41 tools for complete content management:
 
 - **Content**: Create, read, update, delete, publish, unpublish, versioning
 - **Templates**: Manage content templates and their fields
@@ -326,6 +347,12 @@ For production:
 3. Use HTTPS (put behind a reverse proxy like nginx or caddy)
 4. Restrict MongoDB Atlas IP whitelist to your server IPs
 5. Regularly backup your MongoDB database
+
+## Privacy Policy
+
+LightCMS is self-hosted software — you control your database, your hosting, and your data. The LightCMS MCP server runs locally and does not transmit data to Metavert LLC or any third party. All data flows directly between the MCP client and your MongoDB database.
+
+For the full privacy policy, see: https://www.metavert.io/lightcms-privacy-policy
 
 ## License
 

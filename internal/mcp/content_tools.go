@@ -79,7 +79,13 @@ func (s *Server) registerContentTools() {
 	// List content
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "list_content",
+		Title:       "List Content",
 		Description: "List all content items with optional filters. Returns content metadata including title, path, publish status, and timestamps.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:        "List Content",
+			ReadOnlyHint: true,
+			OpenWorldHint: boolPtr(false),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args ListContentInput) (*mcp.CallToolResult, any, error) {
 		var folderID *primitive.ObjectID
 		if args.FolderID != "" {
@@ -163,7 +169,13 @@ func (s *Server) registerContentTools() {
 	// Get content
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "get_content",
+		Title:       "Get Content",
 		Description: "Get a single content item by ID or path. Returns full content including all field data.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:        "Get Content",
+			ReadOnlyHint: true,
+			OpenWorldHint: boolPtr(false),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args GetContentInput) (*mcp.CallToolResult, any, error) {
 		var content *models.Content
 		var err error
@@ -190,7 +202,15 @@ func (s *Server) registerContentTools() {
 	// Create content
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "create_content",
+		Title:       "Create Content",
 		Description: "Create a new content item. Requires a template ID and field data. Creates initial version automatically.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Create Content",
+			ReadOnlyHint:    false,
+			DestructiveHint: boolPtr(false),
+			IdempotentHint:  false,
+			OpenWorldHint:   boolPtr(false),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args CreateContentInput) (*mcp.CallToolResult, any, error) {
 		templateID, err := primitive.ObjectIDFromHex(args.TemplateID)
 		if err != nil {
@@ -235,7 +255,15 @@ func (s *Server) registerContentTools() {
 	// Update content
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "update_content",
+		Title:       "Update Content",
 		Description: "Update an existing content item. Creates a new version automatically. Only include fields you want to change.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Update Content",
+			ReadOnlyHint:    false,
+			DestructiveHint: boolPtr(true),
+			IdempotentHint:  true,
+			OpenWorldHint:   boolPtr(false),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args UpdateContentInput) (*mcp.CallToolResult, any, error) {
 		id, err := primitive.ObjectIDFromHex(args.ID)
 		if err != nil {
@@ -313,7 +341,15 @@ func (s *Server) registerContentTools() {
 	// Publish content
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "publish_content",
+		Title:       "Publish Content",
 		Description: "Publish a content item, making it visible on the public site. Generates the static HTML page.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Publish Content",
+			ReadOnlyHint:    false,
+			DestructiveHint: boolPtr(true),
+			IdempotentHint:  true,
+			OpenWorldHint:   boolPtr(false),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args ContentIDInput) (*mcp.CallToolResult, any, error) {
 		id, err := primitive.ObjectIDFromHex(args.ID)
 		if err != nil {
@@ -330,7 +366,15 @@ func (s *Server) registerContentTools() {
 	// Unpublish content
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "unpublish_content",
+		Title:       "Unpublish Content",
 		Description: "Unpublish a content item, removing it from the public site. Removes the static HTML page.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Unpublish Content",
+			ReadOnlyHint:    false,
+			DestructiveHint: boolPtr(true),
+			IdempotentHint:  true,
+			OpenWorldHint:   boolPtr(false),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args ContentIDInput) (*mcp.CallToolResult, any, error) {
 		id, err := primitive.ObjectIDFromHex(args.ID)
 		if err != nil {
@@ -347,7 +391,15 @@ func (s *Server) registerContentTools() {
 	// Delete content (soft delete)
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "delete_content",
+		Title:       "Delete Content",
 		Description: "Soft-delete a content item. The content can be restored later. Removes the static HTML page.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Delete Content",
+			ReadOnlyHint:    false,
+			DestructiveHint: boolPtr(true),
+			IdempotentHint:  true,
+			OpenWorldHint:   boolPtr(false),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args ContentIDInput) (*mcp.CallToolResult, any, error) {
 		id, err := primitive.ObjectIDFromHex(args.ID)
 		if err != nil {
@@ -364,7 +416,15 @@ func (s *Server) registerContentTools() {
 	// Restore content
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "restore_content",
+		Title:       "Restore Content",
 		Description: "Restore a soft-deleted content item. Regenerates static page if content was published.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Restore Content",
+			ReadOnlyHint:    false,
+			DestructiveHint: boolPtr(false),
+			IdempotentHint:  true,
+			OpenWorldHint:   boolPtr(false),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args ContentIDInput) (*mcp.CallToolResult, any, error) {
 		id, err := primitive.ObjectIDFromHex(args.ID)
 		if err != nil {
@@ -381,7 +441,13 @@ func (s *Server) registerContentTools() {
 	// Get versions
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "get_content_versions",
+		Title:       "Get Content Versions",
 		Description: "Get the version history for a content item. Returns list of versions with timestamps.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:        "Get Content Versions",
+			ReadOnlyHint: true,
+			OpenWorldHint: boolPtr(false),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args GetVersionsInput) (*mcp.CallToolResult, any, error) {
 		contentID, err := primitive.ObjectIDFromHex(args.ContentID)
 		if err != nil {
@@ -423,7 +489,13 @@ func (s *Server) registerContentTools() {
 	// Get specific version
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "get_content_version",
+		Title:       "Get Content Version",
 		Description: "Get a specific version of a content item with full field data.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:        "Get Content Version",
+			ReadOnlyHint: true,
+			OpenWorldHint: boolPtr(false),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args GetVersionInput) (*mcp.CallToolResult, any, error) {
 		contentID, err := primitive.ObjectIDFromHex(args.ContentID)
 		if err != nil {
@@ -441,7 +513,15 @@ func (s *Server) registerContentTools() {
 	// Revert to version
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "revert_to_version",
+		Title:       "Revert to Version",
 		Description: "Revert content to a previous version. Creates a new version with the old data.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Revert to Version",
+			ReadOnlyHint:    false,
+			DestructiveHint: boolPtr(true),
+			IdempotentHint:  false,
+			OpenWorldHint:   boolPtr(false),
+		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args RevertToVersionInput) (*mcp.CallToolResult, any, error) {
 		contentID, err := primitive.ObjectIDFromHex(args.ContentID)
 		if err != nil {
