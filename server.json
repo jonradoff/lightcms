@@ -1,7 +1,7 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.jonradoff/lightcms",
-  "description": "A lightweight, AI-native content management system. Manage websites, content, templates, assets, and themes through 41 MCP tools.",
+  "description": "AI-native CMS with 41 MCP tools for managing websites through natural language.",
   "repository": {
     "url": "https://github.com/jonradoff/lightcms",
     "source": "github"
@@ -10,8 +10,9 @@
   "packages": [
     {
       "registryType": "mcpb",
-      "identifier": "https://github.com/jonradoff/lightcms/releases",
+      "identifier": "https://github.com/jonradoff/lightcms/releases/download/v1.1.0/lightcms-darwin-arm64.mcpb",
       "version": "1.1.0",
+      "fileSha256": "5777bf754d6bdaef9e00361dfb821f88ae8190ed4420c15d571de06afd66564e",
       "transport": {
         "type": "stdio"
       },
