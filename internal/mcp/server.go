@@ -22,7 +22,7 @@ func NewServer(client *apiclient.Client) *Server {
 	mcpServer := mcp.NewServer(
 		&mcp.Implementation{
 			Name:    "lightcms",
-			Version: "1.0.0",
+			Version: "1.1.0",
 		},
 		nil,
 	)

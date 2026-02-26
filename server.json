@@ -6,42 +6,28 @@
     "url": "https://github.com/jonradoff/lightcms",
     "source": "github"
   },
-  "version": "1.0.0",
+  "version": "1.1.0",
   "packages": [
     {
       "registryType": "mcpb",
       "identifier": "https://github.com/jonradoff/lightcms/releases",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "transport": {
         "type": "stdio"
       },
       "environmentVariables": [
         {
-          "name": "MONGO_URI",
-          "description": "MongoDB Atlas connection string (mongodb+srv://...)",
+          "name": "LIGHTCMS_URL",
+          "description": "URL of your LightCMS instance (e.g., https://example.com or http://localhost:8082)",
           "isRequired": true,
-          "isSecret": true,
-          "format": "string"
-        },
-        {
-          "name": "SESSION_SECRET",
-          "description": "Random string for session encryption (32+ characters recommended)",
-          "isRequired": true,
-          "isSecret": true,
-          "format": "string"
-        },
-        {
-          "name": "BASE_URL",
-          "description": "Public site URL (e.g., https://example.com)",
-          "isRequired": false,
           "isSecret": false,
           "format": "string"
         },
         {
-          "name": "LIGHTCMS_CONFIG_DIR",
-          "description": "Directory containing config.dev.json or config.prod.json (alternative to env vars)",
-          "isRequired": false,
-          "isSecret": false,
+          "name": "LIGHTCMS_API_KEY",
+          "description": "API key for authentication. Create one in the admin panel at /cm → Settings → API Keys.",
+          "isRequired": true,
+          "isSecret": true,
           "format": "string"
         }
       ]
