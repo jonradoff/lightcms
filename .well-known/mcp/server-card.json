@@ -1,0 +1,64 @@
+{
+  "serverInfo": {
+    "name": "LightCMS",
+    "version": "1.1.0"
+  },
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "serverUrl": {
+        "type": "string",
+        "description": "URL of your LightCMS instance (e.g. https://example.com or http://localhost:8082)"
+      },
+      "apiKey": {
+        "type": "string",
+        "description": "API key for authentication. Create one in the admin panel at /cm → Settings → API Keys."
+      }
+    },
+    "required": ["serverUrl", "apiKey"]
+  },
+  "tools": [
+    {"name": "list_content", "description": "List all content items with optional filters"},
+    {"name": "get_content", "description": "Get a content item by ID or path"},
+    {"name": "create_content", "description": "Create a new content item from a template"},
+    {"name": "update_content", "description": "Update an existing content item"},
+    {"name": "delete_content", "description": "Soft-delete a content item"},
+    {"name": "restore_content", "description": "Restore a deleted content item"},
+    {"name": "publish_content", "description": "Publish a content item to the live site"},
+    {"name": "unpublish_content", "description": "Remove a content item from the live site"},
+    {"name": "get_content_versions", "description": "Get version history for a content item"},
+    {"name": "get_content_version", "description": "Get a specific version of a content item"},
+    {"name": "revert_to_version", "description": "Revert content to a previous version"},
+    {"name": "list_templates", "description": "List all available content templates"},
+    {"name": "get_template", "description": "Get template details by ID or slug"},
+    {"name": "create_template", "description": "Create a new content template"},
+    {"name": "update_template", "description": "Update an existing template"},
+    {"name": "delete_template", "description": "Delete a template"},
+    {"name": "list_assets", "description": "List all assets in the library"},
+    {"name": "get_asset", "description": "Get asset metadata by ID or path"},
+    {"name": "upload_asset", "description": "Upload a file to the asset library"},
+    {"name": "delete_asset", "description": "Delete an asset"},
+    {"name": "list_asset_folders", "description": "List all asset folder paths"},
+    {"name": "get_theme", "description": "Get current theme settings"},
+    {"name": "update_theme", "description": "Update theme colors, fonts, and HTML"},
+    {"name": "get_site_config", "description": "Get site configuration"},
+    {"name": "update_site_config", "description": "Update site configuration"},
+    {"name": "list_redirects", "description": "List all URL redirects"},
+    {"name": "create_redirect", "description": "Create a URL redirect"},
+    {"name": "update_redirect", "description": "Update a redirect"},
+    {"name": "delete_redirect", "description": "Delete a redirect"},
+    {"name": "list_folders", "description": "List content folders"},
+    {"name": "get_folder", "description": "Get folder details"},
+    {"name": "create_folder", "description": "Create a content folder"},
+    {"name": "delete_folder", "description": "Delete an empty folder"},
+    {"name": "list_collections", "description": "List content collections"},
+    {"name": "get_collection", "description": "Get collection details"},
+    {"name": "create_collection", "description": "Create a content collection"},
+    {"name": "update_collection", "description": "Update a collection"},
+    {"name": "delete_collection", "description": "Delete a collection"},
+    {"name": "search_content", "description": "Full-text search across all content"},
+    {"name": "search_replace_preview", "description": "Preview search and replace results"},
+    {"name": "search_replace_execute", "description": "Execute search and replace across content"},
+    {"name": "regenerate_all_content", "description": "Regenerate all published static pages"}
+  ]
+}
