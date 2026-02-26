@@ -30,6 +30,7 @@ COPY --from=builder /app/lightcms .
 # Copy static files and templates
 COPY --from=builder /app/static ./static
 COPY --from=builder /app/build.json ./build.json
+COPY --from=builder /app/.well-known ./.well-known
 
 # Create directories for runtime data
 RUN mkdir -p content/generated static/uploads
