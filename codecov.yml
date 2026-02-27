@@ -1,0 +1,17 @@
+coverage:
+  status:
+    project:
+      default:
+        target: 80%
+  ignore:
+    - "cmd/**"
+    - "internal/database/**"
+    - "internal/testutil/**"
+    - "internal/handlers/**"
+    - "internal/cli/**"
+    - "internal/templates/**"
+    - "internal/build/**"
+    - "internal/apiclient/**"
+    - "internal/dbutil/**"
+    - "internal/mcp/**"
+    - "internal/errors/**"

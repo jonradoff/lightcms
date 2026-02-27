@@ -4,7 +4,6 @@ import (
 	"context"
 	"log"
 	"net/http"
-	"strings"
 
 	"lightcms/internal/database"
 	"lightcms/internal/middleware"
@@ -265,15 +264,9 @@ func (m *Manager) getClientIP(r *http.Request) string {
 
 func formatDuration(minutes, seconds int) string {
 	if minutes > 0 {
-		return strings.TrimSpace(strings.Join([]string{
-			itoa(minutes), "minute",
-			pluralize(minutes),
-		}, " "))
+		return itoa(minutes) + " minute" + pluralize(minutes)
 	}
-	return strings.TrimSpace(strings.Join([]string{
-		itoa(seconds), "second",
-		pluralize(seconds),
-	}, " "))
+	return itoa(seconds) + " second" + pluralize(seconds)
 }
 
 func itoa(n int) string {

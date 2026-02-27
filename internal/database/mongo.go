@@ -771,6 +771,11 @@ func (db *DB) APIKeys() *mongo.Collection {
 	return db.database.Collection("api_keys")
 }
 
+// Collection returns a named collection (useful for tests and generic operations)
+func (db *DB) Collection(name string) *mongo.Collection {
+	return db.database.Collection(name)
+}
+
 // WatchCollection returns a change stream for the specified collection.
 // The caller is responsible for closing the stream.
 func (db *DB) WatchCollection(ctx context.Context, collection string, pipeline mongo.Pipeline) (*mongo.ChangeStream, error) {
