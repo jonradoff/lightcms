@@ -80,7 +80,7 @@ func errorResult(err error) *mcp.CallToolResult {
 // ServerCard returns the MCP server card JSON with full tool schemas.
 // It creates a temporary in-memory client-server pair to extract the
 // tool definitions (with inputSchema) from the registered tools.
-func ServerCard() ([]byte, error) {
+func ServerCard(baseURL string) ([]byte, error) {
 	// Create a dummy server with a nil-client — tools are registered at
 	// creation time and schemas are derived from Go struct types, so no
 	// API calls are needed.
@@ -112,13 +112,15 @@ func ServerCard() ([]byte, error) {
 	card := map[string]interface{}{
 		"serverInfo": map[string]string{
 			"name":    "LightCMS",
-			"version": "1.2.0",
+			"version": "1.3.0",
 		},
 		"endpoint":  "/mcp",
 		"transport": []string{"streamable-http", "stdio"},
 		"authentication": map[string]interface{}{
-			"required": true,
-			"schemes":  []string{"bearer"},
+			"required":             true,
+			"schemes":              []string{"bearer"},
+			"authorization_server": baseURL,
+			"resource_metadata":    baseURL + "/.well-known/oauth-protected-resource",
 		},
 		"tools":     res.Tools,
 		"resources": []interface{}{},

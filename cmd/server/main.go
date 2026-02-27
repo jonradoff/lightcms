@@ -18,6 +18,7 @@ import (
 	lightmcp "lightcms/internal/mcp"
 	"lightcms/internal/middleware"
 	"lightcms/internal/models"
+	"lightcms/internal/oauth"
 	"lightcms/internal/services"
 
 	"github.com/gorilla/csrf"
@@ -223,6 +224,23 @@ func main() {
 		return err
 	})
 
+	// OAuth 2.1 setup for MCP Cowork connector support
+	oauthService := services.NewOAuthService(db)
+	systemAPIKey, err := services.EnsureSystemAPIKey(context.Background(), db, apiKeyService)
+	if err != nil {
+		log.Fatalf("Failed to create system API key: %v", err)
+	}
+	resourceMetadataURL := cfg.BaseURL + "/.well-known/oauth-protected-resource"
+	apiAuthMiddleware.SetOAuth(
+		func(ctx context.Context, rawToken string) error {
+			_, err := oauthService.ValidateAccessToken(ctx, rawToken)
+			return err
+		},
+		systemAPIKey,
+		resourceMetadataURL,
+	)
+	oauthHandler := oauth.NewHandler(oauthService, authManager, cfg.BaseURL, cfg.SessionSecret)
+
 	apiv1 := r.PathPrefix("/api/v1").Subrouter()
 	apiv1.Use(apiAuthMiddleware.Middleware)
 
@@ -314,7 +332,14 @@ func main() {
 	api.HandleFunc("/tools/broken-links/scan", h.BrokenLinkScan).Methods("GET")    // Auth checked in handler
 	api.HandleFunc("/tools/fix-link", h.FixBrokenLink).Methods("POST")             // Auth checked in handler
 
-	// MCP Streamable HTTP endpoint (API key authenticated)
+	// OAuth 2.1 endpoints (no auth middleware — these implement their own auth)
+	r.HandleFunc("/oauth/register", oauthHandler.Register).Methods("POST")
+	r.HandleFunc("/oauth/authorize", oauthHandler.Authorize).Methods("GET")
+	r.HandleFunc("/oauth/authorize", oauthHandler.AuthorizeSubmit).Methods("POST")
+	r.HandleFunc("/oauth/token", oauthHandler.Token).Methods("POST")
+	r.HandleFunc("/oauth/revoke", oauthHandler.TokenRevocation).Methods("POST")
+
+	// MCP Streamable HTTP endpoint (API key + OAuth authenticated)
 	mcpHandler := lightmcp.NewHTTPHandler(cfg.Port)
 	mcpSubrouter := r.PathPrefix("/mcp").Subrouter()
 	mcpSubrouter.Use(apiAuthMiddleware.Middleware)
@@ -329,8 +354,13 @@ func main() {
 		w.Write([]byte("OK"))
 	}).Methods("GET")
 
+	// OAuth well-known metadata endpoints (RFC 9728 + RFC 8414)
+	r.HandleFunc("/.well-known/oauth-protected-resource", oauth.ProtectedResourceMetadataHandler(cfg.BaseURL)).Methods("GET", "OPTIONS")
+	r.HandleFunc("/.well-known/oauth-authorization-server", oauth.AuthorizationServerMetadataHandler(cfg.BaseURL)).Methods("GET", "OPTIONS")
+	r.HandleFunc("/oauth/jwks", oauth.JWKSHandler()).Methods("GET")
+
 	// MCP well-known server card (dynamic, includes full tool schemas)
-	serverCardJSON, err := lightmcp.ServerCard()
+	serverCardJSON, err := lightmcp.ServerCard(cfg.BaseURL)
 	if err != nil {
 		log.Printf("Warning: could not generate MCP server card: %v", err)
 	}

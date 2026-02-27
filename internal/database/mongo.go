@@ -164,6 +164,63 @@ func (db *DB) createIndexes(ctx context.Context) error {
 		return err
 	}
 
+	// OAuth client_id index (unique)
+	_, err = db.database.Collection("oauth_clients").Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    bson.D{{Key: "client_id", Value: 1}},
+		Options: options.Index().SetUnique(true),
+	})
+	if err != nil {
+		return err
+	}
+
+	// OAuth auth codes: unique code hash + TTL auto-cleanup
+	_, err = db.database.Collection("oauth_auth_codes").Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    bson.D{{Key: "code", Value: 1}},
+		Options: options.Index().SetUnique(true),
+	})
+	if err != nil {
+		return err
+	}
+	_, err = db.database.Collection("oauth_auth_codes").Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    bson.D{{Key: "expires_at", Value: 1}},
+		Options: options.Index().SetExpireAfterSeconds(0),
+	})
+	if err != nil {
+		return err
+	}
+
+	// OAuth access tokens: unique hash + TTL auto-cleanup
+	_, err = db.database.Collection("oauth_access_tokens").Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    bson.D{{Key: "token_hash", Value: 1}},
+		Options: options.Index().SetUnique(true),
+	})
+	if err != nil {
+		return err
+	}
+	_, err = db.database.Collection("oauth_access_tokens").Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    bson.D{{Key: "expires_at", Value: 1}},
+		Options: options.Index().SetExpireAfterSeconds(0),
+	})
+	if err != nil {
+		return err
+	}
+
+	// OAuth refresh tokens: unique hash + TTL auto-cleanup
+	_, err = db.database.Collection("oauth_refresh_tokens").Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    bson.D{{Key: "token_hash", Value: 1}},
+		Options: options.Index().SetUnique(true),
+	})
+	if err != nil {
+		return err
+	}
+	_, err = db.database.Collection("oauth_refresh_tokens").Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    bson.D{{Key: "expires_at", Value: 1}},
+		Options: options.Index().SetExpireAfterSeconds(0),
+	})
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
