@@ -3,7 +3,7 @@
     "name": "LightCMS",
     "version": "1.2.0"
   },
-  "endpoint": "https://metavert.io/mcp",
+  "endpoint": "/mcp",
   "transport": ["streamable-http", "stdio"],
   "authentication": {
     "type": "bearer",

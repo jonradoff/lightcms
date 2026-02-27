@@ -1,16 +1,21 @@
 # Smithery configuration file: https://smithery.ai/docs/config#smitheryyaml
 
-# HTTP transport — connects to the live LightCMS MCP endpoint
+# HTTP transport — connects to a self-hosted LightCMS instance's MCP endpoint.
+# Each user provides their own server URL and API key.
 startCommand:
   type: http
   configSchema:
     type: object
     required:
+      - serverUrl
       - apiKey
     properties:
+      serverUrl:
+        type: string
+        description: URL of your LightCMS instance (e.g. https://example.com or http://localhost:8082)
       apiKey:
         type: string
         description: API key for authentication. Create one in the admin panel at /cm → Settings → API Keys.
   urlFunction:
     |-
-    (config) => ({ url: 'https://metavert.io/mcp', headers: { 'Authorization': 'Bearer ' + config.apiKey } })
+    (config) => ({ url: config.serverUrl.replace(/\/$/, '') + '/mcp', headers: { 'Authorization': 'Bearer ' + config.apiKey } })
