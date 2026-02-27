@@ -47,6 +47,11 @@ func (s *Server) Run(ctx context.Context) error {
 	return s.mcpServer.Run(ctx, &mcp.StdioTransport{})
 }
 
+// MCPServer returns the underlying SDK server for use with HTTP transport
+func (s *Server) MCPServer() *mcp.Server {
+	return s.mcpServer
+}
+
 // boolPtr returns a pointer to a bool value.
 // Needed for ToolAnnotations fields where nil means "use spec default" (true).
 func boolPtr(b bool) *bool {

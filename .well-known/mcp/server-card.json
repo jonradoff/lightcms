@@ -1,7 +1,13 @@
 {
   "serverInfo": {
     "name": "LightCMS",
-    "version": "1.1.0"
+    "version": "1.2.0"
+  },
+  "endpoint": "https://metavert.io/mcp",
+  "transport": ["streamable-http", "stdio"],
+  "authentication": {
+    "type": "bearer",
+    "description": "API key for authentication. Create one in the admin panel at /cm → Settings → API Keys."
   },
   "configSchema": {
     "type": "object",

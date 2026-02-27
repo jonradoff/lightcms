@@ -1,23 +1,16 @@
 # Smithery configuration file: https://smithery.ai/docs/config#smitheryyaml
 
-runtime: container
-build:
-  dockerfile: Dockerfile.smithery
-  dockerBuildPath: "."
+# HTTP transport — connects to the live LightCMS MCP endpoint
 startCommand:
-  type: stdio
+  type: http
   configSchema:
     type: object
     required:
-      - serverUrl
       - apiKey
     properties:
-      serverUrl:
-        type: string
-        description: URL of your LightCMS instance (e.g. https://example.com or http://localhost:8082)
       apiKey:
         type: string
         description: API key for authentication. Create one in the admin panel at /cm → Settings → API Keys.
-  commandFunction:
+  urlFunction:
     |-
-    (config) => ({ command: './lightcms-mcp', args: [], env: { LIGHTCMS_URL: config.serverUrl, LIGHTCMS_API_KEY: config.apiKey } })
+    (config) => ({ url: 'https://metavert.io/mcp', headers: { 'Authorization': 'Bearer ' + config.apiKey } })

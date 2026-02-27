@@ -15,6 +15,7 @@ import (
 	"lightcms/internal/build"
 	"lightcms/internal/database"
 	"lightcms/internal/handlers"
+	lightmcp "lightcms/internal/mcp"
 	"lightcms/internal/middleware"
 	"lightcms/internal/models"
 	"lightcms/internal/services"
@@ -312,6 +313,12 @@ func main() {
 	api.HandleFunc("/content/replace-execute", h.ReplaceExecute).Methods("POST")   // Auth checked in handler
 	api.HandleFunc("/tools/broken-links/scan", h.BrokenLinkScan).Methods("GET")    // Auth checked in handler
 	api.HandleFunc("/tools/fix-link", h.FixBrokenLink).Methods("POST")             // Auth checked in handler
+
+	// MCP Streamable HTTP endpoint (API key authenticated)
+	mcpHandler := lightmcp.NewHTTPHandler(cfg.Port)
+	mcpSubrouter := r.PathPrefix("/mcp").Subrouter()
+	mcpSubrouter.Use(apiAuthMiddleware.Middleware)
+	mcpSubrouter.Handle("", mcpHandler)
 
 	// Public asset serving
 	r.PathPrefix("/assets/").HandlerFunc(h.ServeAsset).Methods("GET")
