@@ -1,7 +1,7 @@
 # LightCMS
 
 [![CI](https://github.com/jonradoff/lightcms/actions/workflows/ci.yml/badge.svg)](https://github.com/jonradoff/lightcms/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/jonradoff/lightcms/branch/master/graph/badge.svg)](https://codecov.io/gh/jonradoff/lightcms)
+[![codecov](https://codecov.io/gh/jonradoff/lightcms/branch/main/graph/badge.svg)](https://codecov.io/gh/jonradoff/lightcms)
 [![Go Report Card](https://goreportcard.com/badge/github.com/jonradoff/lightcms)](https://goreportcard.com/report/github.com/jonradoff/lightcms)
 
 A lightweight, AI-native content management system for building and managing websites. Built with Go and MongoDB Atlas.
@@ -11,14 +11,16 @@ A lightweight, AI-native content management system for building and managing web
 **Lightweight**: A clean, focused codebase (~5K lines of Go) that's easy to understand, modify, and extend. No bloated frameworks or complex abstractions.
 
 **AI-Native**: Built from the ground up for the AI era:
-- **MCP Integration**: Full Model Context Protocol server with 41 tools for website management. Control your entire site through Claude Code or other agentic workflows.
-- **Fork-Friendly**: Designed to be forked and customized by Claude Code. Ask Claude to add new content types, modify templates, or build custom features—the codebase is structured for AI-assisted development.
+- **MCP Integration**: Full Model Context Protocol server with 43 tools for website management. Supports both local stdio and HTTP streamable transports — connect from Claude Code, Claude Desktop, or any MCP-compatible client.
+- **OAuth 2.1 for Remote Agents**: Sandboxed desktop apps like Claude's Cowork can securely connect over HTTP using OAuth 2.1 with PKCE. No embedded passwords — just authorize once and the agent manages your site.
+- **Fork-Friendly**: Designed to be forked and customized by Claude Code. Ask Claude to add new content types, modify templates, or build custom features — the codebase is structured for AI-assisted development.
 - **Natural Language Website Management**: Skip the admin UI entirely. Create pages, manage assets, customize themes, and publish content through conversation.
 
 ## Features
 
-- **AI-Powered Website Management**: MCP server for agentic control of your site
-- **REST API**: Full `/api/v1/` JSON API with API key authentication
+- **AI-Powered Website Management**: MCP server (stdio + HTTP) for agentic control of your site
+- **OAuth 2.1**: Secure authorization for remote MCP clients with PKCE, token rotation, and dynamic client registration
+- **REST API**: Full `/api/v1/` JSON API with API key and OAuth token authentication
 - **CLI Tool**: Command-line interface for all content management operations
 - **API Key System**: Create and manage API keys from the admin panel
 - **Template System**: Define reusable content structures with custom fields
@@ -33,7 +35,7 @@ A lightweight, AI-native content management system for building and managing web
 
 ## Prerequisites
 
-- Go 1.21 or later
+- Go 1.24 or later
 - MongoDB Atlas account (free tier works great)
 
 ## Quick Start
@@ -206,7 +208,8 @@ lightcms/
 │   ├── database/             # MongoDB connection & operations
 │   ├── handlers/             # HTTP handlers (admin UI + REST API)
 │   ├── mcp/                  # MCP server and tool definitions
-│   ├── middleware/            # API auth middleware
+│   ├── middleware/            # API auth middleware (API keys + OAuth)
+│   ├── oauth/                # OAuth 2.1 authorization server
 │   ├── models/               # Data models & default templates
 │   └── services/             # Business logic services
 ├── static/                   # CSS, JS, and uploaded files
@@ -236,16 +239,54 @@ API keys are required for the REST API, MCP server, and CLI tool. Create them fr
 
 Keys use the format `lc_` followed by 32 hex characters. They're stored as SHA-256 hashes.
 
+## OAuth 2.1 Authorization
+
+LightCMS implements OAuth 2.1 so that remote MCP clients (like Claude's Cowork) can securely connect without embedding passwords or API keys. This follows the standard authorization code flow with PKCE.
+
+### Endpoints
+
+| Endpoint | Purpose |
+|----------|---------|
+| `POST /oauth/register` | Dynamic client registration (RFC 7591) |
+| `GET /oauth/authorize` | Authorization page (admin login + consent) |
+| `POST /oauth/token` | Token exchange and refresh |
+| `POST /oauth/revoke` | Token revocation (RFC 7009) |
+| `GET /oauth/jwks` | JWKS endpoint (opaque tokens, returns empty) |
+
+### Security
+
+- **PKCE (S256)** required for all authorization requests
+- **Token rotation**: refresh tokens are single-use; a new pair is issued each time
+- **Short-lived access tokens**: 1-hour TTL
+- **Refresh tokens**: 30-day TTL, revocable
+- **Rate limiting**: failed login attempts trigger progressive lockouts (1 min → 5 min → 15 min)
+- **All tokens stored as SHA-256 hashes** in the database
+
+### How Clients Connect
+
+1. Client fetches `/.well-known/oauth-authorization-server` to discover endpoints
+2. Client calls `POST /oauth/register` with its name and redirect URI
+3. Client redirects admin to `/oauth/authorize` with PKCE challenge
+4. Admin enters password and approves access
+5. Client exchanges the authorization code for access + refresh tokens
+6. Client uses the access token as a Bearer token on `/mcp` or `/api/v1/` endpoints
+
+This is all handled automatically by MCP-compatible clients — you just provide your LightCMS URL and approve the connection.
+
 ## REST API
 
-LightCMS provides a full REST API at `/api/v1/` authenticated with API keys.
+LightCMS provides a full REST API at `/api/v1/` authenticated with API keys or OAuth tokens.
 
 ### Authentication
 
-Include your API key in the `Authorization` header:
+Include an API key or OAuth access token in the `Authorization` header:
 
 ```bash
+# With API key
 curl -H "Authorization: Bearer lc_your_key_here" http://localhost:8082/api/v1/content
+
+# With OAuth token
+curl -H "Authorization: Bearer <oauth_access_token>" http://localhost:8082/api/v1/content
 ```
 
 ### Endpoints
@@ -308,13 +349,16 @@ lightcms --json content list             # JSON output
 
 Run `lightcms --help` for full usage.
 
-## Using with Claude Code (AI-Powered Content Management)
+## MCP Server (AI-Powered Content Management)
 
-LightCMS includes an MCP (Model Context Protocol) server that allows you to manage your website content using Claude Code. Instead of navigating the admin UI, you can simply ask Claude to create pages, update content, manage assets, and more.
+LightCMS includes a full MCP (Model Context Protocol) server with 43 tools for managing your entire website through AI agents. It supports two transport modes:
 
-The MCP server connects to LightCMS via the REST API using an API key — no direct database access needed. This means MCP clients can run remotely.
+- **Stdio** — for local tools like Claude Code
+- **HTTP Streamable** — for remote/sandboxed clients like Claude's Cowork, Claude Desktop, or any MCP-compatible app
 
-### Quick Setup
+### Option A: Local Setup (Claude Code via Stdio)
+
+Best for developers using Claude Code directly on the same machine.
 
 1. Create an API key in the admin panel at `/cm` → Settings → API Keys
 2. Run the setup script:
@@ -324,46 +368,63 @@ export LIGHTCMS_API_KEY=lc_your_key_here
 ./setup-mcp.sh
 ```
 
-This will:
-1. Build the MCP server and CLI binaries
-2. Create the wrapper script
-3. Register the MCP server with Claude Code
+Or register manually:
+```bash
+go build -o bin/lightcms-mcp ./cmd/mcp
 
-Then restart Claude Code and run `/mcp` to verify the connection.
+claude mcp add --transport stdio lightcms-mcp \
+  -e LIGHTCMS_URL="http://localhost:8082" \
+  -e LIGHTCMS_API_KEY="lc_your_key_here" \
+  -- /path/to/lightcms/bin/lightcms-mcp
+```
 
-### Manual Setup
+Restart Claude Code and run `/mcp` to verify.
 
-1. Build the MCP server:
-   ```bash
-   go build -o bin/lightcms-mcp ./cmd/mcp
-   ```
+### Option B: Remote Setup (Cowork / Claude Desktop via HTTP + OAuth)
 
-2. Register with Claude Code:
-   ```bash
-   claude mcp add --transport stdio lightcms-mcp \
-     -e LIGHTCMS_URL="http://localhost:8082" \
-     -e LIGHTCMS_API_KEY="lc_your_key_here" \
-     -- /path/to/lightcms/bin/lightcms-mcp
-   ```
+Best for sandboxed desktop apps that can't run local binaries. The HTTP MCP endpoint at `/mcp` supports OAuth 2.1 authorization — no API keys or passwords need to be embedded in the client.
 
-3. Restart Claude Code and verify with `/mcp`
+**How it works:**
 
-### Environment Variables
+1. The client discovers your LightCMS instance via well-known endpoints
+2. It registers as an OAuth client (one-time, automatic)
+3. You authorize the client by entering your admin password in the browser
+4. The client receives short-lived access tokens and refreshes them automatically
 
-The MCP server uses these environment variables:
-- `LIGHTCMS_URL` - Server URL (default: `http://localhost:8082`)
-- `LIGHTCMS_API_KEY` - API key (required)
+**To connect from a remote MCP client**, just provide your LightCMS URL (e.g., `https://yoursite.example.com`). The client handles the rest using standard OAuth 2.1 discovery.
+
+**Discovery endpoints:**
+
+| Endpoint | Purpose |
+|----------|---------|
+| `/.well-known/oauth-authorization-server` | OAuth server metadata (RFC 8414) |
+| `/.well-known/oauth-protected-resource` | Protected resource metadata (RFC 9728) |
+| `/.well-known/mcp/server-card.json` | MCP server card with tool schemas |
+
+### Authentication
+
+The MCP HTTP endpoint accepts both authentication methods:
+
+- **API keys** (`lc_` prefix) — long-lived, created in admin panel
+- **OAuth 2.1 tokens** — short-lived, obtained through the authorization flow
+
+Both methods provide full access to all 43 MCP tools. The middleware auto-detects which type of token is being used.
 
 ### Available Tools
 
-The MCP server provides 41 tools for complete content management:
-
-- **Content**: Create, read, update, delete, publish, unpublish, versioning
-- **Templates**: Manage content templates and their fields
-- **Assets**: Upload and manage images, documents, and other files
-- **Settings**: Theme customization, redirects, folders, collections
+- **Content** (12): create, read, update, delete, publish, unpublish, versioning, search
+- **Templates** (5): create, read, update, delete, list
+- **Assets** (5): upload, read, delete, list files and folders
+- **Settings** (16): theme, site config, redirects, folders, collections
+- **Search** (3): full-text search, search-and-replace with preview
+- **Utility** (2): regenerate all content, server card
 
 For detailed API documentation, see [MCP.md](MCP.md).
+
+### Environment Variables (Stdio Mode)
+
+- `LIGHTCMS_URL` — Server URL (default: `http://localhost:8082`)
+- `LIGHTCMS_API_KEY` — API key (required for stdio mode)
 
 ## MCP Examples
 
