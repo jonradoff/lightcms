@@ -502,5 +502,101 @@ func TestUploadAsset_RootFolder(t *testing.T) {
 	}
 }
 
+func TestUploadAsset_WebPMimeType(t *testing.T) {
+	svc, cleanup := newTestAssetService(t)
+	defer cleanup()
+
+	tmpDir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(origDir)
+
+	ctx := context.Background()
+	// RIFF....WEBP header
+	webpData := []byte("RIFF\x00\x00\x00\x00WEBPVP8 ")
+
+	asset, err := svc.UploadAsset(ctx, webpData, "photo.webp", "/images/photo.webp", "")
+	if err != nil {
+		t.Fatalf("UploadAsset WebP failed: %v", err)
+	}
+	if asset.MimeType != "image/webp" {
+		t.Errorf("expected image/webp, got %q", asset.MimeType)
+	}
+}
+
+func TestUploadAsset_ICOMimeType(t *testing.T) {
+	svc, cleanup := newTestAssetService(t)
+	defer cleanup()
+
+	tmpDir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(origDir)
+
+	ctx := context.Background()
+	// ICO files are detected as application/octet-stream by Go's detector
+	// but our code overrides based on extension
+	icoData := []byte{0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x10, 0x10}
+
+	asset, err := svc.UploadAsset(ctx, icoData, "favicon.ico", "/favicon.ico", "")
+	if err != nil {
+		t.Fatalf("UploadAsset ICO failed: %v", err)
+	}
+	if asset.MimeType != "image/x-icon" {
+		t.Errorf("expected image/x-icon, got %q", asset.MimeType)
+	}
+}
+
+// JSON files are detected as text/plain by http.DetectContentType,
+// which doesn't match the allowed MIME types. Same limitation as CSS/JS.
+// The extension-based override sets application/json but MIME validation
+// happens before the override. Test that the rejection works correctly.
+func TestUploadAsset_JSONMimeRejection(t *testing.T) {
+	svc, cleanup := newTestAssetService(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	jsonData := []byte(`{"key": "value"}`)
+
+	_, err := svc.UploadAsset(ctx, jsonData, "data.json", "/data/data.json", "")
+	if err == nil {
+		t.Error("expected MIME mismatch error for JSON (detected as text/plain)")
+	}
+}
+
+func TestUploadAsset_Overwrite(t *testing.T) {
+	svc, cleanup := newTestAssetService(t)
+	defer cleanup()
+
+	tmpDir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(origDir)
+
+	ctx := context.Background()
+	pngData := []byte{
+		0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+		0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+		0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+		0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53,
+		0xde,
+	}
+
+	// Upload once
+	_, err := svc.UploadAsset(ctx, pngData, "overwrite.png", "/images/overwrite.png", "first")
+	if err != nil {
+		t.Fatalf("First upload failed: %v", err)
+	}
+
+	// Upload again to same path — should upsert
+	asset2, err := svc.UploadAsset(ctx, pngData, "overwrite.png", "/images/overwrite.png", "second")
+	if err != nil {
+		t.Fatalf("Second upload (overwrite) failed: %v", err)
+	}
+	if asset2.Description != "second" {
+		t.Errorf("expected description 'second', got %q", asset2.Description)
+	}
+}
+
 // Helper to satisfy linter: use database.Asset in the test package
 var _ = database.Asset{}

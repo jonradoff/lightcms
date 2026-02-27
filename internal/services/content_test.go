@@ -927,3 +927,424 @@ func TestRevertToVersion_NotFound(t *testing.T) {
 		t.Error("expected error reverting non-existent content")
 	}
 }
+
+func TestGenerateStaticPage_BadTemplate(t *testing.T) {
+	svc, cleanup := newTestContentService(t)
+	defer cleanup()
+
+	tmpDir := os.TempDir() + "/lightcms-test-bad-tmpl"
+	os.MkdirAll(tmpDir+"/content/generated", 0755)
+	origDir, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer func() {
+		os.Chdir(origDir)
+		os.RemoveAll(tmpDir)
+	}()
+
+	ctx := context.Background()
+
+	// Create a template with bad syntax
+	badTmpl := models.Template{
+		Name:       "Bad Template",
+		Slug:       "bad-template",
+		Fields:     []models.TemplateField{{Name: "body", Label: "Body", Type: "text", Required: true}},
+		HTMLLayout: "{{.body | nonexistentFunc}}",
+	}
+	svc.db.InsertOne(ctx, "templates", &badTmpl)
+
+	content := &models.Content{
+		TemplateID: badTmpl.ID,
+		Title:      "Bad Content",
+		Slug:       "bad-content",
+		Data:       map[string]interface{}{"body": "test"},
+	}
+	svc.CreateContent(ctx, content)
+
+	err := svc.GenerateStaticPage(ctx, content)
+	if err == nil {
+		t.Error("expected error for bad template syntax")
+	}
+}
+
+func TestGenerateStaticPage_MissingTemplate(t *testing.T) {
+	svc, cleanup := newTestContentService(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	content := &models.Content{
+		TemplateID: primitive.NewObjectID(), // nonexistent
+		Title:      "Orphaned Content",
+		Slug:       "orphaned",
+		Data:       map[string]interface{}{"body": "test"},
+	}
+	svc.CreateContent(ctx, content)
+
+	err := svc.GenerateStaticPage(ctx, content)
+	if err == nil {
+		t.Error("expected error for missing template")
+	}
+}
+
+func TestRenderContent_InvalidSyntax(t *testing.T) {
+	svc, cleanup := newTestContentService(t)
+	defer cleanup()
+
+	content := &models.Content{
+		Title: "Test",
+		Data:  map[string]interface{}{"body": "hello"},
+	}
+	tmpl := &models.Template{
+		HTMLLayout: "{{.body | ",
+	}
+
+	_, err := svc.renderContent(content, tmpl)
+	if err == nil {
+		t.Error("expected error for invalid template syntax")
+	}
+}
+
+func TestRenderContent_NonStringData(t *testing.T) {
+	svc, cleanup := newTestContentService(t)
+	defer cleanup()
+
+	content := &models.Content{
+		Title: "Test",
+		Data: map[string]interface{}{
+			"body":  "hello",
+			"count": 42,
+		},
+	}
+	tmpl := &models.Template{
+		HTMLLayout: "<div>{{.body}}</div>",
+	}
+
+	html, err := svc.renderContent(content, tmpl)
+	if err != nil {
+		t.Fatalf("renderContent failed: %v", err)
+	}
+	if !strings.Contains(html, "hello") {
+		t.Error("expected rendered content")
+	}
+}
+
+func TestExtractInternalLinks_MultipleFields(t *testing.T) {
+	svc, cleanup := newTestContentService(t)
+	defer cleanup()
+
+	content := &models.Content{
+		Data: map[string]interface{}{
+			"body":    `<a href="/about">About</a> and <a href="/contact">Contact</a>`,
+			"sidebar": `<a href="/faq">FAQ</a>`,
+			"count":   42, // non-string, should be skipped
+		},
+	}
+
+	links := svc.extractInternalLinks(content)
+	if len(links) != 3 {
+		t.Errorf("expected 3 links, got %d: %v", len(links), links)
+	}
+}
+
+func TestExtractInternalLinks_TrailingSlash(t *testing.T) {
+	svc, cleanup := newTestContentService(t)
+	defer cleanup()
+
+	content := &models.Content{
+		Data: map[string]interface{}{
+			"body": `<a href="/">Home</a>`,
+		},
+	}
+
+	links := svc.extractInternalLinks(content)
+	if len(links) != 1 {
+		t.Errorf("expected 1 link, got %d: %v", len(links), links)
+	}
+	if links[0] != "/" {
+		t.Errorf("expected '/', got %q", links[0])
+	}
+}
+
+// RestoreContent with nonexistent ID succeeds silently (UpdateOne matches 0 docs)
+// but the FindOne path returns nil — exercises the "can't regenerate" branch
+func TestRestoreContent_NonexistentID(t *testing.T) {
+	svc, cleanup := newTestContentService(t)
+	defer cleanup()
+
+	err := svc.RestoreContent(context.Background(), primitive.NewObjectID())
+	// RestoreContent doesn't fail for nonexistent — UpdateOne matches 0, FindOne returns nil early
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestGetContentByPath_NotFound(t *testing.T) {
+	svc, cleanup := newTestContentService(t)
+	defer cleanup()
+
+	_, err := svc.GetContentByPath(context.Background(), "/nonexistent-path")
+	if err == nil {
+		t.Error("expected error for nonexistent path")
+	}
+}
+
+func TestGetVersion_NotFound(t *testing.T) {
+	svc, cleanup := newTestContentService(t)
+	defer cleanup()
+
+	_, err := svc.GetVersion(context.Background(), primitive.NewObjectID(), 999)
+	if err == nil {
+		t.Error("expected error for nonexistent version")
+	}
+}
+
+func TestRevertToVersion_Success(t *testing.T) {
+	svc, cleanup := newTestContentService(t)
+	defer cleanup()
+
+	tmpDir := os.TempDir() + "/lightcms-test-revert"
+	os.MkdirAll(tmpDir+"/content/generated", 0755)
+	origDir, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer func() {
+		os.Chdir(origDir)
+		os.RemoveAll(tmpDir)
+	}()
+
+	ctx := context.Background()
+	tmplID := createTestTemplate(t, svc)
+
+	content := &models.Content{
+		TemplateID:   tmplID,
+		TemplateName: "Test Template",
+		Title:        "Revert Me",
+		Slug:         "revert-me",
+		Published:    true,
+		Data:         map[string]interface{}{"content": "v1 data"},
+	}
+	svc.CreateContent(ctx, content)
+
+	content.Title = "Revert Me V2"
+	content.Data["content"] = "v2 data"
+	svc.UpdateContent(ctx, content, "second version")
+
+	err := svc.RevertToVersion(ctx, content.ID, 1, "reverting to v1")
+	if err != nil {
+		t.Fatalf("RevertToVersion failed: %v", err)
+	}
+
+	got, _ := svc.GetContent(ctx, content.ID)
+	if got.Title != "Revert Me" {
+		t.Errorf("expected reverted title 'Revert Me', got %q", got.Title)
+	}
+}
+
+func TestUpdateContent_EmptySlug(t *testing.T) {
+	svc, cleanup := newTestContentService(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	tmplID := createTestTemplate(t, svc)
+
+	content := &models.Content{
+		TemplateID: tmplID, TemplateName: "Test", Title: "Home", Slug: "",
+		Data: map[string]interface{}{"content": "home"},
+	}
+	svc.CreateContent(ctx, content)
+
+	content.Title = "Updated Home"
+	err := svc.UpdateContent(ctx, content, "update home")
+	if err != nil {
+		t.Fatalf("UpdateContent empty slug failed: %v", err)
+	}
+
+	got, _ := svc.GetContent(ctx, content.ID)
+	if got.FullPath != "/" {
+		t.Errorf("expected full path /, got %q", got.FullPath)
+	}
+}
+
+func TestUpdateContent_NoVersionComment(t *testing.T) {
+	svc, cleanup := newTestContentService(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	tmplID := createTestTemplate(t, svc)
+
+	content := &models.Content{
+		TemplateID: tmplID, TemplateName: "Test", Title: "No Comment", Slug: "no-comment",
+		Data: map[string]interface{}{"content": "original"},
+	}
+	svc.CreateContent(ctx, content)
+
+	// Update without version comment
+	content.Title = "Updated No Comment"
+	err := svc.UpdateContent(ctx, content)
+	if err != nil {
+		t.Fatalf("UpdateContent without comment failed: %v", err)
+	}
+}
+
+func TestRemoveStaticPage_EmptyPath(t *testing.T) {
+	svc, cleanup := newTestContentService(t)
+	defer cleanup()
+
+	tmpDir := os.TempDir() + "/lightcms-test-remove-empty"
+	os.MkdirAll(tmpDir+"/content/generated", 0755)
+	origDir, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer func() {
+		os.Chdir(origDir)
+		os.RemoveAll(tmpDir)
+	}()
+
+	os.WriteFile(tmpDir+"/content/generated/index.html", []byte("test"), 0644)
+
+	// Empty string should be treated as root ("/index")
+	svc.removeStaticPage("")
+
+	if _, err := os.Stat(tmpDir + "/content/generated/index.html"); err == nil {
+		t.Error("expected index.html to be removed for empty path")
+	}
+}
+
+func TestPublishContent_Success(t *testing.T) {
+	svc, cleanup := newTestContentService(t)
+	defer cleanup()
+
+	tmpDir := os.TempDir() + "/lightcms-test-publish"
+	os.MkdirAll(tmpDir+"/content/generated", 0755)
+	origDir, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer func() {
+		os.Chdir(origDir)
+		os.RemoveAll(tmpDir)
+	}()
+
+	ctx := context.Background()
+	tmplID := createTestTemplate(t, svc)
+
+	content := &models.Content{
+		TemplateID: tmplID, TemplateName: "Test Template", Title: "Publish Me", Slug: "publish-me",
+		Data: map[string]interface{}{"content": "<p>publish</p>"},
+	}
+	svc.CreateContent(ctx, content)
+
+	err := svc.PublishContent(ctx, content.ID)
+	if err != nil {
+		t.Fatalf("PublishContent failed: %v", err)
+	}
+
+	got, _ := svc.GetContent(ctx, content.ID)
+	if !got.Published {
+		t.Error("expected content to be published")
+	}
+	if got.PublishedAt == nil {
+		t.Error("expected published_at to be set")
+	}
+}
+
+func TestUnpublishContent_Success(t *testing.T) {
+	svc, cleanup := newTestContentService(t)
+	defer cleanup()
+
+	tmpDir := os.TempDir() + "/lightcms-test-unpublish-s"
+	os.MkdirAll(tmpDir+"/content/generated", 0755)
+	origDir, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer func() {
+		os.Chdir(origDir)
+		os.RemoveAll(tmpDir)
+	}()
+
+	ctx := context.Background()
+	tmplID := createTestTemplate(t, svc)
+
+	content := &models.Content{
+		TemplateID: tmplID, TemplateName: "Test Template", Title: "Unpublish Me", Slug: "unpublish-me",
+		Published: true, Data: map[string]interface{}{"content": "<p>remove</p>"},
+	}
+	svc.CreateContent(ctx, content)
+
+	err := svc.UnpublishContent(ctx, content.ID)
+	if err != nil {
+		t.Fatalf("UnpublishContent failed: %v", err)
+	}
+
+	got, _ := svc.GetContent(ctx, content.ID)
+	if got.Published {
+		t.Error("expected content to be unpublished")
+	}
+}
+
+func TestDeleteContent_RemovesStaticPage(t *testing.T) {
+	svc, cleanup := newTestContentService(t)
+	defer cleanup()
+
+	tmpDir := os.TempDir() + "/lightcms-test-del-static"
+	os.MkdirAll(tmpDir+"/content/generated", 0755)
+	origDir, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer func() {
+		os.Chdir(origDir)
+		os.RemoveAll(tmpDir)
+	}()
+
+	ctx := context.Background()
+	tmplID := createTestTemplate(t, svc)
+
+	content := &models.Content{
+		TemplateID: tmplID, TemplateName: "Test Template", Title: "Delete Static", Slug: "delete-static",
+		Published: true, Data: map[string]interface{}{"content": "<p>delete</p>"},
+	}
+	svc.CreateContent(ctx, content)
+	svc.GenerateStaticPage(ctx, content)
+
+	err := svc.DeleteContent(ctx, content.ID)
+	if err != nil {
+		t.Fatalf("DeleteContent failed: %v", err)
+	}
+
+	// Static page should be removed
+	if _, err := os.Stat(tmpDir + "/content/generated/delete-static.html"); err == nil {
+		t.Error("expected static file to be removed after deletion")
+	}
+}
+
+func TestRegenerateAllContent_WithBadTemplate(t *testing.T) {
+	svc, cleanup := newTestContentService(t)
+	defer cleanup()
+
+	tmpDir := os.TempDir() + "/lightcms-test-regen-bad"
+	os.MkdirAll(tmpDir+"/content/generated", 0755)
+	origDir, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer func() {
+		os.Chdir(origDir)
+		os.RemoveAll(tmpDir)
+	}()
+
+	ctx := context.Background()
+	tmplID := createTestTemplate(t, svc)
+
+	// One good and one with nonexistent template
+	svc.CreateContent(ctx, &models.Content{
+		TemplateID: tmplID, TemplateName: "Test", Title: "Good", Slug: "regen-good",
+		Published: true, Data: map[string]interface{}{"content": "ok"},
+	})
+	svc.CreateContent(ctx, &models.Content{
+		TemplateID: primitive.NewObjectID(), TemplateName: "Missing", Title: "Bad", Slug: "regen-bad",
+		Published: true, Data: map[string]interface{}{"content": "orphaned"},
+	})
+
+	// Should not fail — logs warnings for bad content, continues for good
+	err := svc.RegenerateAllContent(ctx)
+	if err != nil {
+		t.Fatalf("RegenerateAllContent failed: %v", err)
+	}
+
+	// Good content should have been regenerated
+	if _, err := os.Stat(tmpDir + "/content/generated/regen-good.html"); err != nil {
+		t.Error("expected good content to be regenerated")
+	}
+}

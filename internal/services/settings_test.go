@@ -9,6 +9,8 @@ import (
 	"lightcms/internal/database"
 	"lightcms/internal/models"
 	"lightcms/internal/testutil"
+
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 func newTestSettingsService(t *testing.T) (*SettingsService, func()) {
@@ -638,6 +640,75 @@ func TestDeleteFolder_WithContent(t *testing.T) {
 	err := svc.DeleteFolder(ctx, folder.ID)
 	if err == nil {
 		t.Error("expected error deleting folder with content")
+	}
+}
+
+func TestUpdateRedirect_InvalidStatusCode(t *testing.T) {
+	svc, cleanup := newTestSettingsService(t)
+	defer cleanup()
+
+	ctx := context.Background()
+
+	redirect := &models.Redirect{FromPath: "/a", ToPath: "/b", StatusCode: 301}
+	svc.CreateRedirect(ctx, redirect)
+
+	// Update with invalid status code — should default to 301
+	redirect.StatusCode = 404
+	redirect.ToPath = "/c"
+	err := svc.UpdateRedirect(ctx, redirect)
+	if err != nil {
+		t.Fatalf("UpdateRedirect failed: %v", err)
+	}
+
+	got, _ := svc.GetRedirect(ctx, redirect.ID)
+	if got.StatusCode != 301 {
+		t.Errorf("expected 301 default for invalid status, got %d", got.StatusCode)
+	}
+	if got.ToPath != "/c" {
+		t.Errorf("expected to_path /c, got %q", got.ToPath)
+	}
+}
+
+func TestGetFolder_NotFound(t *testing.T) {
+	svc, cleanup := newTestSettingsService(t)
+	defer cleanup()
+
+	_, err := svc.GetFolder(context.Background(), primitive.NewObjectID())
+	if err == nil {
+		t.Error("expected error for nonexistent folder")
+	}
+}
+
+func TestGetCollection_NotFound(t *testing.T) {
+	svc, cleanup := newTestSettingsService(t)
+	defer cleanup()
+
+	_, err := svc.GetCollection(context.Background(), primitive.NewObjectID())
+	if err == nil {
+		t.Error("expected error for nonexistent collection")
+	}
+}
+
+func TestGetRedirect_NotFound(t *testing.T) {
+	svc, cleanup := newTestSettingsService(t)
+	defer cleanup()
+
+	_, err := svc.GetRedirect(context.Background(), primitive.NewObjectID())
+	if err == nil {
+		t.Error("expected error for nonexistent redirect")
+	}
+}
+
+func TestCreateFolder_InvalidParent(t *testing.T) {
+	svc, cleanup := newTestSettingsService(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	badParent := primitive.NewObjectID()
+	folder := &models.Folder{Name: "Orphan", Slug: "orphan", ParentID: &badParent}
+	err := svc.CreateFolder(ctx, folder)
+	if err == nil {
+		t.Error("expected error for nonexistent parent folder")
 	}
 }
 
