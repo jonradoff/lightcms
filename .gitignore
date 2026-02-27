@@ -19,6 +19,9 @@ config.prod.json
 .env
 .env.local
 
+# Registry tokens (contain auth secrets)
+.mcpregistry_*
+
 # IDE
 .idea/
 .vscode/
