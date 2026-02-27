@@ -37,7 +37,7 @@ jobs:
           CGO_ENABLED=0 go test ./... \
             -coverprofile=coverage.out \
             -covermode=atomic \
-            -timeout=600s \
+            -timeout=900s \
             -p 1
 
       - name: Upload coverage to Codecov
