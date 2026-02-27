@@ -128,6 +128,27 @@ var oauthTemplates = map[string]string{
         .btn-deny:hover {
             background: rgba(239, 68, 68, 0.1);
         }
+        .btn.loading {
+            opacity: 0.7;
+            cursor: wait;
+            pointer-events: none;
+            position: relative;
+        }
+        .btn.loading::after {
+            content: '';
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+            margin-left: 8px;
+            vertical-align: middle;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
@@ -173,6 +194,19 @@ var oauthTemplates = map[string]string{
             </form>
         {{end}}
     </div>
+    <script>
+    document.querySelectorAll('form').forEach(function(form) {
+        form.addEventListener('submit', function() {
+            var btn = form.querySelector('button[type="submit"]:focus') || form.querySelector('.btn-primary');
+            if (btn && !btn.classList.contains('loading')) {
+                var label = btn.textContent;
+                btn.classList.add('loading');
+                btn.textContent = btn.classList.contains('btn-deny') ? 'Denying...' :
+                    label.includes('Sign') ? 'Signing in...' : 'Authorizing...';
+            }
+        });
+    });
+    </script>
 </body>
 </html>`,
 }
