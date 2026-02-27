@@ -329,10 +329,18 @@ func main() {
 		w.Write([]byte("OK"))
 	}).Methods("GET")
 
-	// MCP well-known server card (for Smithery registry discovery)
-	r.HandleFunc("/.well-known/mcp/server-card.json", func(w http.ResponseWriter, r *http.Request) {
+	// MCP well-known server card (dynamic, includes full tool schemas)
+	serverCardJSON, err := lightmcp.ServerCard()
+	if err != nil {
+		log.Printf("Warning: could not generate MCP server card: %v", err)
+	}
+	r.HandleFunc("/.well-known/mcp/server-card.json", func(w http.ResponseWriter, rr *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		http.ServeFile(w, r, ".well-known/mcp/server-card.json")
+		if serverCardJSON != nil {
+			w.Write(serverCardJSON)
+		} else {
+			http.ServeFile(w, rr, ".well-known/mcp/server-card.json")
+		}
 	}).Methods("GET")
 
 	// Sitemap and robots.txt

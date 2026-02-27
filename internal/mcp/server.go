@@ -77,6 +77,57 @@ func errorResult(err error) *mcp.CallToolResult {
 	}
 }
 
+// ServerCard returns the MCP server card JSON with full tool schemas.
+// It creates a temporary in-memory client-server pair to extract the
+// tool definitions (with inputSchema) from the registered tools.
+func ServerCard() ([]byte, error) {
+	// Create a dummy server with a nil-client — tools are registered at
+	// creation time and schemas are derived from Go struct types, so no
+	// API calls are needed.
+	client := apiclient.New("http://localhost:0", "dummy")
+	server := NewServer(client)
+
+	ctx := context.Background()
+	serverTransport, clientTransport := mcp.NewInMemoryTransports()
+
+	// Run the server in the background
+	go server.MCPServer().Run(ctx, serverTransport)
+
+	// Connect a client and list tools
+	mcpClient := mcp.NewClient(&mcp.Implementation{
+		Name:    "server-card-generator",
+		Version: "1.0.0",
+	}, nil)
+	session, err := mcpClient.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		return nil, fmt.Errorf("connect: %w", err)
+	}
+	defer session.Close()
+
+	res, err := session.ListTools(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("list tools: %w", err)
+	}
+
+	card := map[string]interface{}{
+		"serverInfo": map[string]string{
+			"name":    "LightCMS",
+			"version": "1.2.0",
+		},
+		"endpoint":  "/mcp",
+		"transport": []string{"streamable-http", "stdio"},
+		"authentication": map[string]interface{}{
+			"required": true,
+			"schemes":  []string{"bearer"},
+		},
+		"tools":     res.Tools,
+		"resources": []interface{}{},
+		"prompts":   []interface{}{},
+	}
+
+	return json.MarshalIndent(card, "", "  ")
+}
+
 // Helper to create a JSON result
 func jsonResult(data interface{}) *mcp.CallToolResult {
 	jsonBytes, err := json.MarshalIndent(data, "", "  ")
