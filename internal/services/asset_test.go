@@ -368,10 +368,51 @@ func TestUploadAsset_SVGMimeType(t *testing.T) {
 	}
 }
 
-// CSS and JS content is detected by http.DetectContentType as text/plain,
-// which doesn't match the allowed MIME types (text/css, application/javascript).
-// This is a known limitation — CSS/JS uploads require the right MIME type which
-// http.DetectContentType cannot determine from content alone.
+// CSS and JS content is detected by http.DetectContentType as text/plain.
+// The MIME validator accepts text/plain as a fallback for text-based web assets
+// (.css, .js, .json) since Go can't distinguish them from plain text at the byte level.
+
+func TestUploadAsset_CSSUpload(t *testing.T) {
+	svc, cleanup := newTestAssetService(t)
+	defer cleanup()
+
+	tmpDir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(origDir)
+
+	ctx := context.Background()
+	cssData := []byte("body { color: red; }")
+
+	asset, err := svc.UploadAsset(ctx, cssData, "style.css", "/css/style.css", "")
+	if err != nil {
+		t.Fatalf("expected CSS upload to succeed, got: %v", err)
+	}
+	if asset.MimeType != "text/css" {
+		t.Errorf("expected mime type text/css, got %q", asset.MimeType)
+	}
+}
+
+func TestUploadAsset_JSUpload(t *testing.T) {
+	svc, cleanup := newTestAssetService(t)
+	defer cleanup()
+
+	tmpDir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(origDir)
+
+	ctx := context.Background()
+	jsData := []byte("console.log('hello');")
+
+	asset, err := svc.UploadAsset(ctx, jsData, "app.js", "/js/app.js", "")
+	if err != nil {
+		t.Fatalf("expected JS upload to succeed, got: %v", err)
+	}
+	if asset.MimeType != "application/javascript" {
+		t.Errorf("expected mime type application/javascript, got %q", asset.MimeType)
+	}
+}
 
 // Test that the DB-level SaveAsset records can be retrieved
 func TestNewAssetService(t *testing.T) {
@@ -547,20 +588,26 @@ func TestUploadAsset_ICOMimeType(t *testing.T) {
 	}
 }
 
-// JSON files are detected as text/plain by http.DetectContentType,
-// which doesn't match the allowed MIME types. Same limitation as CSS/JS.
-// The extension-based override sets application/json but MIME validation
-// happens before the override. Test that the rejection works correctly.
-func TestUploadAsset_JSONMimeRejection(t *testing.T) {
+// JSON files are detected as text/plain by http.DetectContentType.
+// The MIME validator accepts text/plain as a fallback for .json files.
+func TestUploadAsset_JSONUpload(t *testing.T) {
 	svc, cleanup := newTestAssetService(t)
 	defer cleanup()
+
+	tmpDir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer os.Chdir(origDir)
 
 	ctx := context.Background()
 	jsonData := []byte(`{"key": "value"}`)
 
-	_, err := svc.UploadAsset(ctx, jsonData, "data.json", "/data/data.json", "")
-	if err == nil {
-		t.Error("expected MIME mismatch error for JSON (detected as text/plain)")
+	asset, err := svc.UploadAsset(ctx, jsonData, "data.json", "/data/data.json", "")
+	if err != nil {
+		t.Fatalf("expected JSON upload to succeed, got: %v", err)
+	}
+	if asset.MimeType != "application/json" {
+		t.Errorf("expected mime type application/json, got %q", asset.MimeType)
 	}
 }
 

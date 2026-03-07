@@ -241,6 +241,16 @@ func ValidateMIMEType(ext string, detectedMIME string) bool {
 		return true
 	}
 
+	// Special case: http.DetectContentType returns text/plain for text-based
+	// web assets (CSS, JS, JSON, etc.) since it can't distinguish them from
+	// plain text at the byte level. The extension whitelist gates what's allowed.
+	if detectedMIME == "text/plain" {
+		switch ext {
+		case ".css", ".js", ".json", ".xml", ".csv", ".html":
+			return true
+		}
+	}
+
 	return false
 }
 
