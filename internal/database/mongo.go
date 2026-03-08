@@ -266,6 +266,22 @@ func (db *DB) FindMany(ctx context.Context, collection string, filter interface{
 	return db.database.Collection(collection).Find(ctx, filter, opts...)
 }
 
+func (db *DB) FindAll(ctx context.Context, collection string, filter interface{}, results interface{}) error {
+	cursor, err := db.database.Collection(collection).Find(ctx, filter)
+	if err != nil {
+		return err
+	}
+	return cursor.All(ctx, results)
+}
+
+func (db *DB) Aggregate(ctx context.Context, collection string, pipeline interface{}, results interface{}) error {
+	cursor, err := db.database.Collection(collection).Aggregate(ctx, pipeline)
+	if err != nil {
+		return err
+	}
+	return cursor.All(ctx, results)
+}
+
 func (db *DB) UpdateOne(ctx context.Context, collection string, filter, update interface{}) error {
 	_, err := db.database.Collection(collection).UpdateOne(ctx, filter, update)
 	return err

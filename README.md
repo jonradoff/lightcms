@@ -32,6 +32,7 @@ A lightweight, AI-native content management system for building and managing web
 - **Admin Panel**: Secure content management at `/cm`
 - **Content Versioning**: Full version history with diff comparison and revert capability
 - **Soft Delete**: Recover deleted content with undelete functionality
+- **End-User Search API**: Public search endpoint (`/api/search`) with fulltext exact matching and semantic vector search powered by Voyage AI embeddings. Hybrid mode uses reciprocal rank fusion to merge results. Works without a Voyage API key (fulltext only) and upgrades to semantic search when configured. Includes per-IP and global rate limiting for DDoS protection.
 
 ## Prerequisites
 

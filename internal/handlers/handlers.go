@@ -39,6 +39,12 @@ type Handler struct {
 	env           string
 	errors        *errors.Handler
 	apiKeyService *services.APIKeyService
+	searchService *services.SearchService
+}
+
+// SetSearchService sets the search service for end-user search features
+func (h *Handler) SetSearchService(ss *services.SearchService) {
+	h.searchService = ss
 }
 
 func New(db *database.DB, authManager *auth.Manager, baseURL string, env string) *Handler {
@@ -3374,6 +3380,9 @@ func (h *Handler) renderAdmin(w http.ResponseWriter, r *http.Request, name strin
 		},
 		"safeHTML": func(s string) template.HTML {
 			return template.HTML(s)
+		},
+		"subtract": func(a, b int64) int64 {
+			return a - b
 		},
 	}
 

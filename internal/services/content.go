@@ -20,12 +20,32 @@ import (
 
 // ContentService centralizes all content operations with automatic versioning
 type ContentService struct {
-	db *database.DB
+	db            *database.DB
+	searchService *SearchService
 }
 
 // NewContentService creates a new content service
 func NewContentService(db *database.DB) *ContentService {
 	return &ContentService{db: db}
+}
+
+// SetSearchService sets the search service for automatic embedding generation
+func (s *ContentService) SetSearchService(ss *SearchService) {
+	s.searchService = ss
+}
+
+// triggerEmbedding asynchronously generates an embedding for the given content
+func (s *ContentService) triggerEmbedding(contentID primitive.ObjectID) {
+	if s.searchService == nil || !s.searchService.HasVoyageKey() {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := s.searchService.UpdateContentEmbedding(ctx, contentID); err != nil {
+			fmt.Printf("Warning: failed to update embedding for %s: %v\n", contentID.Hex(), err)
+		}
+	}()
 }
 
 // CreateContent creates new content and saves the initial version
@@ -68,6 +88,7 @@ func (s *ContentService) CreateContent(ctx context.Context, content *models.Cont
 			// Log but don't fail
 			fmt.Printf("Warning: failed to generate static page: %v\n", err)
 		}
+		s.triggerEmbedding(content.ID)
 	}
 
 	return nil
@@ -138,6 +159,7 @@ func (s *ContentService) UpdateContent(ctx context.Context, content *models.Cont
 		if err := s.GenerateStaticPage(ctx, content); err != nil {
 			fmt.Printf("Warning: failed to generate static page: %v\n", err)
 		}
+		s.triggerEmbedding(content.ID)
 	} else {
 		// Remove static page if unpublished
 		s.removeStaticPage(content.FullPath)

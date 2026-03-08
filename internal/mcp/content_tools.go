@@ -48,10 +48,14 @@ type UpdateContentInput struct {
 	MetaDescription string                 `json:"meta_description,omitempty" jsonschema:"SEO meta description"`
 	OGImage         string                 `json:"og_image,omitempty" jsonschema:"Open Graph image URL"`
 	Data            map[string]interface{} `json:"data,omitempty" jsonschema:"Template field values"`
-	UseHeader       *bool                  `json:"use_header,omitempty" jsonschema:"Include site header"`
-	UseFooter       *bool                  `json:"use_footer,omitempty" jsonschema:"Include site footer"`
-	UseTheme        *bool                  `json:"use_theme,omitempty" jsonschema:"Apply site theme/layout"`
-	RawMode         *bool                  `json:"raw_mode,omitempty" jsonschema:"Use raw HTML mode"`
+	UseHeader       bool                   `json:"use_header,omitempty" jsonschema:"Include site header"`
+	UseFooter       bool                   `json:"use_footer,omitempty" jsonschema:"Include site footer"`
+	UseTheme        bool                   `json:"use_theme,omitempty" jsonschema:"Apply site theme/layout"`
+	RawMode         bool                   `json:"raw_mode,omitempty" jsonschema:"Use raw HTML mode"`
+	SetUseHeader    bool                   `json:"set_use_header,omitempty" jsonschema:"Set to true to explicitly update use_header (needed to set it to false)"`
+	SetUseFooter    bool                   `json:"set_use_footer,omitempty" jsonschema:"Set to true to explicitly update use_footer (needed to set it to false)"`
+	SetUseTheme     bool                   `json:"set_use_theme,omitempty" jsonschema:"Set to true to explicitly update use_theme (needed to set it to false)"`
+	SetRawMode      bool                   `json:"set_raw_mode,omitempty" jsonschema:"Set to true to explicitly update raw_mode (needed to set it to false)"`
 	VersionComment  string                 `json:"version_comment,omitempty" jsonschema:"Optional comment describing this version change"`
 }
 
@@ -262,17 +266,17 @@ func (s *Server) registerContentTools() {
 		if args.OGImage != "" {
 			updates["og_image"] = args.OGImage
 		}
-		if args.UseHeader != nil {
-			updates["use_header"] = *args.UseHeader
+		if args.UseHeader || args.SetUseHeader {
+			updates["use_header"] = args.UseHeader
 		}
-		if args.UseFooter != nil {
-			updates["use_footer"] = *args.UseFooter
+		if args.UseFooter || args.SetUseFooter {
+			updates["use_footer"] = args.UseFooter
 		}
-		if args.UseTheme != nil {
-			updates["use_theme"] = *args.UseTheme
+		if args.UseTheme || args.SetUseTheme {
+			updates["use_theme"] = args.UseTheme
 		}
-		if args.RawMode != nil {
-			updates["raw_mode"] = *args.RawMode
+		if args.RawMode || args.SetRawMode {
+			updates["raw_mode"] = args.RawMode
 		}
 		if args.VersionComment != "" {
 			updates["version_comment"] = args.VersionComment

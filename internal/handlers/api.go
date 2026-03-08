@@ -15,6 +15,7 @@ type APIHandler struct {
 	assetService    *services.AssetService
 	settingsService *services.SettingsService
 	apiKeyService   *services.APIKeyService
+	searchService   *services.SearchService
 }
 
 // NewAPIHandler creates a new API handler

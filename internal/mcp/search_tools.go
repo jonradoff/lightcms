@@ -14,6 +14,12 @@ type SearchContentInput struct {
 	IncludeDeleted bool   `json:"include_deleted,omitempty" jsonschema:"Include soft-deleted content in results"`
 }
 
+type EndUserSearchInput struct {
+	Query string `json:"query" jsonschema:"Search query,required"`
+	Mode  string `json:"mode,omitempty" jsonschema:"Search mode: exact, semantic, or hybrid (default hybrid)"`
+	Limit int    `json:"limit,omitempty" jsonschema:"Max results 1-50 (default 10)"`
+}
+
 type SearchReplacePreviewInput struct {
 	Search  string `json:"search" jsonschema:"Text to search for,required"`
 	Replace string `json:"replace" jsonschema:"Text to replace with,required"`
@@ -94,6 +100,50 @@ func (s *Server) registerSearchTools() {
 			return errorResult(err), nil, nil
 		}
 
+		return jsonResult(result), nil, nil
+	})
+
+	// End-user search
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "end_user_search",
+		Title:       "End User Search",
+		Description: "Search published content using full-text exact match, semantic (AI) similarity, or hybrid mode. Returns page titles, paths, and snippets.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:         "End User Search",
+			ReadOnlyHint:  true,
+			OpenWorldHint: boolPtr(false),
+		},
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args EndUserSearchInput) (*mcp.CallToolResult, any, error) {
+		if args.Query == "" {
+			return errorResult(fmt.Errorf("query is required")), nil, nil
+		}
+		if args.Limit <= 0 {
+			args.Limit = 10
+		}
+		result, err := s.client.EndUserSearch(ctx, args.Query, args.Mode, args.Limit)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		return jsonResult(result), nil, nil
+	})
+
+	// Reindex embeddings
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "reindex_embeddings",
+		Title:       "Reindex Embeddings",
+		Description: "Regenerate vector embeddings for all published content. Required after initial setup or if embeddings become stale.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Reindex Embeddings",
+			ReadOnlyHint:    false,
+			DestructiveHint: boolPtr(false),
+			IdempotentHint:  true,
+			OpenWorldHint:   boolPtr(true),
+		},
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args struct{}) (*mcp.CallToolResult, any, error) {
+		result, err := s.client.ReindexEmbeddings(ctx)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
 		return jsonResult(result), nil, nil
 	})
 }

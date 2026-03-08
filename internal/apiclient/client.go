@@ -507,3 +507,35 @@ func (c *Client) DeleteAPIKey(ctx context.Context, id string) error {
 func (c *Client) RegenerateAllContent(ctx context.Context) error {
 	return c.do(ctx, "POST", "/regenerate", nil, nil)
 }
+
+// End-user search
+
+type EndUserSearchResult struct {
+	Query   string        `json:"query"`
+	Mode    string        `json:"mode"`
+	Results []interface{} `json:"results"`
+	Total   int           `json:"total"`
+}
+
+func (c *Client) EndUserSearch(ctx context.Context, query, mode string, limit int) (*EndUserSearchResult, error) {
+	path := "/end-user-search?q=" + url.QueryEscape(query)
+	if mode != "" {
+		path += "&mode=" + url.QueryEscape(mode)
+	}
+	if limit > 0 {
+		path += "&limit=" + strconv.Itoa(limit)
+	}
+	var result EndUserSearchResult
+	if err := c.do(ctx, "GET", path, nil, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func (c *Client) ReindexEmbeddings(ctx context.Context) (map[string]interface{}, error) {
+	var result map[string]interface{}
+	if err := c.do(ctx, "POST", "/reindex-embeddings", nil, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}

@@ -52,6 +52,9 @@ type Content struct {
 	UseTheme        bool                   `bson:"use_theme" json:"use_theme"`   // Whether to wrap in site theme/layout
 	RawMode         bool                   `bson:"raw_mode" json:"raw_mode"`     // True = raw HTML, False = rich editor
 	InternalLinks   []string               `bson:"internal_links,omitempty" json:"internal_links,omitempty"` // Tracks internal links (slugs) in this content
+	Embedding       []float32              `bson:"embedding,omitempty" json:"-"`                            // Voyage AI vector embedding (1024 dims)
+	EmbeddingAt     *time.Time             `bson:"embedding_at,omitempty" json:"-"`                         // When embedding was last generated
+	PlainText       string                 `bson:"plain_text,omitempty" json:"-"`                           // Cached stripped-HTML text for search snippets
 	Deleted         bool                   `bson:"deleted" json:"deleted"`       // Soft delete flag
 	DeletedAt       *time.Time             `bson:"deleted_at,omitempty" json:"deleted_at,omitempty"`
 	CreatedAt       time.Time              `bson:"created_at" json:"created_at"`

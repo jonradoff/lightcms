@@ -4977,6 +4977,244 @@ var adminTemplates = map[string]string{
         }
         </script>
     ` + adminLayoutEnd,
+
+	"search_tool": adminLayoutStart + `
+        <div class="page-header">
+            <h1>🔍 End User Search</h1>
+        </div>
+
+        {{if not .SearchEnabled}}
+        <div class="info-card" style="margin-bottom: 1.5rem; border-color: rgba(245, 158, 11, 0.3);">
+            <p style="margin: 0; color: var(--warning);">
+                <strong>Search not configured.</strong> Set the <code>VOYAGE_API_KEY</code> environment variable (or <code>voyage_api_key</code> in config JSON) to enable semantic search.
+                Get an API key at <a href="https://dash.voyageai.com/" target="_blank" style="color: var(--primary);">dash.voyageai.com</a>.
+            </p>
+        </div>
+        {{end}}
+
+        <!-- Embedding Status -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+            <div class="info-card">
+                <div style="font-size: 0.875rem; color: var(--text-muted);">Published Pages</div>
+                <div style="font-size: 1.5rem; font-weight: 600; color: var(--text);">{{.TotalContent}}</div>
+            </div>
+            <div class="info-card">
+                <div style="font-size: 0.875rem; color: var(--text-muted);">With Embeddings</div>
+                <div style="font-size: 1.5rem; font-weight: 600; color: var(--success);">{{.WithEmbedding}}</div>
+            </div>
+            <div class="info-card">
+                <div style="font-size: 0.875rem; color: var(--text-muted);">Needs Indexing</div>
+                <div style="font-size: 1.5rem; font-weight: 600; color: var(--warning);" id="needs-indexing">{{if .TotalContent}}{{subtract .TotalContent .WithEmbedding}}{{else}}0{{end}}</div>
+            </div>
+        </div>
+
+        {{if .SearchEnabled}}
+        <div style="margin-bottom: 1.5rem;">
+            <form method="POST" action="/cm/tools/search/reindex" id="reindex-form" style="display: inline;">
+                {{.CSRFField}}
+                <button type="button" class="btn" id="reindex-btn" style="background: var(--primary); color: white;">
+                    Reindex All Content
+                </button>
+                <span id="reindex-status" style="margin-left: 1rem; color: var(--text-muted);"></span>
+            </form>
+        </div>
+        {{end}}
+
+        <!-- Test Search -->
+        <div class="info-card" style="margin-bottom: 1.5rem;">
+            <h2 style="margin-top: 0; font-size: 1.25rem;">Test Search</h2>
+            <div style="display: flex; gap: 0.75rem; margin-bottom: 1rem; flex-wrap: wrap;">
+                <input type="text" id="search-query" placeholder="Enter search query..."
+                    style="flex: 1; min-width: 200px; padding: 0.625rem 1rem; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 0.9375rem;">
+                <select id="search-mode" style="padding: 0.625rem 1rem; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 8px; color: var(--text);">
+                    <option value="hybrid">Hybrid</option>
+                    <option value="exact">Exact Match</option>
+                    <option value="semantic">Semantic</option>
+                </select>
+                <button type="button" class="btn" id="search-btn" style="background: var(--primary); color: white;">Search</button>
+            </div>
+            <div id="search-results" style="display: none;">
+                <div id="search-count" style="font-size: 0.875rem; color: var(--text-muted); margin-bottom: 0.75rem;"></div>
+                <div id="search-list"></div>
+            </div>
+        </div>
+
+        <!-- Integration Instructions -->
+        <div class="info-card">
+            <h2 style="margin-top: 0; font-size: 1.25rem;">Integration Guide</h2>
+            <p style="color: var(--text-muted); margin-bottom: 1rem;">Add search to your website using the public search API endpoint.</p>
+
+            <h3 style="font-size: 1rem; margin-bottom: 0.5rem;">API Endpoint</h3>
+            <pre style="background: var(--bg-dark); padding: 1rem; border-radius: 8px; overflow-x: auto; font-size: 0.875rem; margin-bottom: 1rem;"><code>GET {{.BaseURL}}/api/search?q=YOUR_QUERY&mode=hybrid&limit=10</code></pre>
+
+            <h3 style="font-size: 1rem; margin-bottom: 0.5rem;">Parameters</h3>
+            <table style="width: 100%; margin-bottom: 1rem; font-size: 0.875rem;">
+                <tr style="border-bottom: 1px solid var(--border);">
+                    <td style="padding: 0.5rem; font-weight: 500;">q</td>
+                    <td style="padding: 0.5rem; color: var(--text-muted);">Search query (required)</td>
+                </tr>
+                <tr style="border-bottom: 1px solid var(--border);">
+                    <td style="padding: 0.5rem; font-weight: 500;">mode</td>
+                    <td style="padding: 0.5rem; color: var(--text-muted);"><code>hybrid</code> (default), <code>exact</code>, or <code>semantic</code></td>
+                </tr>
+                <tr>
+                    <td style="padding: 0.5rem; font-weight: 500;">limit</td>
+                    <td style="padding: 0.5rem; color: var(--text-muted);">Max results 1-50 (default 10)</td>
+                </tr>
+            </table>
+
+            <h3 style="font-size: 1rem; margin-bottom: 0.5rem;">Response</h3>
+            <pre style="background: var(--bg-dark); padding: 1rem; border-radius: 8px; overflow-x: auto; font-size: 0.875rem; margin-bottom: 1rem;"><code>{
+  "query": "your search",
+  "mode": "hybrid",
+  "total": 3,
+  "results": [
+    {
+      "id": "...",
+      "title": "Page Title",
+      "full_path": "/my-page",
+      "snippet": "...matching text around the query...",
+      "score": 0.95,
+      "match_type": "both"
+    }
+  ]
+}</code></pre>
+
+            <h3 style="font-size: 1rem; margin-bottom: 0.5rem;">JavaScript Example</h3>
+            <pre style="background: var(--bg-dark); padding: 1rem; border-radius: 8px; overflow-x: auto; font-size: 0.875rem; margin-bottom: 1rem;"><code>&lt;input type="text" id="site-search" placeholder="Search..."&gt;
+&lt;div id="results"&gt;&lt;/div&gt;
+
+&lt;script&gt;
+document.getElementById('site-search').addEventListener('input', async (e) => {
+  const q = e.target.value.trim();
+  if (q.length < 2) return;
+  const res = await fetch('/api/search?q=' + encodeURIComponent(q));
+  const data = await res.json();
+  document.getElementById('results').innerHTML = data.results
+    .map(r => '&lt;a href="' + r.full_path + '"&gt;' +
+      '&lt;strong&gt;' + r.title + '&lt;/strong&gt;' +
+      '&lt;p&gt;' + r.snippet + '&lt;/p&gt;&lt;/a&gt;')
+    .join('');
+});
+&lt;/script&gt;</code></pre>
+
+            <h3 style="font-size: 1rem; margin-bottom: 0.5rem;">MongoDB Atlas Vector Search Index</h3>
+            <p style="color: var(--text-muted); margin-bottom: 0.5rem;">
+                For semantic search, create a vector search index on the <code>content</code> collection in MongoDB Atlas:
+            </p>
+            <ol style="color: var(--text-muted); margin-bottom: 0.5rem; padding-left: 1.5rem;">
+                <li>Go to Atlas &rarr; Database &rarr; Browse Collections &rarr; <code>content</code> collection</li>
+                <li>Click "Search Indexes" tab &rarr; "Create Search Index"</li>
+                <li>Select "Atlas Vector Search" &rarr; JSON Editor</li>
+                <li>Index name: <code>content_vector_search</code></li>
+            </ol>
+            <pre style="background: var(--bg-dark); padding: 1rem; border-radius: 8px; overflow-x: auto; font-size: 0.875rem;"><code>{
+  "fields": [
+    {
+      "type": "vector",
+      "path": "embedding",
+      "numDimensions": 1024,
+      "similarity": "cosine"
+    },
+    {
+      "type": "filter",
+      "path": "published"
+    },
+    {
+      "type": "filter",
+      "path": "deleted"
+    }
+  ]
+}</code></pre>
+        </div>
+
+        <script>
+        // Search
+        document.getElementById('search-btn').addEventListener('click', doSearch);
+        document.getElementById('search-query').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') doSearch();
+        });
+
+        async function doSearch() {
+            const query = document.getElementById('search-query').value.trim();
+            if (!query) return;
+
+            const mode = document.getElementById('search-mode').value;
+            const btn = document.getElementById('search-btn');
+            btn.disabled = true;
+            btn.textContent = 'Searching...';
+
+            try {
+                const res = await fetch('/cm/tools/search/test?q=' + encodeURIComponent(query) + '&mode=' + mode);
+                const data = await res.json();
+
+                document.getElementById('search-results').style.display = 'block';
+                document.getElementById('search-count').textContent = data.total + ' result(s) found';
+
+                const list = document.getElementById('search-list');
+                if (!data.results || data.results.length === 0) {
+                    list.innerHTML = '<div style="color: var(--text-muted); padding: 1rem;">No results found.</div>';
+                } else {
+                    list.innerHTML = data.results.map(function(r) {
+                        return '<div style="padding: 0.75rem; margin-bottom: 0.5rem; background: var(--bg-dark); border-radius: 8px;">' +
+                            '<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.25rem;">' +
+                                '<a href="' + r.full_path + '" target="_blank" style="font-weight: 500; color: var(--primary);">' + escapeHtml(r.title) + '</a>' +
+                                '<span style="font-size: 0.75rem; padding: 0.125rem 0.5rem; border-radius: 4px; background: ' +
+                                    (r.match_type === 'both' ? 'var(--success)' : r.match_type === 'semantic' ? 'var(--primary)' : 'var(--warning)') +
+                                    '; color: white;">' + r.match_type + '</span>' +
+                            '</div>' +
+                            '<div style="font-size: 0.875rem; color: var(--text-muted);">' + r.full_path + '</div>' +
+                            '<div style="font-size: 0.875rem; color: var(--text); margin-top: 0.25rem;">' + escapeHtml(r.snippet) + '</div>' +
+                            '<div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">Score: ' + r.score.toFixed(4) + '</div>' +
+                        '</div>';
+                    }).join('');
+                }
+            } catch (err) {
+                document.getElementById('search-results').style.display = 'block';
+                document.getElementById('search-count').textContent = 'Error: ' + err.message;
+                document.getElementById('search-list').innerHTML = '';
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Search';
+            }
+        }
+
+        function escapeHtml(text) {
+            var div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Reindex
+        var reindexBtn = document.getElementById('reindex-btn');
+        if (reindexBtn) {
+            reindexBtn.addEventListener('click', async function() {
+                reindexBtn.disabled = true;
+                reindexBtn.textContent = 'Reindexing...';
+                document.getElementById('reindex-status').textContent = 'This may take a moment...';
+
+                try {
+                    const res = await fetch('/cm/tools/search/reindex', {
+                        method: 'POST',
+                        headers: {
+                            'X-CSRF-Token': '{{.CSRFToken}}'
+                        }
+                    });
+                    const data = await res.json();
+                    document.getElementById('reindex-status').textContent =
+                        'Done! ' + data.processed + ' pages indexed' +
+                        (data.errors > 0 ? ', ' + data.errors + ' errors' : '');
+                    document.getElementById('needs-indexing').textContent = '0';
+                } catch (err) {
+                    document.getElementById('reindex-status').textContent = 'Error: ' + err.message;
+                } finally {
+                    reindexBtn.disabled = false;
+                    reindexBtn.textContent = 'Reindex All Content';
+                }
+            });
+        }
+        </script>
+    ` + adminLayoutEnd,
 }
 
 const adminLayoutStart = `<!DOCTYPE html>
@@ -5622,6 +5860,7 @@ const adminLayoutStart = `<!DOCTYPE html>
                 </div>
                 <div class="nav-section">
                     <div class="nav-section-title">Tools</div>
+                    <a href="/cm/tools/search" class="nav-link">🔍 End User Search</a>
                     <a href="/cm/tools/broken-links" class="nav-link">🔗 Broken Link Finder</a>
                 </div>
                 <div class="nav-section">
