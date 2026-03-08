@@ -17,7 +17,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o lightcms ./cmd/server
 FROM debian:bookworm-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates curl gnupg dbus \
+    ca-certificates curl gnupg dbus bash \
     && curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg \
        | gpg --dearmor -o /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg \
     && echo "deb [signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ bookworm main" \
