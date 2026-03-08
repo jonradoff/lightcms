@@ -10,5 +10,8 @@ if [ -f "$SCRIPT_DIR/.env" ]; then
     export $(grep -v '^#' "$SCRIPT_DIR/.env" | xargs)
 fi
 
+# MCP binary expects config.dev.json in cwd
+cd "$SCRIPT_DIR"
+
 # Run the MCP server (requires LIGHTCMS_URL and LIGHTCMS_API_KEY env vars)
 exec "$SCRIPT_DIR/bin/lightcms-mcp"

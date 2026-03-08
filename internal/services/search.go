@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -18,6 +20,7 @@ import (
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"golang.org/x/net/proxy"
 )
 
 const (
@@ -28,6 +31,33 @@ const (
 	maxSnippetLen     = 200
 	maxBatchSize      = 128
 )
+
+// warpClient returns an *http.Client that routes through the Cloudflare WARP SOCKS5 proxy
+// at 127.0.0.1:40000 (set up in start.sh on Fly.io). Returns nil if WARP is unavailable.
+var warpClient = sync.OnceValue(func() *http.Client {
+	const warpAddr = "127.0.0.1:40000"
+	conn, err := net.DialTimeout("tcp", warpAddr, 2*time.Second)
+	if err != nil {
+		log.Printf("WARP proxy not available at %s: %v", warpAddr, err)
+		return nil
+	}
+	conn.Close()
+
+	dialer, err := proxy.SOCKS5("tcp", warpAddr, nil, proxy.Direct)
+	if err != nil {
+		log.Printf("WARP SOCKS5 setup failed: %v", err)
+		return nil
+	}
+	log.Printf("WARP proxy available at %s — Voyage API calls will route through Cloudflare", warpAddr)
+	return &http.Client{
+		Timeout: 30 * time.Second,
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				return dialer.Dial(network, addr)
+			},
+		},
+	}
+})
 
 // SearchResult represents a single search result
 type SearchResult struct {
@@ -48,12 +78,15 @@ type SearchService struct {
 
 // NewSearchService creates a new search service
 func NewSearchService(db *database.DB, voyageAPIKey string) *SearchService {
+	// Use WARP proxy for Voyage API calls if available (avoids IP-based WAF blocks)
+	httpClient := &http.Client{Timeout: 30 * time.Second}
+	if wc := warpClient(); wc != nil {
+		httpClient = wc
+	}
 	return &SearchService{
 		db:           db,
 		voyageAPIKey: voyageAPIKey,
-		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
-		},
+		httpClient:   httpClient,
 	}
 }
 

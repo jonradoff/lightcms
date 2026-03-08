@@ -1,6 +1,6 @@
 module lightcms
 
-go 1.24.0
+go 1.25.0
 
 require (
 	github.com/gorilla/csrf v1.7.3
@@ -8,8 +8,9 @@ require (
 	github.com/gorilla/sessions v1.4.0
 	github.com/modelcontextprotocol/go-sdk v1.2.0
 	go.mongodb.org/mongo-driver v1.17.6
-	golang.org/x/crypto v0.47.0
-	golang.org/x/text v0.33.0
+	golang.org/x/crypto v0.48.0
+	golang.org/x/net v0.51.0
+	golang.org/x/text v0.34.0
 )
 
 require (
