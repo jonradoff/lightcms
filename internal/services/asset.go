@@ -64,6 +64,13 @@ func (s *AssetService) UploadAsset(ctx context.Context, data []byte, filename, s
 		return nil, fmt.Errorf("invalid file path")
 	}
 
+	// Strip /assets prefix if present — the /assets URL prefix is a routing
+	// concern; internally we store paths without it so ServeAsset can look
+	// them up after stripping the prefix from the request URL.
+	if strings.HasPrefix(servePath, "/assets/") {
+		servePath = strings.TrimPrefix(servePath, "/assets")
+	}
+
 	// Get filename and folder from serve path
 	fname := filepath.Base(servePath)
 	folder := filepath.Dir(servePath)

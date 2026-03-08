@@ -4342,15 +4342,28 @@ func (h *Handler) ServeAsset(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// First check for static file (new style)
+	// Try without /assets prefix first, then with it (handles assets
+	// uploaded before the prefix-stripping normalization was added)
 	staticFilePath := filepath.Join("content/generated", assetPath)
 	if info, err := os.Stat(staticFilePath); err == nil && !info.IsDir() {
 		http.ServeFile(w, r, staticFilePath)
 		return
 	}
+	staticFilePathFull := filepath.Join("content/generated", fullPath)
+	if info, err := os.Stat(staticFilePathFull); err == nil && !info.IsDir() {
+		http.ServeFile(w, r, staticFilePathFull)
+		return
+	}
 
-	// Fall back to database (legacy assets)
+	// Fall back to database
 	ctx := r.Context()
+	// Try lookup with stripped path first, then with full URL path
+	// (handles both old assets stored without /assets prefix and
+	// newer assets that may have been stored with it)
 	asset, err := h.db.GetAssetByPath(ctx, assetPath)
+	if (err != nil || asset == nil) && assetPath != fullPath {
+		asset, err = h.db.GetAssetByPath(ctx, fullPath)
+	}
 	if err != nil || asset == nil {
 		http.NotFound(w, r)
 		return
