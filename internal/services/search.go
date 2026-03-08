@@ -22,7 +22,7 @@ import (
 
 const (
 	voyageEmbedURL    = "https://api.voyageai.com/v1/embeddings"
-	voyageModel       = "voyage-3-lite"
+	voyageModel       = "voyage-4-lite"
 	embeddingDims     = 1024
 	vectorSearchIndex = "content_vector_search"
 	maxSnippetLen     = 200
