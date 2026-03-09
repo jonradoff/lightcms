@@ -17,8 +17,9 @@ type ListContentInput struct {
 }
 
 type GetContentInput struct {
-	ID   string `json:"id,omitempty" jsonschema:"Content ID (MongoDB ObjectID)"`
-	Path string `json:"path,omitempty" jsonschema:"Content path (e.g., /about or /blog/my-post)"`
+	ID              string `json:"id,omitempty" jsonschema:"Content ID (MongoDB ObjectID)"`
+	Path            string `json:"path,omitempty" jsonschema:"Content path (e.g., /about or /blog/my-post)"`
+	IncludeRendered bool   `json:"include_rendered,omitempty" jsonschema:"If true, include the fully rendered HTML output in the response"`
 }
 
 type CreateContentInput struct {
@@ -200,7 +201,9 @@ func (s *Server) registerContentTools() {
 Prefer path when you know the URL: {"path": "/about"}
 Use id when you have the MongoDB ObjectID: {"id": "abc123"}
 
-Tip: to verify what a page looks like before publishing, use preview_content instead.`,
+Set include_rendered=true to also receive the fully rendered HTML output (template + theme header/footer applied). Useful for verifying what visitors see without publishing.
+
+Tip: to preview unsaved edits before publishing, use preview_content instead.`,
 		Annotations: &mcp.ToolAnnotations{
 			Title:         "Get Content",
 			ReadOnlyHint:  true,
@@ -211,9 +214,9 @@ Tip: to verify what a page looks like before publishing, use preview_content ins
 		var err error
 
 		if args.ID != "" {
-			content, err = s.client.GetContent(ctx, args.ID)
+			content, err = s.client.GetContent(ctx, args.ID, args.IncludeRendered)
 		} else if args.Path != "" {
-			content, err = s.client.GetContentByPath(ctx, args.Path)
+			content, err = s.client.GetContentByPath(ctx, args.Path, args.IncludeRendered)
 		} else {
 			return errorResult(fmt.Errorf("either id or path is required")), nil, nil
 		}
@@ -336,7 +339,7 @@ Example: {"id": "abc123", "data": {"body": "<p>Updated text</p>"}, "version_comm
 
 		// For data fields, merge with existing content data
 		if args.Data != nil {
-			existing, err := s.client.GetContent(ctx, args.ID)
+			existing, err := s.client.GetContent(ctx, args.ID, false)
 			if err != nil {
 				return errorResult(err), nil, nil
 			}
@@ -597,7 +600,7 @@ Only the fields you provide are changed. Always include a version_comment descri
 		}
 		if args.Data != nil {
 			// Merge data on top of existing content
-			existing, err := s.client.GetContentByPath(ctx, args.Path)
+			existing, err := s.client.GetContentByPath(ctx, args.Path, false)
 			if err != nil {
 				return errorResult(err), nil, nil
 			}

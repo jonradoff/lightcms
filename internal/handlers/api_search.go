@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"lightcms/internal/auth"
 	"lightcms/internal/services"
 )
 
@@ -77,8 +78,12 @@ func (a *APIHandler) APIEndUserSearchSuggest(w http.ResponseWriter, r *http.Requ
 	a.jsonResponse(w, http.StatusOK, result)
 }
 
-// APIReindexEmbeddings triggers batch embedding generation via API
+// APIReindexEmbeddings triggers batch embedding generation via API (admin only)
 func (a *APIHandler) APIReindexEmbeddings(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermSettingsEdit) {
+		return
+	}
+
 	processed, errCount, err := a.searchService.BatchGenerateEmbeddings(r.Context())
 	if err != nil {
 		a.jsonError(w, http.StatusInternalServerError, err.Error())

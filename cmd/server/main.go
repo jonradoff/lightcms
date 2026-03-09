@@ -42,6 +42,18 @@ func main() {
 	if cfg.SessionSecret == "" {
 		log.Fatal("session_secret is required in config file")
 	}
+	// Enforce minimum SESSION_SECRET entropy: 16 bytes minimum, 32 recommended.
+	// Fail hard in production; log a warning in development so local dev still works.
+	if len(cfg.SessionSecret) < 16 {
+		msg := "session_secret is too short (minimum 16 characters; 32+ recommended)"
+		if cfg.Env == "production" {
+			log.Fatal(msg)
+		} else {
+			log.Printf("WARNING: %s", msg)
+		}
+	} else if len(cfg.SessionSecret) < 32 {
+		log.Printf("WARNING: session_secret should be at least 32 characters for production use")
+	}
 
 	// Connect to MongoDB
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -140,6 +152,7 @@ func main() {
 
 	// Wire search service into handlers
 	h.SetSearchService(searchService)
+	h.SetProxyConfig(proxyConfig)
 
 	// Setup router
 	r := mux.NewRouter()
@@ -312,6 +325,7 @@ func main() {
 
 	apiv1 := r.PathPrefix("/api/v1").Subrouter()
 	apiv1.Use(apiAuthMiddleware.Middleware)
+	apiv1.Use(middleware.APIRateLimit) // per-token sliding-window rate limit (300 req/min)
 
 	// Content
 	apiv1.HandleFunc("/content", apiHandler.APIListContent).Methods("GET")

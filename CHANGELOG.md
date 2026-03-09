@@ -4,6 +4,55 @@ All notable changes to LightCMS are documented here, organized by version.
 
 ---
 
+## v2.6.0 — MCP Tool Improvements
+
+### Bug Fixes
+- **`get_theme` returned empty strings** — `ThemeSettings` struct was missing `json` struct tags; all theme fields now serialize correctly via the REST API and MCP
+- **`search_replace_execute` response missing search/replace fields** — both `search_replace_execute` and `scoped_search_replace_execute` now echo back the `search` and `replace` strings used, alongside `total_replacements`, `pages_updated`, and `updated_pages`
+
+### New MCP Feature: Rendered HTML in `get_content`
+- `get_content` now accepts an `include_rendered` boolean parameter
+- When `true`, the response includes a `rendered_html` field containing the fully rendered page HTML (template fields interpolated + theme header/footer applied)
+- Works for both published and draft content — lets agents inspect exactly what visitors see without any publishing step
+- Complements `preview_content`, which is better for previewing unsaved field overrides
+
+---
+
+## v2.5.0 — Security Hardening
+
+### SSRF Prevention (Critical)
+- **`upload_asset_from_url`** now uses a custom HTTP dialer that resolves the target hostname at connect time and blocks all private/reserved IP ranges before making any network request, preventing Server-Side Request Forgery (SSRF) and DNS-rebinding attacks
+- Blocked ranges: loopback (127.0.0.0/8, ::1/128), RFC1918 private (10/8, 172.16/12, 192.168/16), link-local/AWS metadata (169.254.0.0/16), CGNAT (100.64.0.0/10), IPv6 ULA (fc00::/7) and link-local (fe80::/10)
+- Error messages from this endpoint no longer echo internal network details back to callers
+
+### ReDoS Prevention (Critical)
+- **`SearchFullText`** now runs under a 5-second context deadline, preventing unanchored regex scans from pinning CPU on large corpora or pathological queries
+
+### Permission Checks (High)
+- **`POST /api/v1/search-replace/preview`**: now requires `PermSearchReplace` (admin-only); previously accessible to any authenticated API key
+- **`POST /api/v1/search-replace/scoped/preview`**: same fix — matched the execute endpoint's permission requirement
+- **`POST /api/v1/reindex-embeddings`**: now requires `PermSettingsEdit` (admin-only); previously accessible to any authenticated API key, enabling potential DoS via expensive embedding operations
+
+### API Rate Limiting (High)
+- New per-bearer-token sliding-window rate limiter applied to the entire `/api/v1/` subrouter: 300 requests per token per minute. Returns 429 with `Retry-After: 60` on violation.
+
+### Asset serve_path Whitelist (Medium)
+- `upload_asset` and `upload_asset_from_url` now enforce that `serve_path` begins with `/assets/`, `/images/`, `/docs/`, `/media/`, or `/files/`
+
+### Trusted Proxy IP Extraction (Medium)
+- Public search rate limiter now uses `middleware.GetClientIP` with the configured trusted proxy settings, preventing IP spoofing via forged `X-Forwarded-For` headers to bypass per-IP limits
+
+### Database Indexes (Medium)
+- Added compound index `{published: 1, deleted: 1}` on the `content` collection, covering the most common list query pattern and improving performance under load
+
+### Audit Log TTL Index Idempotency (Low)
+- Audit log TTL index creation now tolerates "already exists" errors, ensuring the 365-day TTL is always present even on databases created before this index was added
+
+### Session Secret Validation (Low)
+- Server now checks `SESSION_SECRET` length at startup: warns if < 32 characters, fails hard if < 16 characters in production mode
+
+---
+
 ## v2.1.0 — Agentic API Improvements
 
 ### Theme Reliability

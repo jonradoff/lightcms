@@ -78,6 +78,14 @@ func (db *DB) createIndexes(ctx context.Context) error {
 		return err
 	}
 
+	// Content compound index for the most common list query: published + not-deleted
+	_, err = db.database.Collection("content").Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: bson.D{{Key: "published", Value: 1}, {Key: "deleted", Value: 1}},
+	})
+	if err != nil {
+		return err
+	}
+
 	// Template name index
 	_, err = db.database.Collection("templates").Indexes().CreateOne(ctx, mongo.IndexModel{
 		Keys:    bson.D{{Key: "name", Value: 1}},
@@ -262,13 +270,19 @@ func (db *DB) createIndexes(ctx context.Context) error {
 		return err
 	}
 
-	// Audit logs: TTL index — auto-delete after 365 days
+	// Audit logs: TTL index — auto-delete after 365 days.
+	// Use CreateMany with the same spec but ignore "already exists" errors so that
+	// a missing or misconfigured TTL index from a previous install is always corrected.
 	_, err = db.database.Collection("audit_logs").Indexes().CreateOne(ctx, mongo.IndexModel{
 		Keys:    bson.D{{Key: "created_at", Value: 1}},
-		Options: options.Index().SetExpireAfterSeconds(365 * 24 * 60 * 60),
+		Options: options.Index().SetExpireAfterSeconds(365 * 24 * 60 * 60).SetName("audit_ttl_365d"),
 	})
 	if err != nil {
-		return err
+		// Ignore "index already exists with same name" (code 68) and
+		// "index options conflict" (code 85) — the index is already in place.
+		if cmdErr, ok := err.(mongo.CommandError); !ok || (cmdErr.Code != 68 && cmdErr.Code != 85 && cmdErr.Code != 86) {
+			return err
+		}
 	}
 
 	return nil
@@ -354,25 +368,26 @@ func (db *DB) Count(ctx context.Context, collection string, filter interface{}) 
 	return db.database.Collection(collection).CountDocuments(ctx, filter)
 }
 
-// Theme settings
+// ThemeSettings holds the active theme configuration stored in the settings collection.
+// Both bson and json tags are required: bson for MongoDB read/write, json for the REST API response.
 type ThemeSettings struct {
-	ID              primitive.ObjectID `bson:"_id,omitempty"`
-	PrimaryColor    string             `bson:"primary_color"`
-	SecondaryColor  string             `bson:"secondary_color"`
-	AccentColor     string             `bson:"accent_color"`
-	BackgroundColor string             `bson:"background_color"`
-	TextColor       string             `bson:"text_color"`
-	FontFamily      string             `bson:"font_family"`
-	HeadingFont     string             `bson:"heading_font"`
-	BorderRadius    string             `bson:"border_radius"`
-	CustomCSS       string             `bson:"custom_css"`
-	SiteName        string             `bson:"site_name"`
-	SiteTagline     string             `bson:"site_tagline"`
-	LogoURL         string             `bson:"logo_url"`
-	HeadHTML        string             `bson:"head_html"`
-	HeaderHTML      string             `bson:"header_html"`
-	FooterHTML      string             `bson:"footer_html"`
-	UpdatedAt       time.Time          `bson:"updated_at"`
+	ID              primitive.ObjectID `bson:"_id,omitempty"    json:"-"`
+	PrimaryColor    string             `bson:"primary_color"    json:"primary_color"`
+	SecondaryColor  string             `bson:"secondary_color"  json:"secondary_color"`
+	AccentColor     string             `bson:"accent_color"     json:"accent_color"`
+	BackgroundColor string             `bson:"background_color" json:"background_color"`
+	TextColor       string             `bson:"text_color"       json:"text_color"`
+	FontFamily      string             `bson:"font_family"      json:"font_family"`
+	HeadingFont     string             `bson:"heading_font"     json:"heading_font"`
+	BorderRadius    string             `bson:"border_radius"    json:"border_radius"`
+	CustomCSS       string             `bson:"custom_css"       json:"custom_css"`
+	SiteName        string             `bson:"site_name"        json:"site_name"`
+	SiteTagline     string             `bson:"site_tagline"     json:"site_tagline"`
+	LogoURL         string             `bson:"logo_url"         json:"logo_url"`
+	HeadHTML        string             `bson:"head_html"        json:"head_html"`
+	HeaderHTML      string             `bson:"header_html"      json:"header_html"`
+	FooterHTML      string             `bson:"footer_html"      json:"footer_html"`
+	UpdatedAt       time.Time          `bson:"updated_at"       json:"updated_at"`
 }
 
 // ThemeVersion represents a historical version of theme settings

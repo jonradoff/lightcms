@@ -42,11 +42,17 @@ type Handler struct {
 	searchService *services.SearchService
 	userService   *services.UserService
 	auditService  *services.AuditService
+	proxyConfig   *middleware.TrustedProxyConfig
 }
 
 // SetSearchService sets the search service for end-user search features
 func (h *Handler) SetSearchService(ss *services.SearchService) {
 	h.searchService = ss
+}
+
+// SetProxyConfig sets the trusted proxy configuration used for client IP extraction
+func (h *Handler) SetProxyConfig(pc *middleware.TrustedProxyConfig) {
+	h.proxyConfig = pc
 }
 
 func New(db *database.DB, authManager *auth.Manager, baseURL string, env string, userService *services.UserService, auditService *services.AuditService) *Handler {

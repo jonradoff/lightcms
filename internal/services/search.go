@@ -268,8 +268,16 @@ func (s *SearchService) SearchFullText(ctx context.Context, query string, limit 
 		},
 	}
 
+	// Impose a hard deadline on the regex scan to prevent CPU exhaustion on
+	// large corpora. 5 s is generous for normal queries but stops pathological cases.
+	qCtx, qCancel := context.WithTimeout(ctx, 5*time.Second)
+	defer qCancel()
+
 	var contents []models.Content
-	if err := s.db.FindAll(ctx, "content", filter, &contents); err != nil {
+	if err := s.db.FindAll(qCtx, "content", filter, &contents); err != nil {
+		if qCtx.Err() != nil {
+			return nil, fmt.Errorf("search query timed out")
+		}
 		return nil, fmt.Errorf("full-text search failed: %w", err)
 	}
 

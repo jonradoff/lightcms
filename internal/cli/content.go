@@ -62,9 +62,9 @@ func (a *App) runContent(args []string) error {
 		var content *apiclient.Content
 		var err error
 		if *id != "" {
-			content, err = a.client.GetContent(ctx, *id)
+			content, err = a.client.GetContent(ctx, *id, false)
 		} else if *path != "" {
-			content, err = a.client.GetContentByPath(ctx, *path)
+			content, err = a.client.GetContentByPath(ctx, *path, false)
 		} else {
 			return fmt.Errorf("--id or --path required")
 		}
@@ -169,7 +169,7 @@ func (a *App) runContent(args []string) error {
 				return fmt.Errorf("invalid --data JSON: %w", err)
 			}
 			// Merge with existing data
-			existing, err := a.client.GetContent(ctx, *id)
+			existing, err := a.client.GetContent(ctx, *id, false)
 			if err != nil {
 				return err
 			}

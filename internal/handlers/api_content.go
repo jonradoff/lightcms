@@ -504,6 +504,10 @@ func (a *APIHandler) APISearchContent(w http.ResponseWriter, r *http.Request) {
 
 // APISearchReplacePreview previews search and replace
 func (a *APIHandler) APISearchReplacePreview(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermSearchReplace) {
+		return
+	}
+
 	var req struct {
 		Search  string `json:"search"`
 		Replace string `json:"replace"`
@@ -674,6 +678,8 @@ func (a *APIHandler) APISearchReplaceExecute(w http.ResponseWriter, r *http.Requ
 	})
 	a.jsonResponse(w, http.StatusOK, map[string]interface{}{
 		"success":            true,
+		"search":             req.Search,
+		"replace":            req.Replace,
 		"total_replacements": totalReplacements,
 		"pages_updated":      len(updatedPages),
 		"updated_pages":      updatedPages,
@@ -956,6 +962,10 @@ func (f *scopeFilter) matches(c models.Content) bool {
 
 // APIScopedSearchReplacePreview previews a scoped search-and-replace.
 func (a *APIHandler) APIScopedSearchReplacePreview(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermSearchReplace) {
+		return
+	}
+
 	var req struct {
 		Search  string      `json:"search"`
 		Replace string      `json:"replace"`
@@ -1120,6 +1130,8 @@ func (a *APIHandler) APIScopedSearchReplaceExecute(w http.ResponseWriter, r *htt
 	})
 	a.jsonResponse(w, http.StatusOK, map[string]interface{}{
 		"success":            true,
+		"search":             req.Search,
+		"replace":            req.Replace,
 		"total_replacements": totalReplacements,
 		"pages_updated":      len(updatedPages),
 		"updated_pages":      updatedPages,

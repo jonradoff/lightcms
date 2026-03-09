@@ -107,17 +107,25 @@ func (c *Client) ListContent(ctx context.Context, includeDeleted bool, category,
 	return result, nil
 }
 
-func (c *Client) GetContent(ctx context.Context, id string) (*Content, error) {
+func (c *Client) GetContent(ctx context.Context, id string, includeRendered bool) (*Content, error) {
 	var result Content
-	if err := c.do(ctx, "GET", "/content/"+id, nil, &result); err != nil {
+	apiPath := "/content/" + id
+	if includeRendered {
+		apiPath += "?include_rendered=true"
+	}
+	if err := c.do(ctx, "GET", apiPath, nil, &result); err != nil {
 		return nil, err
 	}
 	return &result, nil
 }
 
-func (c *Client) GetContentByPath(ctx context.Context, path string) (*Content, error) {
+func (c *Client) GetContentByPath(ctx context.Context, path string, includeRendered bool) (*Content, error) {
 	var result Content
-	if err := c.do(ctx, "GET", "/content/by-path?path="+url.QueryEscape(path), nil, &result); err != nil {
+	apiPath := "/content/by-path?path=" + url.QueryEscape(path)
+	if includeRendered {
+		apiPath += "&include_rendered=true"
+	}
+	if err := c.do(ctx, "GET", apiPath, nil, &result); err != nil {
 		return nil, err
 	}
 	return &result, nil

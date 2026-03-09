@@ -3,7 +3,6 @@ package handlers
 import (
 	"encoding/json"
 	"fmt"
-	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -12,6 +11,7 @@ import (
 
 	"lightcms/internal/auth"
 	"lightcms/internal/database"
+	"lightcms/internal/middleware"
 )
 
 // searchRateLimiter tracks per-IP request counts for the public search endpoint
@@ -59,9 +59,11 @@ func checkGlobalSearchRateLimit() bool {
 	return false
 }
 
-// checkSearchRateLimit returns true if the request should be rate-limited (per-IP)
-func checkSearchRateLimit(r *http.Request) bool {
-	ip := extractIP(r)
+// checkSearchRateLimit returns true if the request should be rate-limited (per-IP).
+// proxyConfig controls how the client IP is extracted from forwarded headers,
+// preventing IP spoofing via forged X-Forwarded-For values.
+func checkSearchRateLimit(r *http.Request, proxyConfig *middleware.TrustedProxyConfig) bool {
+	ip := middleware.GetClientIP(r, proxyConfig)
 
 	searchRateLimiter.Lock()
 	defer searchRateLimiter.Unlock()
@@ -86,16 +88,6 @@ func checkSearchRateLimit(r *http.Request) bool {
 	return false
 }
 
-// extractIP gets the client IP from X-Forwarded-For or RemoteAddr
-func extractIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		parts := strings.SplitN(xff, ",", 2)
-		return strings.TrimSpace(parts[0])
-	}
-	ip, _, _ := net.SplitHostPort(r.RemoteAddr)
-	return ip
-}
-
 // EndUserSearch handles the public search API endpoint (no auth required)
 func (h *Handler) EndUserSearch(w http.ResponseWriter, r *http.Request) {
 	// Global rate limit (DDoS protection)
@@ -108,7 +100,7 @@ func (h *Handler) EndUserSearch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Per-IP rate limit
-	if checkSearchRateLimit(r) {
+	if checkSearchRateLimit(r, h.proxyConfig) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Retry-After", "60")
 		w.WriteHeader(http.StatusTooManyRequests)
@@ -169,7 +161,7 @@ func (h *Handler) EndUserSearchSuggest(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"error": "service temporarily overloaded, try again later"})
 		return
 	}
-	if checkSearchRateLimit(r) {
+	if checkSearchRateLimit(r, h.proxyConfig) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Retry-After", "60")
 		w.WriteHeader(http.StatusTooManyRequests)
