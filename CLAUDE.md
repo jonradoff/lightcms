@@ -78,17 +78,17 @@ Once connected, you can ask Claude to manage your content naturally:
 Binary: `bin/lightcms-mcp`
 Config: Uses same `config.dev.json` or environment variables as main server
 
-### Available MCP Tools (41 total):
+### Available MCP Tools (54 total):
 
-**Content (12 tools):** list_content, get_content, create_content, update_content, publish_content, unpublish_content, delete_content, restore_content, get_content_versions, get_content_version, revert_to_version
+**Content (18 tools):** list_content, get_content, create_content, update_content, update_content_by_path, publish_content, publish_multiple, unpublish_content, delete_content, restore_content, preview_content, get_content_versions, get_content_version, revert_to_version
 
 **Templates (5 tools):** list_templates, get_template, create_template, update_template, delete_template
 
-**Assets (5 tools):** list_assets, list_asset_folders, get_asset, upload_asset, delete_asset
+**Assets (6 tools):** list_assets, list_asset_folders, get_asset, upload_asset, upload_asset_from_url, delete_asset
 
-**Search (3 tools):** search_content, search_replace_preview, search_replace_execute
+**Search (7 tools):** search_content, search_replace_preview, search_replace_execute, scoped_search_replace_preview, scoped_search_replace_execute, end_user_search, reindex_embeddings
 
-**Settings (16 tools):** get_theme, update_theme, get_site_config, update_site_config, list_redirects, create_redirect, update_redirect, delete_redirect, list_folders, create_folder, get_folder, delete_folder, list_collections, create_collection, get_collection, update_collection, delete_collection, regenerate_all_content
+**Settings (18 tools):** get_theme, update_theme, get_theme_versions, get_theme_version, revert_theme_to_version, pin_theme_version, unpin_theme_version, get_site_config, update_site_config, list_redirects, create_redirect, update_redirect, delete_redirect, list_folders, create_folder, get_folder, delete_folder, list_collections, create_collection, get_collection, update_collection, delete_collection, regenerate_all_content
 
 ### ⚠️ CRITICAL: Search & Replace Safety
 

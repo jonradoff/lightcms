@@ -539,3 +539,103 @@ func (c *Client) ReindexEmbeddings(ctx context.Context) (map[string]interface{},
 	}
 	return result, nil
 }
+
+// BatchPublishContent publishes multiple content items at once.
+// Pass a list of IDs, or set PublishAllDrafts = true to publish every draft.
+func (c *Client) BatchPublishContent(ctx context.Context, ids []string, publishAllDrafts bool) (map[string]interface{}, error) {
+	req := map[string]interface{}{
+		"ids":                ids,
+		"publish_all_drafts": publishAllDrafts,
+	}
+	var result map[string]interface{}
+	if err := c.do(ctx, "POST", "/content/batch-publish", req, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// PreviewContent returns the rendered HTML for a content item without publishing.
+// Pass optional overrides (title, data map) to preview unsaved edits.
+type PreviewContentResult struct {
+	ContentID    string      `json:"content_id"`
+	RenderedHTML string      `json:"rendered_html"`
+	Warnings     []string    `json:"warnings"`
+}
+
+func (c *Client) PreviewContent(ctx context.Context, id string, overrides map[string]interface{}) (*PreviewContentResult, error) {
+	var result PreviewContentResult
+	if err := c.do(ctx, "POST", "/content/"+id+"/preview", overrides, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// UpdateContentByPath updates content identified by URL path.
+func (c *Client) UpdateContentByPath(ctx context.Context, path string, req map[string]interface{}) (*Content, error) {
+	var result Content
+	if err := c.do(ctx, "PUT", "/content/by-path?path="+url.QueryEscape(path), req, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// UploadAssetFromURL fetches a remote URL and stores it as a LightCMS asset.
+func (c *Client) UploadAssetFromURL(ctx context.Context, assetURL, servePath, description string) (*AssetSummary, error) {
+	req := map[string]interface{}{
+		"url":         assetURL,
+		"serve_path":  servePath,
+		"description": description,
+	}
+	var result AssetSummary
+	if err := c.do(ctx, "POST", "/assets/from-url", req, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// PinThemeVersion locks a theme version so it is protected from auto-pruning.
+func (c *Client) PinThemeVersion(ctx context.Context, version int) error {
+	return c.do(ctx, "POST", fmt.Sprintf("/theme/versions/%d/pin", version), nil, nil)
+}
+
+// UnpinThemeVersion unlocks a previously pinned theme version.
+func (c *Client) UnpinThemeVersion(ctx context.Context, version int) error {
+	return c.do(ctx, "POST", fmt.Sprintf("/theme/versions/%d/unpin", version), nil, nil)
+}
+
+// ScopedSearchReplaceScope defines the optional scope filter for scoped S&R.
+type ScopedSearchReplaceScope struct {
+	ContentIDs   []string `json:"content_ids,omitempty"`
+	FolderPath   string   `json:"folder_path,omitempty"`
+	TemplateName string   `json:"template_name,omitempty"`
+	Category     string   `json:"category,omitempty"`
+}
+
+// ScopedSearchReplacePreview previews a search-and-replace limited to a scope.
+func (c *Client) ScopedSearchReplacePreview(ctx context.Context, search, replace string, scope ScopedSearchReplaceScope) (*SearchReplaceResult, error) {
+	req := map[string]interface{}{
+		"search":  search,
+		"replace": replace,
+		"scope":   scope,
+	}
+	var result SearchReplaceResult
+	if err := c.do(ctx, "POST", "/search-replace/scoped/preview", req, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// ScopedSearchReplaceExecute runs a scoped search-and-replace.
+func (c *Client) ScopedSearchReplaceExecute(ctx context.Context, search, replace, comment string, scope ScopedSearchReplaceScope) (*SearchReplaceResult, error) {
+	req := map[string]interface{}{
+		"search":          search,
+		"replace":         replace,
+		"version_comment": comment,
+		"scope":           scope,
+	}
+	var result SearchReplaceResult
+	if err := c.do(ctx, "POST", "/search-replace/scoped/execute", req, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}

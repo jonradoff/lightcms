@@ -38,6 +38,10 @@ type RevertThemeVersionInput struct {
 	VersionComment string `json:"version_comment,omitempty" jsonschema:"Optional comment for the revert (e.g., 'Reverted to v3')"`
 }
 
+type PinThemeVersionInput struct {
+	Version int `json:"version" jsonschema:"Theme version number to pin/unpin,required"`
+}
+
 // Site config input types
 type UpdateSiteConfigInput struct {
 	TitleTemplate        string `json:"title_template,omitempty" jsonschema:"Page title template with {{title}} and {{site_name}} placeholders"`
@@ -128,9 +132,14 @@ func (s *Server) registerSettingsTools() {
 
 	// Update theme
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name:        "update_theme",
-		Title:       "Update Theme",
-		Description: "Update theme settings. Changing header or footer HTML will regenerate all published content.",
+		Name:  "update_theme",
+		Title: "Update Theme",
+		Description: `Update theme settings. Only the fields you provide are changed — all other settings are preserved (partial update, safe to call without get_theme first).
+
+Changing header_html or footer_html triggers background regeneration of all published pages.
+Changing colors, fonts, or custom_css does NOT require content regeneration.
+
+Use pin_theme_version to protect important milestones before making major changes.`,
 		Annotations: &mcp.ToolAnnotations{
 			Title:           "Update Theme",
 			ReadOnlyHint:    false,
@@ -265,6 +274,50 @@ func (s *Server) registerSettingsTools() {
 			return errorResult(err), nil, nil
 		}
 		return textResult(fmt.Sprintf("Theme reverted to version %d successfully", args.Version)), nil, nil
+	})
+
+	// Pin theme version
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:  "pin_theme_version",
+		Title: "Pin Theme Version",
+		Description: `Lock a theme version so it is protected from automatic pruning or accidental overwrite. Pinned versions are marked with locked=true in get_theme_versions.
+
+Use this to preserve milestone theme states (e.g., after a major redesign) before making further changes.
+
+Example: {"version": 5}`,
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Pin Theme Version",
+			ReadOnlyHint:    false,
+			DestructiveHint: boolPtr(false),
+			IdempotentHint:  true,
+			OpenWorldHint:   boolPtr(false),
+		},
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args PinThemeVersionInput) (*mcp.CallToolResult, any, error) {
+		if err := s.client.PinThemeVersion(ctx, args.Version); err != nil {
+			return errorResult(err), nil, nil
+		}
+		return textResult(fmt.Sprintf("Theme version %d pinned (locked)", args.Version)), nil, nil
+	})
+
+	// Unpin theme version
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:  "unpin_theme_version",
+		Title: "Unpin Theme Version",
+		Description: `Remove the lock from a previously pinned theme version.
+
+Example: {"version": 5}`,
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Unpin Theme Version",
+			ReadOnlyHint:    false,
+			DestructiveHint: boolPtr(false),
+			IdempotentHint:  true,
+			OpenWorldHint:   boolPtr(false),
+		},
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args PinThemeVersionInput) (*mcp.CallToolResult, any, error) {
+		if err := s.client.UnpinThemeVersion(ctx, args.Version); err != nil {
+			return errorResult(err), nil, nil
+		}
+		return textResult(fmt.Sprintf("Theme version %d unpinned", args.Version)), nil, nil
 	})
 
 	// === Site Config ===

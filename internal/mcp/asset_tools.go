@@ -30,6 +30,12 @@ type AssetIDInput struct {
 	ID string `json:"id" jsonschema:"Asset ID (MongoDB ObjectID),required"`
 }
 
+type UploadAssetFromURLInput struct {
+	URL         string `json:"url" jsonschema:"Public URL of the file to fetch (must be http or https),required"`
+	ServePath   string `json:"serve_path,omitempty" jsonschema:"URL path where asset will be served (e.g. /assets/logo.png). Auto-derived from URL filename if omitted."`
+	Description string `json:"description,omitempty" jsonschema:"Optional description"`
+}
+
 func (s *Server) registerAssetTools() {
 	// List assets
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
@@ -126,6 +132,37 @@ func (s *Server) registerAssetTools() {
 			"mime_type":  asset.MimeType,
 			"size":       asset.Size,
 			"message":    fmt.Sprintf("Asset '%s' uploaded successfully", args.Filename),
+		}), nil, nil
+	})
+
+	// Upload asset from URL
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:  "upload_asset_from_url",
+		Title: "Upload Asset from URL",
+		Description: `Fetch a public URL and store it as a LightCMS asset. Useful for importing images or files from the web without downloading them locally first.
+
+Example: {"url": "https://example.com/logo.png", "serve_path": "/assets/logo.png", "description": "Site logo"}
+
+If serve_path is omitted, the filename is derived from the URL. Returns id, serve_path, mime_type, and size.`,
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Upload Asset from URL",
+			ReadOnlyHint:    false,
+			DestructiveHint: boolPtr(false),
+			IdempotentHint:  false,
+			OpenWorldHint:   boolPtr(true),
+		},
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args UploadAssetFromURLInput) (*mcp.CallToolResult, any, error) {
+		asset, err := s.client.UploadAssetFromURL(ctx, args.URL, args.ServePath, args.Description)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		return jsonResult(map[string]interface{}{
+			"success":    true,
+			"id":         asset.ID,
+			"serve_path": asset.ServePath,
+			"mime_type":  asset.MimeType,
+			"size":       asset.Size,
+			"message":    fmt.Sprintf("Asset fetched from URL and stored at '%s'", asset.ServePath),
 		}), nil, nil
 	})
 

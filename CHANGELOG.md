@@ -4,6 +4,38 @@ All notable changes to LightCMS are documented here, organized by version.
 
 ---
 
+## v2.1.0 — Agentic API Improvements
+
+### Theme Reliability
+- **Theme CSS on startup**: `static/css/theme-vars.css` is now regenerated from the database every time the server starts, preventing blank styles after a deploy or container restart
+
+### New Content Endpoints
+- **`PUT /api/v1/content/by-path?path=/slug`**: Update content by URL path instead of MongoDB ID — useful when you know the page URL but not its ID
+- **`POST /api/v1/content/batch-publish`**: Publish multiple content items in one call; pass an ID list or `publish_all_drafts: true`
+- **`GET/POST /api/v1/content/{id}/preview`**: Render a content item's HTML without publishing; accepts optional title/data overrides to preview unsaved edits; returns `rendered_html` and `warnings` (missing required fields, unclosed tags, unresolved placeholders)
+- **`GET /api/v1/content/{id}?include_rendered=true`**: Include rendered body HTML and validation warnings alongside regular content data
+
+### New Asset Endpoints
+- **`POST /api/v1/assets/from-url`**: Fetch a remote URL and store it as a LightCMS asset (HTTP/HTTPS only, 50 MB cap, MIME validation)
+
+### Theme Version Pinning
+- **`POST /api/v1/theme/versions/{version}/pin`** and **`/unpin`**: Lock (or unlock) a theme version to protect it from being auto-pruned
+- `ThemeVersion` model gains `locked` field (stored in `theme_versions` collection)
+
+### Scoped Search & Replace
+- **`POST /api/v1/search-replace/scoped/preview`** and **`/execute`**: Run search-and-replace filtered by `content_ids`, `folder_path`, `template_name`, and/or `category` — safer than a full site-wide replacement
+
+### New MCP Tools (13 added, 41 → 54 total)
+- `update_content_by_path` — update by URL path; merges `data` fields like `update_content`
+- `publish_multiple` — batch publish by ID list or all drafts at once
+- `preview_content` — render HTML without saving; supports field overrides
+- `scoped_search_replace_preview` / `scoped_search_replace_execute` — folder/template/category-scoped S&R
+- `upload_asset_from_url` — fetch remote file and store as asset
+- `pin_theme_version` / `unpin_theme_version` — protect important theme milestones
+- Improved descriptions on `get_content`, `create_content`, `update_content`, `update_theme`, `search_replace_preview`, `search_replace_execute` — all now include workflow guidance and examples
+
+---
+
 ## v2.0.1 — Configurable Search Ranking
 
 ### Configurable Search Ranking

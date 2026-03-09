@@ -78,6 +78,39 @@ type RevertToVersionInput struct {
 	VersionComment string `json:"version_comment,omitempty" jsonschema:"Optional comment for the revert (e.g., 'Reverted to v3')"`
 }
 
+type BatchPublishInput struct {
+	IDs              []string `json:"ids,omitempty" jsonschema:"List of content IDs to publish. Mutually exclusive with publish_all_drafts."`
+	PublishAllDrafts bool     `json:"publish_all_drafts,omitempty" jsonschema:"If true, publish every unpublished (draft) content item in the site"`
+}
+
+type PreviewContentInput struct {
+	ID    string                 `json:"id" jsonschema:"Content ID (MongoDB ObjectID),required"`
+	Title string                 `json:"title,omitempty" jsonschema:"Override title for the preview (not saved)"`
+	Data  map[string]interface{} `json:"data,omitempty" jsonschema:"Override field data for the preview (not saved). Merged on top of existing data."`
+}
+
+type UpdateContentByPathInput struct {
+	Path           string                 `json:"path" jsonschema:"URL path of the content to update (e.g. /about or /blog/my-post),required"`
+	Title          string                 `json:"title,omitempty" jsonschema:"New title"`
+	Data           map[string]interface{} `json:"data,omitempty" jsonschema:"Field values to update"`
+	Category       string                 `json:"category,omitempty" jsonschema:"Content category"`
+	MetaDescription string                `json:"meta_description,omitempty" jsonschema:"SEO meta description"`
+	OGImage        string                 `json:"og_image,omitempty" jsonschema:"Open Graph image URL"`
+	Published      *bool                  `json:"published,omitempty" jsonschema:"Publish state"`
+	VersionComment string                 `json:"version_comment,omitempty" jsonschema:"Version comment"`
+}
+
+type ScopedSearchReplaceInput struct {
+	Search         string `json:"search" jsonschema:"Text to search for,required"`
+	Replace        string `json:"replace" jsonschema:"Replacement text (empty string to delete)"`
+	VersionComment string `json:"version_comment,omitempty" jsonschema:"Version comment for updated pages"`
+	// Scope filters — leave all empty to match everything (same as global S&R)
+	ContentIDs   []string `json:"content_ids,omitempty" jsonschema:"Limit to specific content IDs"`
+	FolderPath   string   `json:"folder_path,omitempty" jsonschema:"Limit to pages whose URL starts with this path (e.g. /blog)"`
+	TemplateName string   `json:"template_name,omitempty" jsonschema:"Limit to pages using this template name (e.g. 'Concept Page')"`
+	Category     string   `json:"category,omitempty" jsonschema:"Limit to pages in this category"`
+}
+
 func (s *Server) registerContentTools() {
 	// List content
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
@@ -160,9 +193,14 @@ func (s *Server) registerContentTools() {
 
 	// Get content
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name:        "get_content",
-		Title:       "Get Content",
-		Description: "Get a single content item by ID or path. Returns full content including all field data.",
+		Name:  "get_content",
+		Title: "Get Content",
+		Description: `Get a single content item by ID or path. Returns full content including all field data (title, slug, full_path, data fields, published state).
+
+Prefer path when you know the URL: {"path": "/about"}
+Use id when you have the MongoDB ObjectID: {"id": "abc123"}
+
+Tip: to verify what a page looks like before publishing, use preview_content instead.`,
 		Annotations: &mcp.ToolAnnotations{
 			Title:         "Get Content",
 			ReadOnlyHint:  true,
@@ -189,9 +227,17 @@ func (s *Server) registerContentTools() {
 
 	// Create content
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name:        "create_content",
-		Title:       "Create Content",
-		Description: "Create a new content item. Requires a template ID and field data. Creates initial version automatically.",
+		Name:  "create_content",
+		Title: "Create Content",
+		Description: `Create a new content item. Requires a template_id, title, slug, and the data fields defined by the template.
+
+Workflow:
+1. Call list_templates to find the right template and its field names.
+2. Create the content with data matching those fields.
+3. Call publish_content to make it live (or set published=true here to do both in one step).
+
+Set use_header=true, use_footer=true, use_theme=true for pages that should use the site layout.
+Always include version_comment to make history readable.`,
 		Annotations: &mcp.ToolAnnotations{
 			Title:           "Create Content",
 			ReadOnlyHint:    false,
@@ -232,9 +278,15 @@ func (s *Server) registerContentTools() {
 
 	// Update content
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name:        "update_content",
-		Title:       "Update Content",
-		Description: "Update an existing content item. Creates a new version automatically. Only include fields you want to change.",
+		Name:  "update_content",
+		Title: "Update Content",
+		Description: `Update an existing content item by ID. Creates a new version automatically. Only send fields you want to change.
+
+For partial data updates, only the keys you include in "data" are changed — existing keys are preserved (merge semantics).
+To update by URL path instead of ID, use update_content_by_path.
+Always include version_comment so the version history is useful.
+
+Example: {"id": "abc123", "data": {"body": "<p>Updated text</p>"}, "version_comment": "Revised intro paragraph"}`,
 		Annotations: &mcp.ToolAnnotations{
 			Title:           "Update Content",
 			ReadOnlyHint:    false,
@@ -464,5 +516,189 @@ func (s *Server) registerContentTools() {
 			return errorResult(err), nil, nil
 		}
 		return textResult(fmt.Sprintf("Content reverted to version %d successfully", args.Version)), nil, nil
+	})
+
+	// Batch publish
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name: "publish_multiple",
+		Title: "Publish Multiple",
+		Description: `Publish multiple content items in a single call. Use this instead of calling publish_content in a loop.
+
+Examples:
+- Publish specific pages: {"ids": ["abc123", "def456"]}
+- Publish all drafts at once: {"publish_all_drafts": true}
+
+Returns a list of published IDs and any failures.`,
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Publish Multiple",
+			ReadOnlyHint:    false,
+			DestructiveHint: boolPtr(true),
+			IdempotentHint:  true,
+			OpenWorldHint:   boolPtr(false),
+		},
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args BatchPublishInput) (*mcp.CallToolResult, any, error) {
+		result, err := s.client.BatchPublishContent(ctx, args.IDs, args.PublishAllDrafts)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		return jsonResult(result), nil, nil
+	})
+
+	// Preview content
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name: "preview_content",
+		Title: "Preview Content",
+		Description: `Render a content item's HTML without saving or publishing. Use this to verify what a page will look like before publishing.
+
+Also accepts optional title/data overrides to preview unsaved edits:
+{"id": "abc123", "data": {"body": "<p>New text</p>"}}
+
+Returns rendered_html and any warnings (missing required fields, unclosed tags, unresolved placeholders).`,
+		Annotations: &mcp.ToolAnnotations{
+			Title:         "Preview Content",
+			ReadOnlyHint:  true,
+			OpenWorldHint: boolPtr(false),
+		},
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args PreviewContentInput) (*mcp.CallToolResult, any, error) {
+		overrides := map[string]interface{}{}
+		if args.Title != "" {
+			overrides["title"] = args.Title
+		}
+		if args.Data != nil {
+			overrides["data"] = args.Data
+		}
+		result, err := s.client.PreviewContent(ctx, args.ID, overrides)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		return jsonResult(result), nil, nil
+	})
+
+	// Update content by path
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name: "update_content_by_path",
+		Title: "Update Content by Path",
+		Description: `Update content identified by its URL path instead of its ID. Useful when you know the page URL but not the MongoDB ID.
+
+Example: {"path": "/about", "title": "About Us", "data": {"body": "<p>Updated content</p>"}}
+
+Only the fields you provide are changed. Always include a version_comment describing what changed.`,
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Update Content by Path",
+			ReadOnlyHint:    false,
+			DestructiveHint: boolPtr(true),
+			IdempotentHint:  true,
+			OpenWorldHint:   boolPtr(false),
+		},
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args UpdateContentByPathInput) (*mcp.CallToolResult, any, error) {
+		updates := map[string]interface{}{}
+		if args.Title != "" {
+			updates["title"] = args.Title
+		}
+		if args.Data != nil {
+			// Merge data on top of existing content
+			existing, err := s.client.GetContentByPath(ctx, args.Path)
+			if err != nil {
+				return errorResult(err), nil, nil
+			}
+			mergedData := existing.Data
+			if mergedData == nil {
+				mergedData = make(map[string]interface{})
+			}
+			for k, v := range args.Data {
+				mergedData[k] = v
+			}
+			updates["data"] = mergedData
+		}
+		if args.Category != "" {
+			updates["category"] = args.Category
+		}
+		if args.MetaDescription != "" {
+			updates["meta_description"] = args.MetaDescription
+		}
+		if args.OGImage != "" {
+			updates["og_image"] = args.OGImage
+		}
+		if args.Published != nil {
+			updates["published"] = *args.Published
+		}
+		if args.VersionComment != "" {
+			updates["version_comment"] = args.VersionComment
+		}
+		content, err := s.client.UpdateContentByPath(ctx, args.Path, updates)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		return jsonResult(map[string]interface{}{
+			"success":   true,
+			"id":        content.ID,
+			"full_path": content.FullPath,
+			"message":   fmt.Sprintf("Content at '%s' updated successfully", args.Path),
+		}), nil, nil
+	})
+
+	// Scoped search-and-replace preview
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name: "scoped_search_replace_preview",
+		Title: "Scoped Search Replace Preview",
+		Description: `Preview a search-and-replace limited to a subset of pages. Safer than site-wide replacement.
+
+Scope options (all optional — leave blank to match all pages):
+- content_ids: specific page IDs
+- folder_path: pages under /blog, /docs, etc.
+- template_name: pages using "Concept Page", "Blog Post", etc.
+- category: pages with a matching category
+
+Example: {"search": "old text", "replace": "new text", "folder_path": "/blog"}
+
+Always run preview before execute.`,
+		Annotations: &mcp.ToolAnnotations{
+			Title:         "Scoped Search Replace Preview",
+			ReadOnlyHint:  true,
+			OpenWorldHint: boolPtr(false),
+		},
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args ScopedSearchReplaceInput) (*mcp.CallToolResult, any, error) {
+		scope := apiclient.ScopedSearchReplaceScope{
+			ContentIDs:   args.ContentIDs,
+			FolderPath:   args.FolderPath,
+			TemplateName: args.TemplateName,
+			Category:     args.Category,
+		}
+		result, err := s.client.ScopedSearchReplacePreview(ctx, args.Search, args.Replace, scope)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		return jsonResult(result), nil, nil
+	})
+
+	// Scoped search-and-replace execute
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name: "scoped_search_replace_execute",
+		Title: "Scoped Search Replace Execute",
+		Description: `Execute a search-and-replace limited to a subset of pages. ALWAYS run scoped_search_replace_preview first and show results to the user before executing.
+
+Scope options (all optional):
+- content_ids, folder_path, template_name, category
+
+Example: {"search": "old text", "replace": "new text", "folder_path": "/blog", "version_comment": "Updated old references"}`,
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Scoped Search Replace Execute",
+			ReadOnlyHint:    false,
+			DestructiveHint: boolPtr(true),
+			IdempotentHint:  false,
+			OpenWorldHint:   boolPtr(false),
+		},
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args ScopedSearchReplaceInput) (*mcp.CallToolResult, any, error) {
+		scope := apiclient.ScopedSearchReplaceScope{
+			ContentIDs:   args.ContentIDs,
+			FolderPath:   args.FolderPath,
+			TemplateName: args.TemplateName,
+			Category:     args.Category,
+		}
+		result, err := s.client.ScopedSearchReplaceExecute(ctx, args.Search, args.Replace, args.VersionComment, scope)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		return jsonResult(result), nil, nil
 	})
 }

@@ -3,6 +3,7 @@ package handlers
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"lightcms/internal/auth"
 	"lightcms/internal/models"
@@ -171,6 +172,31 @@ func (a *APIHandler) APIRevertThemeVersion(w http.ResponseWriter, r *http.Reques
 
 	a.auditLog(r, "theme.revert", "theme", "", map[string]interface{}{"version": version})
 	a.jsonResponse(w, http.StatusOK, map[string]interface{}{"success": true})
+}
+
+// APIPinThemeVersion locks or unlocks a theme version.
+// POST /api/v1/theme/versions/{version}/pin  → locks
+// POST /api/v1/theme/versions/{version}/unpin → unlocks
+func (a *APIHandler) APIPinThemeVersion(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermSettingsEdit) {
+		return
+	}
+	version, err := strconv.Atoi(mux.Vars(r)["version"])
+	if err != nil {
+		a.jsonError(w, http.StatusBadRequest, "invalid version number")
+		return
+	}
+	locked := !strings.Contains(r.URL.Path, "/unpin")
+	if err := a.settingsService.SetThemeVersionLocked(r.Context(), version, locked); err != nil {
+		a.jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	action := "theme.pin_version"
+	if !locked {
+		action = "theme.unpin_version"
+	}
+	a.auditLog(r, action, "theme", "", map[string]interface{}{"version": version})
+	a.jsonResponse(w, http.StatusOK, map[string]interface{}{"success": true, "version": version, "locked": locked})
 }
 
 // Site Config

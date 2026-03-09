@@ -25,6 +25,16 @@ func NewSettingsService(db *database.DB, contentService *ContentService) *Settin
 	return &SettingsService{db: db, contentService: contentService}
 }
 
+// EnsureThemeCSS regenerates theme-vars.css from the database on startup.
+// This ensures the CSS file is present after a fresh container start or deploy.
+func (s *SettingsService) EnsureThemeCSS(ctx context.Context) error {
+	theme, err := s.db.GetThemeSettings(ctx)
+	if err != nil {
+		return err
+	}
+	return s.generateThemeCSS(theme)
+}
+
 // GetTheme retrieves theme settings
 func (s *SettingsService) GetTheme(ctx context.Context) (*database.ThemeSettings, error) {
 	return s.db.GetThemeSettings(ctx)
@@ -168,6 +178,11 @@ func (s *SettingsService) RevertThemeToVersion(ctx context.Context, version int,
 
 	// Pass through the version comment if provided
 	return s.UpdateTheme(ctx, theme, versionComment...)
+}
+
+// SetThemeVersionLocked pins or unpins a theme version so it cannot be auto-pruned.
+func (s *SettingsService) SetThemeVersionLocked(ctx context.Context, version int, locked bool) error {
+	return s.db.SetThemeVersionLocked(ctx, version, locked)
 }
 
 // EnsureThemeVersion1 creates version 1 from current theme if no versions exist

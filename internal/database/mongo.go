@@ -380,6 +380,7 @@ type ThemeVersion struct {
 	ID              primitive.ObjectID `bson:"_id,omitempty" json:"id"`
 	Version         int                `bson:"version" json:"version"`
 	Comment         string             `bson:"comment,omitempty" json:"comment,omitempty"`
+	Locked          bool               `bson:"locked,omitempty" json:"locked,omitempty"` // Pinned — cannot be auto-pruned
 	PrimaryColor    string             `bson:"primary_color" json:"primary_color"`
 	SecondaryColor  string             `bson:"secondary_color" json:"secondary_color"`
 	AccentColor     string             `bson:"accent_color" json:"accent_color"`
@@ -479,6 +480,15 @@ func (db *DB) GetThemeVersion(ctx context.Context, version int) (*ThemeVersion, 
 // GetThemeVersionCount returns the number of theme versions
 func (db *DB) GetThemeVersionCount(ctx context.Context) (int64, error) {
 	return db.Count(ctx, "theme_versions", bson.M{})
+}
+
+// SetThemeVersionLocked sets or clears the locked flag on a theme version.
+func (db *DB) SetThemeVersionLocked(ctx context.Context, version int, locked bool) error {
+	_, err := db.ThemeVersions().UpdateOne(ctx,
+		bson.M{"version": version},
+		bson.M{"$set": bson.M{"locked": locked}},
+	)
+	return err
 }
 
 // AdminSettings stores admin configuration including password hash

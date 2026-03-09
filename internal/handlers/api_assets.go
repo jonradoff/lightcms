@@ -2,7 +2,11 @@ package handlers
 
 import (
 	"encoding/base64"
+	"fmt"
+	"io"
 	"net/http"
+	"path/filepath"
+	"strings"
 
 	"lightcms/internal/auth"
 
@@ -173,4 +177,83 @@ func (a *APIHandler) APIListAssetFolders(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	a.jsonResponse(w, http.StatusOK, folders)
+}
+
+// APIUploadAssetFromURL fetches a remote URL and stores it as an asset.
+// Body: {"url": "https://...", "serve_path": "/assets/foo.png", "description": "..."}
+func (a *APIHandler) APIUploadAssetFromURL(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermAssetUpload) {
+		return
+	}
+
+	var req struct {
+		URL         string `json:"url"`
+		ServePath   string `json:"serve_path"`
+		Description string `json:"description"`
+	}
+	if err := a.decodeJSON(r, &req); err != nil {
+		a.jsonError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if req.URL == "" {
+		a.jsonError(w, http.StatusBadRequest, "url is required")
+		return
+	}
+
+	// Reject non-http(s) schemes
+	lower := strings.ToLower(req.URL)
+	if !strings.HasPrefix(lower, "http://") && !strings.HasPrefix(lower, "https://") {
+		a.jsonError(w, http.StatusBadRequest, "url must use http or https scheme")
+		return
+	}
+
+	resp, err := http.Get(req.URL) //nolint:gosec — URL is user-supplied but scheme-validated above
+	if err != nil {
+		a.jsonError(w, http.StatusBadGateway, fmt.Sprintf("failed to fetch URL: %v", err))
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		a.jsonError(w, http.StatusBadGateway, fmt.Sprintf("remote server returned %d", resp.StatusCode))
+		return
+	}
+
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 50<<20)) // 50 MB cap
+	if err != nil {
+		a.jsonError(w, http.StatusBadGateway, fmt.Sprintf("failed to read response: %v", err))
+		return
+	}
+
+	// Derive filename from URL path if serve_path not provided
+	servePath := req.ServePath
+	if servePath == "" {
+		urlPath := req.URL
+		if idx := strings.Index(urlPath, "?"); idx != -1 {
+			urlPath = urlPath[:idx]
+		}
+		filename := filepath.Base(urlPath)
+		if filename == "" || filename == "." || filename == "/" {
+			filename = "asset"
+		}
+		servePath = "/assets/" + filename
+	}
+	filename := filepath.Base(servePath)
+
+	asset, err := a.assetService.UploadAsset(r.Context(), data, filename, servePath, req.Description)
+	if err != nil {
+		a.jsonError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	a.auditLog(r, "asset.upload", "asset", asset.ID.Hex(), map[string]interface{}{
+		"filename": asset.Filename, "serve_path": asset.ServePath, "source_url": req.URL,
+	})
+	a.jsonResponse(w, http.StatusCreated, map[string]interface{}{
+		"id":         asset.ID.Hex(),
+		"filename":   asset.Filename,
+		"serve_path": asset.ServePath,
+		"mime_type":  asset.MimeType,
+		"size":       asset.Size,
+	})
 }

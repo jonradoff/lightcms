@@ -57,9 +57,12 @@ func (s *Server) registerSearchTools() {
 
 	// Search and replace preview
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name:        "search_replace_preview",
-		Title:       "Search Replace Preview",
-		Description: "Preview search and replace results without making changes. Shows which content items would be affected and where matches occur. ALWAYS use this before search_replace_execute to understand the impact.",
+		Name:  "search_replace_preview",
+		Title: "Search Replace Preview",
+		Description: `Preview a site-wide search-and-replace without making any changes. ALWAYS run this before search_replace_execute.
+
+Returns: affected page count, total match count, and per-page field breakdown.
+For targeted replacements (a folder, template, or category), use scoped_search_replace_preview instead.`,
 		Annotations: &mcp.ToolAnnotations{
 			Title:         "Search Replace Preview",
 			ReadOnlyHint:  true,
@@ -80,9 +83,16 @@ func (s *Server) registerSearchTools() {
 
 	// Search and replace execute
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name:        "search_replace_execute",
-		Title:       "Search Replace Execute",
-		Description: "Execute search and replace across all content. WARNING: This is a destructive operation that modifies content permanently. Always run search_replace_preview first to review what will be changed.",
+		Name:  "search_replace_execute",
+		Title: "Search Replace Execute",
+		Description: `Execute a site-wide search-and-replace across all content. Modifies every matching page permanently.
+
+MANDATORY workflow:
+1. Run search_replace_preview and show the user which pages will be affected.
+2. Get explicit user confirmation before executing.
+3. Run search_replace_execute with a clear version_comment.
+
+For targeted replacements, use scoped_search_replace_execute instead.`,
 		Annotations: &mcp.ToolAnnotations{
 			Title:           "Search Replace Execute",
 			ReadOnlyHint:    false,

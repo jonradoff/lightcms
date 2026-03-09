@@ -104,6 +104,11 @@ func main() {
 		log.Printf("Warning: Failed to ensure theme version 1: %v", err)
 	}
 
+	// Regenerate theme CSS on startup — ensures static/css/theme-vars.css exists after deploy/restart
+	if err := settingsService.EnsureThemeCSS(context.Background()); err != nil {
+		log.Printf("Warning: Failed to regenerate theme CSS on startup: %v", err)
+	}
+
 	// Initialize services for API and change watcher
 	contentService := services.NewContentService(db)
 	templateService := services.NewTemplateService(db, contentService)
@@ -312,12 +317,15 @@ func main() {
 	apiv1.HandleFunc("/content", apiHandler.APIListContent).Methods("GET")
 	apiv1.HandleFunc("/content", apiHandler.APICreateContent).Methods("POST")
 	apiv1.HandleFunc("/content/by-path", apiHandler.APIGetContentByPath).Methods("GET")
+	apiv1.HandleFunc("/content/by-path", apiHandler.APIUpdateContentByPath).Methods("PUT")
+	apiv1.HandleFunc("/content/batch-publish", apiHandler.APIBatchPublishContent).Methods("POST")
 	apiv1.HandleFunc("/content/{id}", apiHandler.APIGetContent).Methods("GET")
 	apiv1.HandleFunc("/content/{id}", apiHandler.APIUpdateContent).Methods("PUT")
 	apiv1.HandleFunc("/content/{id}", apiHandler.APIDeleteContent).Methods("DELETE")
 	apiv1.HandleFunc("/content/{id}/restore", apiHandler.APIRestoreContent).Methods("POST")
 	apiv1.HandleFunc("/content/{id}/publish", apiHandler.APIPublishContent).Methods("POST")
 	apiv1.HandleFunc("/content/{id}/unpublish", apiHandler.APIUnpublishContent).Methods("POST")
+	apiv1.HandleFunc("/content/{id}/preview", apiHandler.APIPreviewContent).Methods("GET", "POST")
 	apiv1.HandleFunc("/content/{id}/versions", apiHandler.APIListContentVersions).Methods("GET")
 	apiv1.HandleFunc("/content/{id}/versions/{version}", apiHandler.APIGetContentVersion).Methods("GET")
 	apiv1.HandleFunc("/content/{id}/versions/{version}/revert", apiHandler.APIRevertContentVersion).Methods("POST")
@@ -332,6 +340,7 @@ func main() {
 	// Assets
 	apiv1.HandleFunc("/assets", apiHandler.APIListAssets).Methods("GET")
 	apiv1.HandleFunc("/assets", apiHandler.APIUploadAsset).Methods("POST")
+	apiv1.HandleFunc("/assets/from-url", apiHandler.APIUploadAssetFromURL).Methods("POST")
 	apiv1.HandleFunc("/assets/folders", apiHandler.APIListAssetFolders).Methods("GET")
 	apiv1.HandleFunc("/assets/by-path", apiHandler.APIGetAssetByPath).Methods("GET")
 	apiv1.HandleFunc("/assets/{id}", apiHandler.APIGetAsset).Methods("GET")
@@ -343,6 +352,8 @@ func main() {
 	apiv1.HandleFunc("/theme/versions", apiHandler.APIListThemeVersions).Methods("GET")
 	apiv1.HandleFunc("/theme/versions/{version}", apiHandler.APIGetThemeVersion).Methods("GET")
 	apiv1.HandleFunc("/theme/versions/{version}/revert", apiHandler.APIRevertThemeVersion).Methods("POST")
+	apiv1.HandleFunc("/theme/versions/{version}/pin", apiHandler.APIPinThemeVersion).Methods("POST")
+	apiv1.HandleFunc("/theme/versions/{version}/unpin", apiHandler.APIPinThemeVersion).Methods("POST")
 
 	// Site Config
 	apiv1.HandleFunc("/config", apiHandler.APIGetSiteConfig).Methods("GET")
@@ -372,6 +383,8 @@ func main() {
 	apiv1.HandleFunc("/search", apiHandler.APISearchContent).Methods("GET")
 	apiv1.HandleFunc("/search-replace/preview", apiHandler.APISearchReplacePreview).Methods("POST")
 	apiv1.HandleFunc("/search-replace/execute", apiHandler.APISearchReplaceExecute).Methods("POST")
+	apiv1.HandleFunc("/search-replace/scoped/preview", apiHandler.APIScopedSearchReplacePreview).Methods("POST")
+	apiv1.HandleFunc("/search-replace/scoped/execute", apiHandler.APIScopedSearchReplaceExecute).Methods("POST")
 
 	// End-user search (authenticated API)
 	apiv1.HandleFunc("/end-user-search", apiHandler.APIEndUserSearch).Methods("GET")
