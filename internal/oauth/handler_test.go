@@ -26,8 +26,9 @@ func newTestHandler(t *testing.T) (*Handler, *services.OAuthService, func()) {
 
 	oauthService := services.NewOAuthService(db)
 	store := sessions.NewCookieStore([]byte("test-secret-32-bytes-long-enough"))
-	authManager := auth.NewManager(store, db)
-	authManager.InitializePassword(context.Background())
+	userService := services.NewUserService(db)
+	authManager := auth.NewManager(store, db, userService)
+	authManager.MigrateToMultiUser(context.Background())
 
 	handler := NewHandler(oauthService, authManager, "https://example.com", "test-session-secret")
 	return handler, oauthService, cleanup

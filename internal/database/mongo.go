@@ -221,6 +221,56 @@ func (db *DB) createIndexes(ctx context.Context) error {
 		return err
 	}
 
+	// Users: unique email
+	_, err = db.database.Collection("users").Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    bson.D{{Key: "email", Value: 1}},
+		Options: options.Index().SetUnique(true),
+	})
+	if err != nil {
+		return err
+	}
+
+	// Audit logs: created_at descending (primary query)
+	_, err = db.database.Collection("audit_logs").Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: bson.D{{Key: "created_at", Value: -1}},
+	})
+	if err != nil {
+		return err
+	}
+
+	// Audit logs: user_id + created_at for per-user filtering
+	_, err = db.database.Collection("audit_logs").Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: bson.D{{Key: "user_id", Value: 1}, {Key: "created_at", Value: -1}},
+	})
+	if err != nil {
+		return err
+	}
+
+	// Audit logs: action + created_at for action type filtering
+	_, err = db.database.Collection("audit_logs").Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: bson.D{{Key: "action", Value: 1}, {Key: "created_at", Value: -1}},
+	})
+	if err != nil {
+		return err
+	}
+
+	// Audit logs: resource + resource_id for resource lookups
+	_, err = db.database.Collection("audit_logs").Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: bson.D{{Key: "resource", Value: 1}, {Key: "resource_id", Value: 1}},
+	})
+	if err != nil {
+		return err
+	}
+
+	// Audit logs: TTL index — auto-delete after 365 days
+	_, err = db.database.Collection("audit_logs").Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    bson.D{{Key: "created_at", Value: 1}},
+		Options: options.Index().SetExpireAfterSeconds(365 * 24 * 60 * 60),
+	})
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -785,6 +835,16 @@ func (db *DB) GetAssetFolders(ctx context.Context) ([]string, error) {
 // APIKeys returns the api_keys collection
 func (db *DB) APIKeys() *mongo.Collection {
 	return db.database.Collection("api_keys")
+}
+
+// Users returns the users collection
+func (db *DB) Users() *mongo.Collection {
+	return db.database.Collection("users")
+}
+
+// AuditLogs returns the audit_logs collection
+func (db *DB) AuditLogs() *mongo.Collection {
+	return db.database.Collection("audit_logs")
 }
 
 // Collection returns a named collection (useful for tests and generic operations)

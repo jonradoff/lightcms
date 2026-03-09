@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"lightcms/internal/auth"
 	"lightcms/internal/models"
 
 	"github.com/gorilla/mux"
@@ -24,6 +25,10 @@ func (a *APIHandler) APIGetTheme(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *APIHandler) APIUpdateTheme(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermSettingsEdit) {
+		return
+	}
+
 	// Get current theme as base
 	theme, err := a.settingsService.GetTheme(r.Context())
 	if err != nil {
@@ -110,6 +115,7 @@ func (a *APIHandler) APIUpdateTheme(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	a.auditLog(r, "theme.update", "theme", "", nil)
 	a.jsonResponse(w, http.StatusOK, theme)
 }
 
@@ -138,6 +144,10 @@ func (a *APIHandler) APIGetThemeVersion(w http.ResponseWriter, r *http.Request) 
 }
 
 func (a *APIHandler) APIRevertThemeVersion(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermSettingsEdit) {
+		return
+	}
+
 	version, err := strconv.Atoi(mux.Vars(r)["version"])
 	if err != nil {
 		a.jsonError(w, http.StatusBadRequest, "invalid version number")
@@ -159,6 +169,7 @@ func (a *APIHandler) APIRevertThemeVersion(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	a.auditLog(r, "theme.revert", "theme", "", map[string]interface{}{"version": version})
 	a.jsonResponse(w, http.StatusOK, map[string]interface{}{"success": true})
 }
 
@@ -174,6 +185,10 @@ func (a *APIHandler) APIGetSiteConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *APIHandler) APIUpdateSiteConfig(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermSettingsEdit) {
+		return
+	}
+
 	var req struct {
 		TitleTemplate        *string `json:"title_template"`
 		TitleTemplateNoTitle *string `json:"title_template_no_title"`
@@ -201,6 +216,7 @@ func (a *APIHandler) APIUpdateSiteConfig(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	a.auditLog(r, "config.update", "config", "", nil)
 	a.jsonResponse(w, http.StatusOK, config)
 }
 
@@ -231,6 +247,10 @@ func (a *APIHandler) APIGetRedirect(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *APIHandler) APICreateRedirect(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermSettingsEdit) {
+		return
+	}
+
 	var req struct {
 		FromPath    string `json:"from_path"`
 		ToPath      string `json:"to_path"`
@@ -258,10 +278,15 @@ func (a *APIHandler) APICreateRedirect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	a.auditLog(r, "redirect.create", "redirect", redirect.ID.Hex(), map[string]interface{}{"from": redirect.FromPath, "to": redirect.ToPath})
 	a.jsonResponse(w, http.StatusCreated, redirect)
 }
 
 func (a *APIHandler) APIUpdateRedirect(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermSettingsEdit) {
+		return
+	}
+
 	id, err := primitive.ObjectIDFromHex(mux.Vars(r)["id"])
 	if err != nil {
 		a.jsonError(w, http.StatusBadRequest, "invalid redirect ID")
@@ -303,10 +328,15 @@ func (a *APIHandler) APIUpdateRedirect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	a.auditLog(r, "redirect.update", "redirect", redirect.ID.Hex(), nil)
 	a.jsonResponse(w, http.StatusOK, redirect)
 }
 
 func (a *APIHandler) APIDeleteRedirect(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermSettingsEdit) {
+		return
+	}
+
 	id, err := primitive.ObjectIDFromHex(mux.Vars(r)["id"])
 	if err != nil {
 		a.jsonError(w, http.StatusBadRequest, "invalid redirect ID")
@@ -318,6 +348,7 @@ func (a *APIHandler) APIDeleteRedirect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	a.auditLog(r, "redirect.delete", "redirect", id.Hex(), nil)
 	a.jsonResponse(w, http.StatusOK, map[string]interface{}{"success": true})
 }
 
@@ -348,6 +379,10 @@ func (a *APIHandler) APIGetFolder(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *APIHandler) APICreateFolder(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermSettingsEdit) {
+		return
+	}
+
 	var req struct {
 		Name     string `json:"name"`
 		Slug     string `json:"slug"`
@@ -381,10 +416,15 @@ func (a *APIHandler) APICreateFolder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	a.auditLog(r, "folder.create", "folder", folder.ID.Hex(), map[string]interface{}{"name": folder.Name})
 	a.jsonResponse(w, http.StatusCreated, folder)
 }
 
 func (a *APIHandler) APIDeleteFolder(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermSettingsEdit) {
+		return
+	}
+
 	id, err := primitive.ObjectIDFromHex(mux.Vars(r)["id"])
 	if err != nil {
 		a.jsonError(w, http.StatusBadRequest, "invalid folder ID")
@@ -396,6 +436,7 @@ func (a *APIHandler) APIDeleteFolder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	a.auditLog(r, "folder.delete", "folder", id.Hex(), nil)
 	a.jsonResponse(w, http.StatusOK, map[string]interface{}{"success": true})
 }
 
@@ -426,6 +467,10 @@ func (a *APIHandler) APIGetCollection(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *APIHandler) APICreateCollection(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermSettingsEdit) {
+		return
+	}
+
 	var req struct {
 		Name         string `json:"name"`
 		Slug         string `json:"slug"`
@@ -463,10 +508,15 @@ func (a *APIHandler) APICreateCollection(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	a.auditLog(r, "collection.create", "collection", collection.ID.Hex(), map[string]interface{}{"name": collection.Name})
 	a.jsonResponse(w, http.StatusCreated, collection)
 }
 
 func (a *APIHandler) APIUpdateCollection(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermSettingsEdit) {
+		return
+	}
+
 	id, err := primitive.ObjectIDFromHex(mux.Vars(r)["id"])
 	if err != nil {
 		a.jsonError(w, http.StatusBadRequest, "invalid collection ID")
@@ -528,10 +578,15 @@ func (a *APIHandler) APIUpdateCollection(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	a.auditLog(r, "collection.update", "collection", collection.ID.Hex(), map[string]interface{}{"name": collection.Name})
 	a.jsonResponse(w, http.StatusOK, collection)
 }
 
 func (a *APIHandler) APIDeleteCollection(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermSettingsEdit) {
+		return
+	}
+
 	id, err := primitive.ObjectIDFromHex(mux.Vars(r)["id"])
 	if err != nil {
 		a.jsonError(w, http.StatusBadRequest, "invalid collection ID")
@@ -543,12 +598,17 @@ func (a *APIHandler) APIDeleteCollection(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	a.auditLog(r, "collection.delete", "collection", id.Hex(), nil)
 	a.jsonResponse(w, http.StatusOK, map[string]interface{}{"success": true})
 }
 
 // Regenerate all content
 
 func (a *APIHandler) APIRegenerateAllContent(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermSettingsEdit) {
+		return
+	}
+
 	if err := a.contentService.RegenerateAllContent(r.Context()); err != nil {
 		a.jsonError(w, http.StatusInternalServerError, err.Error())
 		return

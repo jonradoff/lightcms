@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"lightcms/internal/auth"
 	"lightcms/internal/models"
 
 	"github.com/gorilla/mux"
@@ -71,6 +72,10 @@ func (a *APIHandler) APIGetContentByPath(w http.ResponseWriter, r *http.Request)
 }
 
 func (a *APIHandler) APICreateContent(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermContentCreate) {
+		return
+	}
+
 	var req struct {
 		TemplateID      string                 `json:"template_id"`
 		Title           string                 `json:"title"`
@@ -150,10 +155,15 @@ func (a *APIHandler) APICreateContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	a.auditLog(r, "content.create", "content", content.ID.Hex(), map[string]interface{}{"title": content.Title, "path": content.FullPath})
 	a.jsonResponse(w, http.StatusCreated, content)
 }
 
 func (a *APIHandler) APIUpdateContent(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermContentEdit) {
+		return
+	}
+
 	id, err := primitive.ObjectIDFromHex(mux.Vars(r)["id"])
 	if err != nil {
 		a.jsonError(w, http.StatusBadRequest, "invalid content ID")
@@ -247,10 +257,15 @@ func (a *APIHandler) APIUpdateContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	a.auditLog(r, "content.update", "content", content.ID.Hex(), map[string]interface{}{"title": content.Title})
 	a.jsonResponse(w, http.StatusOK, content)
 }
 
 func (a *APIHandler) APIDeleteContent(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermContentDelete) {
+		return
+	}
+
 	id, err := primitive.ObjectIDFromHex(mux.Vars(r)["id"])
 	if err != nil {
 		a.jsonError(w, http.StatusBadRequest, "invalid content ID")
@@ -262,10 +277,15 @@ func (a *APIHandler) APIDeleteContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	a.auditLog(r, "content.delete", "content", id.Hex(), nil)
 	a.jsonResponse(w, http.StatusOK, map[string]interface{}{"success": true})
 }
 
 func (a *APIHandler) APIRestoreContent(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermContentEdit) {
+		return
+	}
+
 	id, err := primitive.ObjectIDFromHex(mux.Vars(r)["id"])
 	if err != nil {
 		a.jsonError(w, http.StatusBadRequest, "invalid content ID")
@@ -277,10 +297,15 @@ func (a *APIHandler) APIRestoreContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	a.auditLog(r, "content.restore", "content", id.Hex(), nil)
 	a.jsonResponse(w, http.StatusOK, map[string]interface{}{"success": true})
 }
 
 func (a *APIHandler) APIPublishContent(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermContentPublish) {
+		return
+	}
+
 	id, err := primitive.ObjectIDFromHex(mux.Vars(r)["id"])
 	if err != nil {
 		a.jsonError(w, http.StatusBadRequest, "invalid content ID")
@@ -292,10 +317,15 @@ func (a *APIHandler) APIPublishContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	a.auditLog(r, "content.publish", "content", id.Hex(), nil)
 	a.jsonResponse(w, http.StatusOK, map[string]interface{}{"success": true})
 }
 
 func (a *APIHandler) APIUnpublishContent(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermContentPublish) {
+		return
+	}
+
 	id, err := primitive.ObjectIDFromHex(mux.Vars(r)["id"])
 	if err != nil {
 		a.jsonError(w, http.StatusBadRequest, "invalid content ID")
@@ -307,6 +337,7 @@ func (a *APIHandler) APIUnpublishContent(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	a.auditLog(r, "content.unpublish", "content", id.Hex(), nil)
 	a.jsonResponse(w, http.StatusOK, map[string]interface{}{"success": true})
 }
 
@@ -349,6 +380,10 @@ func (a *APIHandler) APIGetContentVersion(w http.ResponseWriter, r *http.Request
 }
 
 func (a *APIHandler) APIRevertContentVersion(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermContentEdit) {
+		return
+	}
+
 	id, err := primitive.ObjectIDFromHex(mux.Vars(r)["id"])
 	if err != nil {
 		a.jsonError(w, http.StatusBadRequest, "invalid content ID")
@@ -376,6 +411,7 @@ func (a *APIHandler) APIRevertContentVersion(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	a.auditLog(r, "content.revert", "content", id.Hex(), map[string]interface{}{"version": version})
 	a.jsonResponse(w, http.StatusOK, map[string]interface{}{"success": true})
 }
 
@@ -529,6 +565,10 @@ func (a *APIHandler) APISearchReplacePreview(w http.ResponseWriter, r *http.Requ
 
 // APISearchReplaceExecute executes search and replace
 func (a *APIHandler) APISearchReplaceExecute(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermSearchReplace) {
+		return
+	}
+
 	var req struct {
 		Search         string `json:"search"`
 		Replace        string `json:"replace"`
@@ -614,6 +654,10 @@ func (a *APIHandler) APISearchReplaceExecute(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
+	a.auditLog(r, "content.search_replace", "content", "", map[string]interface{}{
+		"search": req.Search, "replace": req.Replace,
+		"pages_updated": len(updatedPages), "total_replacements": totalReplacements,
+	})
 	a.jsonResponse(w, http.StatusOK, map[string]interface{}{
 		"success":            true,
 		"total_replacements": totalReplacements,

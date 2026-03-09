@@ -65,16 +65,20 @@ func main() {
 		SameSite: http.SameSiteStrictMode, // Prevent CSRF via cookies
 	}
 
-	// Initialize auth manager with database connection
-	authManager := auth.NewManager(sessionStore, db)
+	// Initialize user and audit services
+	userService := services.NewUserService(db)
+	auditService := services.NewAuditService(db)
 
-	// Initialize password hash in database
-	if err := authManager.InitializePassword(context.Background()); err != nil {
-		log.Printf("Warning: Failed to initialize password: %v", err)
+	// Initialize auth manager with database connection
+	authManager := auth.NewManager(sessionStore, db, userService)
+
+	// Migrate to multi-user system (creates first admin user from legacy password if needed)
+	if err := authManager.MigrateToMultiUser(context.Background()); err != nil {
+		log.Printf("Warning: Failed to migrate to multi-user: %%v", err)
 	}
 
 	// Initialize handlers with config
-	h := handlers.New(db, authManager, cfg.BaseURL, cfg.Env)
+	h := handlers.New(db, authManager, cfg.BaseURL, cfg.Env, userService, auditService)
 
 	// Initialize trusted proxy config for rate limiting
 	proxyConfig := middleware.DefaultCloudConfig()
@@ -171,6 +175,8 @@ func main() {
 	admin.HandleFunc("/login", h.LoginPage).Methods("GET")
 	admin.HandleFunc("/login", h.LoginHandler).Methods("POST")
 	admin.HandleFunc("/logout", h.LogoutHandler).Methods("POST") // Changed to POST for security
+	admin.HandleFunc("/change-password", h.ForceChangePasswordPage).Methods("GET")
+	admin.HandleFunc("/change-password", h.ForceChangePasswordHandler).Methods("POST")
 	admin.HandleFunc("", h.AdminDashboard).Methods("GET")
 	admin.HandleFunc("/", h.AdminDashboard).Methods("GET")
 	admin.HandleFunc("/templates", h.ListTemplates).Methods("GET")
@@ -234,6 +240,18 @@ func main() {
 	admin.HandleFunc("/api-keys/new", h.CreateAPIKey).Methods("POST")
 	admin.HandleFunc("/api-keys/{id}/delete", h.DeleteAPIKey).Methods("POST")
 
+	// User management routes (admin only)
+	admin.HandleFunc("/users", h.UsersPage).Methods("GET")
+	admin.HandleFunc("/users/new", h.NewUserPage).Methods("GET")
+	admin.HandleFunc("/users/new", h.CreateUser).Methods("POST")
+	admin.HandleFunc("/users/{id}", h.EditUserPage).Methods("GET")
+	admin.HandleFunc("/users/{id}", h.UpdateUser).Methods("POST")
+	admin.HandleFunc("/users/{id}/toggle-disabled", h.ToggleUserDisabled).Methods("POST")
+	admin.HandleFunc("/users/{id}/reset-password", h.ResetUserPassword).Methods("POST")
+
+	// Audit log (admin only)
+	admin.HandleFunc("/audit", h.AuditLogPage).Methods("GET")
+
 	// Tools routes
 	admin.HandleFunc("/tools/broken-links", h.BrokenLinkFinder).Methods("GET")
 	admin.HandleFunc("/tools/search", h.SearchToolPage).Methods("GET")
@@ -242,11 +260,26 @@ func main() {
 
 	// REST API v1 routes (API key authenticated, JSON only)
 	apiKeyService := services.NewAPIKeyService(db)
-	apiHandler := handlers.NewAPIHandler(contentService, templateService, assetService, settingsService, apiKeyService)
+	apiHandler := handlers.NewAPIHandler(contentService, templateService, assetService, settingsService, apiKeyService, auditService)
 	apiHandler.SetSearchService(searchService)
-	apiAuthMiddleware := middleware.NewAPIAuth(func(ctx context.Context, rawKey string) error {
-		_, err := apiKeyService.ValidateAPIKey(ctx, rawKey)
-		return err
+	apiAuthMiddleware := middleware.NewAPIAuth(func(ctx context.Context, rawKey string) (interface{}, error) {
+		apiKey, err := apiKeyService.ValidateAPIKey(ctx, rawKey)
+		if err != nil {
+			return nil, err
+		}
+		// Resolve the user who owns this API key
+		if apiKey.UserID != nil {
+			user, err := userService.GetByID(ctx, *apiKey.UserID)
+			if err == nil && user != nil {
+				return &auth.SessionUser{
+					ID:    user.ID.Hex(),
+					Email: user.Email,
+					Role:  user.Role,
+				}, nil
+			}
+		}
+		// System/legacy key without user — return nil (no permission enforcement)
+		return nil, nil
 	})
 
 	// OAuth 2.1 setup for MCP Cowork connector support
@@ -257,9 +290,14 @@ func main() {
 	}
 	resourceMetadataURL := cfg.BaseURL + "/.well-known/oauth-protected-resource"
 	apiAuthMiddleware.SetOAuth(
-		func(ctx context.Context, rawToken string) error {
+		func(ctx context.Context, rawToken string) (interface{}, error) {
 			_, err := oauthService.ValidateAccessToken(ctx, rawToken)
-			return err
+			if err != nil {
+				return nil, err
+			}
+			// OAuth tokens go through the system API key path — no specific user context
+			// (the system key will be resolved on the subsequent internal request)
+			return nil, nil
 		},
 		systemAPIKey,
 		resourceMetadataURL,

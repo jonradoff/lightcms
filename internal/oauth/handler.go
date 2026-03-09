@@ -168,6 +168,7 @@ func (h *Handler) AuthorizeSubmit(w http.ResponseWriter, r *http.Request) {
 
 	switch action {
 	case "login":
+		email := r.FormValue("email")
 		password := r.FormValue("password")
 
 		// Check rate limiting
@@ -178,10 +179,11 @@ func (h *Handler) AuthorizeSubmit(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if !h.authManager.ValidatePassword(r.Context(), password) {
+		user, err := h.authManager.ValidateCredentials(r.Context(), email, password)
+		if err != nil || user == nil {
 			h.authManager.RecordFailedLogin(r.Context(), r)
 			templateData["ShowLogin"] = true
-			templateData["Error"] = "Invalid password"
+			templateData["Error"] = "Invalid email or password"
 			h.renderAuthorize(w, templateData)
 			return
 		}

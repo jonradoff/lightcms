@@ -5,7 +5,11 @@ import (
 	"io"
 	"net/http"
 
+	"lightcms/internal/auth"
+	"lightcms/internal/models"
 	"lightcms/internal/services"
+
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 // APIHandler handles REST API endpoints (JSON-only, no sessions/templates)
@@ -16,6 +20,7 @@ type APIHandler struct {
 	settingsService *services.SettingsService
 	apiKeyService   *services.APIKeyService
 	searchService   *services.SearchService
+	auditService    *services.AuditService
 }
 
 // NewAPIHandler creates a new API handler
@@ -25,6 +30,7 @@ func NewAPIHandler(
 	assetService *services.AssetService,
 	settingsService *services.SettingsService,
 	apiKeyService *services.APIKeyService,
+	auditService *services.AuditService,
 ) *APIHandler {
 	return &APIHandler{
 		contentService:  contentService,
@@ -32,7 +38,48 @@ func NewAPIHandler(
 		assetService:    assetService,
 		settingsService: settingsService,
 		apiKeyService:   apiKeyService,
+		auditService:    auditService,
 	}
+}
+
+// getAPIUser extracts the authenticated user from an API request context.
+// Returns nil if no user is set (e.g., legacy/system key without user association).
+func (a *APIHandler) getAPIUser(r *http.Request) *auth.SessionUser {
+	user, _ := auth.UserFromAPIContext(r.Context())
+	return user
+}
+
+// requirePermission checks if the authenticated API user has the required permission.
+// Returns true if allowed, false if denied (and writes a 403 response).
+func (a *APIHandler) requirePermission(w http.ResponseWriter, r *http.Request, perm string) bool {
+	user := a.getAPIUser(r)
+	if user == nil {
+		// No user context — allow for backward compatibility (system keys without user)
+		return true
+	}
+	if !auth.HasPermission(user.Role, perm) {
+		a.jsonError(w, http.StatusForbidden, "insufficient permissions")
+		return false
+	}
+	return true
+}
+
+// auditLog fires an async audit log entry for the current API user
+func (a *APIHandler) auditLog(r *http.Request, action, resource, resourceID string, details map[string]interface{}) {
+	user := a.getAPIUser(r)
+	entry := models.AuditLog{
+		Action:     action,
+		Resource:   resource,
+		ResourceID: resourceID,
+		Details:    details,
+	}
+	if user != nil {
+		if oid, err := primitive.ObjectIDFromHex(user.ID); err == nil {
+			entry.UserID = oid
+		}
+		entry.UserEmail = user.Email
+	}
+	a.auditService.LogAsync(entry)
 }
 
 // jsonResponse writes a JSON response with the given status code

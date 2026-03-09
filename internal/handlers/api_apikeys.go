@@ -3,6 +3,8 @@ package handlers
 import (
 	"net/http"
 
+	"lightcms/internal/auth"
+
 	"github.com/gorilla/mux"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
@@ -10,15 +12,47 @@ import (
 // API Key management endpoints
 
 func (a *APIHandler) APIListAPIKeys(w http.ResponseWriter, r *http.Request) {
-	keys, err := a.apiKeyService.ListAPIKeys(r.Context())
-	if err != nil {
-		a.jsonError(w, http.StatusInternalServerError, err.Error())
+	if !a.requirePermission(w, r, auth.PermAPIKeyManage) {
 		return
 	}
-	a.jsonResponse(w, http.StatusOK, keys)
+
+	user := a.getAPIUser(r)
+	// Admins see all keys, others see only their own
+	if user != nil && auth.HasPermission(user.Role, auth.PermAPIKeyManageAll) {
+		keys, err := a.apiKeyService.ListAPIKeys(r.Context())
+		if err != nil {
+			a.jsonError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		a.jsonResponse(w, http.StatusOK, keys)
+	} else if user != nil {
+		userID, err := primitive.ObjectIDFromHex(user.ID)
+		if err != nil {
+			a.jsonError(w, http.StatusInternalServerError, "invalid user ID")
+			return
+		}
+		keys, err := a.apiKeyService.ListAPIKeysForUser(r.Context(), userID)
+		if err != nil {
+			a.jsonError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		a.jsonResponse(w, http.StatusOK, keys)
+	} else {
+		// No user context (system key) — return all
+		keys, err := a.apiKeyService.ListAPIKeys(r.Context())
+		if err != nil {
+			a.jsonError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		a.jsonResponse(w, http.StatusOK, keys)
+	}
 }
 
 func (a *APIHandler) APICreateAPIKey(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermAPIKeyManage) {
+		return
+	}
+
 	var req struct {
 		Name        string `json:"name"`
 		Description string `json:"description"`
@@ -32,12 +66,22 @@ func (a *APIHandler) APICreateAPIKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rawKey, apiKey, err := a.apiKeyService.CreateAPIKey(r.Context(), req.Name, req.Description)
+	// Create key owned by the current user
+	var userID *primitive.ObjectID
+	if user := a.getAPIUser(r); user != nil {
+		uid, err := primitive.ObjectIDFromHex(user.ID)
+		if err == nil {
+			userID = &uid
+		}
+	}
+
+	rawKey, apiKey, err := a.apiKeyService.CreateAPIKeyForUser(r.Context(), req.Name, req.Description, userID)
 	if err != nil {
 		a.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
+	a.auditLog(r, "apikey.create", "apikey", apiKey.ID.Hex(), map[string]interface{}{"name": req.Name})
 	a.jsonResponse(w, http.StatusCreated, map[string]interface{}{
 		"key":         rawKey,
 		"id":          apiKey.ID.Hex(),
@@ -49,6 +93,10 @@ func (a *APIHandler) APICreateAPIKey(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *APIHandler) APIDeleteAPIKey(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermAPIKeyManage) {
+		return
+	}
+
 	id, err := primitive.ObjectIDFromHex(mux.Vars(r)["id"])
 	if err != nil {
 		a.jsonError(w, http.StatusBadRequest, "invalid API key ID")
@@ -60,5 +108,6 @@ func (a *APIHandler) APIDeleteAPIKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	a.auditLog(r, "apikey.delete", "apikey", id.Hex(), nil)
 	a.jsonResponse(w, http.StatusOK, map[string]interface{}{"success": true})
 }

@@ -1,0 +1,10 @@
+:root {
+	--primary: #ff0000;
+	--secondary: #00ff00;
+	--accent: #0000ff;
+	--background: #ffffff;
+	--text: #000000;
+	--font-family: Arial;
+	--heading-font: Georgia;
+	--border-radius: 4px;
+}

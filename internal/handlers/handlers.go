@@ -40,6 +40,8 @@ type Handler struct {
 	errors        *errors.Handler
 	apiKeyService *services.APIKeyService
 	searchService *services.SearchService
+	userService   *services.UserService
+	auditService  *services.AuditService
 }
 
 // SetSearchService sets the search service for end-user search features
@@ -47,7 +49,7 @@ func (h *Handler) SetSearchService(ss *services.SearchService) {
 	h.searchService = ss
 }
 
-func New(db *database.DB, authManager *auth.Manager, baseURL string, env string) *Handler {
+func New(db *database.DB, authManager *auth.Manager, baseURL string, env string, userService *services.UserService, auditService *services.AuditService) *Handler {
 	isDev := env == "development" || env == "dev"
 	return &Handler{
 		db:            db,
@@ -56,6 +58,8 @@ func New(db *database.DB, authManager *auth.Manager, baseURL string, env string)
 		env:           env,
 		errors:        errors.NewHandler(isDev),
 		apiKeyService: services.NewAPIKeyService(db),
+		userService:   userService,
+		auditService:  auditService,
 	}
 }
 
@@ -284,11 +288,38 @@ func (h *Handler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	email := strings.TrimSpace(r.FormValue("email"))
 	password := r.FormValue("password")
-	if h.auth.ValidatePassword(ctx, password) {
+
+	user, err := h.auth.ValidateCredentials(ctx, email, password)
+	if err != nil {
+		// Account disabled or other error
+		h.renderAdmin(w, r, "login", map[string]interface{}{
+			"Error": err.Error(),
+			"Email": email,
+		})
+		return
+	}
+	if user != nil {
 		h.auth.ClearRateLimit(ctx, r)
-		if err := h.auth.Login(w, r); err != nil {
+		if err := h.auth.LoginUser(w, r, user); err != nil {
 			http.Error(w, "Login failed", http.StatusInternalServerError)
+			return
+		}
+
+		// Audit log
+		if h.auditService != nil {
+			h.auditService.LogAsync(models.AuditLog{
+				UserID:    user.ID,
+				UserEmail: user.Email,
+				Action:    "login.success",
+				Resource:  "session",
+			})
+		}
+
+		// Force password change if needed
+		if user.IsDefaultPassword {
+			http.Redirect(w, r, "/cm/change-password", http.StatusSeeOther)
 			return
 		}
 		http.Redirect(w, r, "/cm", http.StatusSeeOther)
@@ -298,16 +329,26 @@ func (h *Handler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 	// Record failed attempt
 	h.auth.RecordFailedLogin(ctx, r)
 
+	// Audit log for failed login
+	if h.auditService != nil {
+		h.auditService.LogAsync(models.AuditLog{
+			Action:   "login.failure",
+			Resource: "session",
+			Details:  map[string]interface{}{"email": email},
+		})
+	}
+
 	// Check if now rate limited after this attempt
-	errorMsg := "Invalid password"
+	errorMsg := "Invalid email or password"
 	rateLimited := false
 	if locked, duration := h.auth.CheckRateLimit(ctx, r); locked {
-		errorMsg = fmt.Sprintf("Invalid password. Too many attempts - locked for %s.", duration)
+		errorMsg = fmt.Sprintf("Invalid credentials. Too many attempts - locked for %s.", duration)
 		rateLimited = true
 	}
 
 	h.renderAdmin(w, r, "login", map[string]interface{}{
 		"Error":       errorMsg,
+		"Email":       email,
 		"RateLimited": rateLimited,
 	})
 }
@@ -337,15 +378,18 @@ func (h *Handler) AdminDashboard(w http.ResponseWriter, r *http.Request) {
 		cursor.All(ctx, &recentContent)
 	}
 
-	// Check if using default password
-	isDefaultPassword := h.auth.IsDefaultPassword(ctx)
+	// Check if the user must change their password
+	mustChangePassword := h.auth.MustChangePassword(r)
+	if mustChangePassword {
+		http.Redirect(w, r, "/cm/change-password", http.StatusSeeOther)
+		return
+	}
 
 	h.renderAdmin(w, r, "dashboard", map[string]interface{}{
-		"ContentCount":      contentCount,
-		"TemplateCount":     templateCount,
-		"CollectionCount":   collectionCount,
-		"RecentContent":     recentContent,
-		"IsDefaultPassword": isDefaultPassword,
+		"ContentCount":    contentCount,
+		"TemplateCount":   templateCount,
+		"CollectionCount": collectionCount,
+		"RecentContent":   recentContent,
 	})
 }
 
@@ -2663,22 +2707,22 @@ func (h *Handler) RevertThemeVersion(w http.ResponseWriter, r *http.Request) {
 
 // SecuritySettings shows the password change form
 func (h *Handler) SecuritySettings(w http.ResponseWriter, r *http.Request) {
-	if !h.auth.IsAuthenticated(r) {
+	user, ok := h.auth.GetCurrentUser(r)
+	if !ok {
 		http.Redirect(w, r, "/cm/login", http.StatusSeeOther)
 		return
 	}
 
-	ctx := r.Context()
-	isDefaultPassword := h.auth.IsDefaultPassword(ctx)
-
 	h.renderAdmin(w, r, "security", map[string]interface{}{
-		"IsDefaultPassword": isDefaultPassword,
+		"IsDefaultPassword": h.auth.MustChangePassword(r),
+		"CurrentUser":       user,
 	})
 }
 
 // UpdatePassword handles password change
 func (h *Handler) UpdatePassword(w http.ResponseWriter, r *http.Request) {
-	if !h.auth.IsAuthenticated(r) {
+	user, ok := h.auth.GetCurrentUser(r)
+	if !ok {
 		http.Redirect(w, r, "/cm/login", http.StatusSeeOther)
 		return
 	}
@@ -2689,40 +2733,122 @@ func (h *Handler) UpdatePassword(w http.ResponseWriter, r *http.Request) {
 	confirmPassword := r.FormValue("confirm_password")
 
 	ctx := r.Context()
-	isDefaultPassword := h.auth.IsDefaultPassword(ctx)
 
 	// Validate confirm password matches
 	if newPassword != confirmPassword {
 		h.renderAdmin(w, r, "security", map[string]interface{}{
 			"Error":             "New passwords do not match",
-			"IsDefaultPassword": isDefaultPassword,
+			"IsDefaultPassword": h.auth.MustChangePassword(r),
+			"CurrentUser":       user,
 		})
 		return
 	}
 
+	userID, _ := primitive.ObjectIDFromHex(user.ID)
+
 	// Attempt to change password
-	if err := h.auth.ChangePassword(ctx, currentPassword, newPassword); err != nil {
+	if err := h.auth.ChangePassword(ctx, userID, currentPassword, newPassword); err != nil {
 		h.renderAdmin(w, r, "security", map[string]interface{}{
 			"Error":             err.Error(),
-			"IsDefaultPassword": isDefaultPassword,
+			"IsDefaultPassword": h.auth.MustChangePassword(r),
+			"CurrentUser":       user,
 		})
 		return
+	}
+
+	// Clear force password change flag
+	h.auth.ClearForcePasswordChange(w, r)
+
+	// Audit log
+	if h.auditService != nil {
+		h.auditService.LogAsync(models.AuditLog{
+			UserID:    userID,
+			UserEmail: user.Email,
+			Action:    "password.change",
+			Resource:  "user",
+			ResourceID: user.ID,
+		})
 	}
 
 	h.renderAdmin(w, r, "security", map[string]interface{}{
 		"Success":           "Password changed successfully!",
 		"IsDefaultPassword": false,
+		"CurrentUser":       user,
 	})
 }
 
-// APIKeysPage lists all API keys
-func (h *Handler) APIKeysPage(w http.ResponseWriter, r *http.Request) {
+// ForceChangePasswordPage shows the mandatory password change page
+func (h *Handler) ForceChangePasswordPage(w http.ResponseWriter, r *http.Request) {
 	if !h.auth.IsAuthenticated(r) {
 		http.Redirect(w, r, "/cm/login", http.StatusSeeOther)
 		return
 	}
+	if !h.auth.MustChangePassword(r) {
+		http.Redirect(w, r, "/cm", http.StatusSeeOther)
+		return
+	}
+	h.renderAdmin(w, r, "force_change_password", nil)
+}
 
-	keys, err := h.apiKeyService.ListAPIKeys(r.Context())
+// ForceChangePasswordHandler processes the mandatory password change
+func (h *Handler) ForceChangePasswordHandler(w http.ResponseWriter, r *http.Request) {
+	user, ok := h.auth.GetCurrentUser(r)
+	if !ok {
+		http.Redirect(w, r, "/cm/login", http.StatusSeeOther)
+		return
+	}
+
+	r.ParseForm()
+	currentPassword := r.FormValue("current_password")
+	newPassword := r.FormValue("new_password")
+	confirmPassword := r.FormValue("confirm_password")
+
+	if newPassword != confirmPassword {
+		h.renderAdmin(w, r, "force_change_password", map[string]interface{}{
+			"Error": "New passwords do not match",
+		})
+		return
+	}
+
+	userID, _ := primitive.ObjectIDFromHex(user.ID)
+	if err := h.auth.ChangePassword(r.Context(), userID, currentPassword, newPassword); err != nil {
+		h.renderAdmin(w, r, "force_change_password", map[string]interface{}{
+			"Error": err.Error(),
+		})
+		return
+	}
+
+	h.auth.ClearForcePasswordChange(w, r)
+
+	if h.auditService != nil {
+		h.auditService.LogAsync(models.AuditLog{
+			UserID:    userID,
+			UserEmail: user.Email,
+			Action:    "password.change",
+			Resource:  "user",
+			ResourceID: user.ID,
+		})
+	}
+
+	http.Redirect(w, r, "/cm", http.StatusSeeOther)
+}
+
+// APIKeysPage lists API keys — admins see all, others see only their own
+func (h *Handler) APIKeysPage(w http.ResponseWriter, r *http.Request) {
+	user, ok := h.auth.GetCurrentUser(r)
+	if !ok {
+		http.Redirect(w, r, "/cm/login", http.StatusSeeOther)
+		return
+	}
+
+	var keys []models.APIKey
+	var err error
+	if auth.HasPermission(user.Role, auth.PermAPIKeyManageAll) {
+		keys, err = h.apiKeyService.ListAPIKeys(r.Context())
+	} else {
+		userID, _ := primitive.ObjectIDFromHex(user.ID)
+		keys, err = h.apiKeyService.ListAPIKeysForUser(r.Context(), userID)
+	}
 	if err != nil {
 		log.Printf("Failed to list API keys: %v", err)
 	}
@@ -2742,9 +2868,10 @@ func (h *Handler) NewAPIKeyPage(w http.ResponseWriter, r *http.Request) {
 	h.renderAdmin(w, r, "api_key_new", nil)
 }
 
-// CreateAPIKey creates a new API key and shows it once
+// CreateAPIKey creates a new API key owned by the current user and shows it once
 func (h *Handler) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
-	if !h.auth.IsAuthenticated(r) {
+	user, ok := h.auth.GetCurrentUser(r)
+	if !ok {
 		http.Redirect(w, r, "/cm/login", http.StatusSeeOther)
 		return
 	}
@@ -2759,7 +2886,8 @@ func (h *Handler) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rawKey, apiKey, err := h.apiKeyService.CreateAPIKey(r.Context(), name, description)
+	userID, _ := primitive.ObjectIDFromHex(user.ID)
+	rawKey, apiKey, err := h.apiKeyService.CreateAPIKeyForUser(r.Context(), name, description, &userID)
 	if err != nil {
 		h.renderAdmin(w, r, "api_key_new", map[string]interface{}{
 			"Error": "Failed to create API key: " + err.Error(),
@@ -3347,11 +3475,31 @@ func (h *Handler) applyTitleTemplate(config *database.SiteConfig, title, siteNam
 	return result
 }
 
+func templateToInt64(v interface{}) int64 {
+	switch n := v.(type) {
+	case int:
+		return int64(n)
+	case int64:
+		return n
+	case int32:
+		return int64(n)
+	default:
+		return 0
+	}
+}
+
 func (h *Handler) renderAdmin(w http.ResponseWriter, r *http.Request, name string, data map[string]interface{}) {
 	if data == nil {
 		data = make(map[string]interface{})
 	}
 	data["IsAuthenticated"] = h.auth.IsAuthenticated(r)
+
+	// Inject current user into template data for sidebar/nav
+	if user, ok := h.auth.GetCurrentUser(r); ok {
+		if _, exists := data["CurrentUser"]; !exists {
+			data["CurrentUser"] = user
+		}
+	}
 
 	// Add CSRF token to template data
 	data["CSRFToken"] = csrf.Token(r)
@@ -3381,8 +3529,11 @@ func (h *Handler) renderAdmin(w http.ResponseWriter, r *http.Request, name strin
 		"safeHTML": func(s string) template.HTML {
 			return template.HTML(s)
 		},
-		"subtract": func(a, b int64) int64 {
-			return a - b
+		"subtract": func(a, b interface{}) int64 {
+			return templateToInt64(a) - templateToInt64(b)
+		},
+		"add": func(a, b interface{}) int64 {
+			return templateToInt64(a) + templateToInt64(b)
 		},
 	}
 

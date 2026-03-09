@@ -26,8 +26,8 @@ func NewAPIKeyService(db *database.DB) *APIKeyService {
 	return &APIKeyService{db: db}
 }
 
-// CreateAPIKey generates a new API key, stores its hash, and returns the raw key (shown once)
-func (s *APIKeyService) CreateAPIKey(ctx context.Context, name, description string) (string, *models.APIKey, error) {
+// CreateAPIKeyForUser generates a new API key owned by a user, stores its hash, and returns the raw key (shown once)
+func (s *APIKeyService) CreateAPIKeyForUser(ctx context.Context, name, description string, userID *primitive.ObjectID) (string, *models.APIKey, error) {
 	if name == "" {
 		return "", nil, fmt.Errorf("name is required")
 	}
@@ -52,6 +52,7 @@ func (s *APIKeyService) CreateAPIKey(ctx context.Context, name, description stri
 		Description: description,
 		Prefix:      prefix,
 		KeyHash:     keyHash,
+		UserID:      userID,
 		CreatedAt:   now,
 	}
 
@@ -64,9 +65,30 @@ func (s *APIKeyService) CreateAPIKey(ctx context.Context, name, description stri
 	return rawKey, apiKey, nil
 }
 
+// CreateAPIKey generates a new API key without user ownership (for system/legacy use)
+func (s *APIKeyService) CreateAPIKey(ctx context.Context, name, description string) (string, *models.APIKey, error) {
+	return s.CreateAPIKeyForUser(ctx, name, description, nil)
+}
+
 // ListAPIKeys returns all API keys (without raw key values)
 func (s *APIKeyService) ListAPIKeys(ctx context.Context) ([]models.APIKey, error) {
 	cursor, err := s.db.FindMany(ctx, "api_keys", bson.M{},
+		options.Find().SetSort(bson.D{{Key: "created_at", Value: -1}}))
+	if err != nil {
+		return nil, fmt.Errorf("failed to list API keys: %w", err)
+	}
+	defer cursor.Close(ctx)
+
+	var keys []models.APIKey
+	if err := cursor.All(ctx, &keys); err != nil {
+		return nil, fmt.Errorf("failed to decode API keys: %w", err)
+	}
+	return keys, nil
+}
+
+// ListAPIKeysForUser returns API keys owned by a specific user
+func (s *APIKeyService) ListAPIKeysForUser(ctx context.Context, userID primitive.ObjectID) ([]models.APIKey, error) {
+	cursor, err := s.db.FindMany(ctx, "api_keys", bson.M{"user_id": userID},
 		options.Find().SetSort(bson.D{{Key: "created_at", Value: -1}}))
 	if err != nil {
 		return nil, fmt.Errorf("failed to list API keys: %w", err)

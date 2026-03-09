@@ -3,6 +3,7 @@ package handlers
 import (
 	"net/http"
 
+	"lightcms/internal/auth"
 	"lightcms/internal/models"
 
 	"github.com/gorilla/mux"
@@ -55,6 +56,10 @@ func (a *APIHandler) APIGetTemplate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *APIHandler) APICreateTemplate(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermTemplateCreate) {
+		return
+	}
+
 	var req struct {
 		Name        string                `json:"name"`
 		Slug        string                `json:"slug"`
@@ -86,10 +91,15 @@ func (a *APIHandler) APICreateTemplate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	a.auditLog(r, "template.create", "template", tmpl.ID.Hex(), map[string]interface{}{"name": tmpl.Name})
 	a.jsonResponse(w, http.StatusCreated, tmpl)
 }
 
 func (a *APIHandler) APIUpdateTemplate(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermTemplateEdit) {
+		return
+	}
+
 	id, err := primitive.ObjectIDFromHex(mux.Vars(r)["id"])
 	if err != nil {
 		a.jsonError(w, http.StatusBadRequest, "invalid template ID")
@@ -140,10 +150,15 @@ func (a *APIHandler) APIUpdateTemplate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	a.auditLog(r, "template.update", "template", tmpl.ID.Hex(), map[string]interface{}{"name": tmpl.Name})
 	a.jsonResponse(w, http.StatusOK, tmpl)
 }
 
 func (a *APIHandler) APIDeleteTemplate(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermTemplateDelete) {
+		return
+	}
+
 	id, err := primitive.ObjectIDFromHex(mux.Vars(r)["id"])
 	if err != nil {
 		a.jsonError(w, http.StatusBadRequest, "invalid template ID")
@@ -155,5 +170,6 @@ func (a *APIHandler) APIDeleteTemplate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	a.auditLog(r, "template.delete", "template", id.Hex(), nil)
 	a.jsonResponse(w, http.StatusOK, map[string]interface{}{"success": true})
 }

@@ -4,6 +4,8 @@ import (
 	"encoding/base64"
 	"net/http"
 
+	"lightcms/internal/auth"
+
 	"github.com/gorilla/mux"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
@@ -103,6 +105,10 @@ func (a *APIHandler) APIGetAssetByPath(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *APIHandler) APIUploadAsset(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermAssetUpload) {
+		return
+	}
+
 	var req struct {
 		Filename    string `json:"filename"`
 		ServePath   string `json:"serve_path"`
@@ -130,6 +136,7 @@ func (a *APIHandler) APIUploadAsset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	a.auditLog(r, "asset.upload", "asset", asset.ID.Hex(), map[string]interface{}{"filename": asset.Filename, "serve_path": asset.ServePath})
 	a.jsonResponse(w, http.StatusCreated, map[string]interface{}{
 		"id":         asset.ID.Hex(),
 		"filename":   asset.Filename,
@@ -140,6 +147,10 @@ func (a *APIHandler) APIUploadAsset(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *APIHandler) APIDeleteAsset(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermAssetDelete) {
+		return
+	}
+
 	id, err := primitive.ObjectIDFromHex(mux.Vars(r)["id"])
 	if err != nil {
 		a.jsonError(w, http.StatusBadRequest, "invalid asset ID")
@@ -151,6 +162,7 @@ func (a *APIHandler) APIDeleteAsset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	a.auditLog(r, "asset.delete", "asset", id.Hex(), nil)
 	a.jsonResponse(w, http.StatusOK, map[string]interface{}{"success": true})
 }
 

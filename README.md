@@ -18,21 +18,42 @@ A lightweight, AI-native content management system for building and managing web
 
 ## Features
 
-- **AI-Powered Website Management**: MCP server (stdio + HTTP) for agentic control of your site
-- **OAuth 2.1**: Secure authorization for remote MCP clients with PKCE, token rotation, and dynamic client registration
-- **REST API**: Full `/api/v1/` JSON API with API key and OAuth token authentication
-- **CLI Tool**: Command-line interface for all content management operations
-- **API Key System**: Create and manage API keys from the admin panel
-- **Template System**: Define reusable content structures with custom fields
-- **Static Page Generation**: Fast page loads from pre-rendered HTML
-- **Content Collections**: Group and display content by category
-- **Custom Pages**: Full HTML control for special pages
-- **Theme Customization**: Modern, sleek design with customizable colors, fonts, and styles
-- **Rich Text Editor**: TinyMCE integration for visual content editing
-- **Admin Panel**: Secure content management at `/cm`
-- **Content Versioning**: Full version history with diff comparison and revert capability
+### Content Management
+- **Template System**: Define reusable content structures with custom fields (text, richtext, image, date, select)
+- **Static Page Generation**: Fast page loads from pre-rendered HTML — no runtime templating overhead
+- **Content Versioning**: Full version history with diff comparison and one-click revert
 - **Soft Delete**: Recover deleted content with undelete functionality
-- **End-User Search API**: Public search endpoint (`/api/search`) with fulltext exact matching and semantic vector search powered by Voyage AI embeddings. Hybrid mode uses reciprocal rank fusion to merge results. Works without a Voyage API key (fulltext only) and upgrades to semantic search when configured. Includes per-IP and global rate limiting for DDoS protection.
+- **Content Collections**: Auto-generated paginated listing pages filtered by category
+- **Folders & URL Organization**: Hierarchical content organization with clean URL paths
+- **Rich Text Editor**: TinyMCE integration for visual content editing
+- **Search & Replace**: Site-wide search and replace with preview before execution
+
+### Multi-User Access Control (v2.0+)
+- **Role-Based Access Control (RBAC)**: Three roles — admin, editor, viewer — with granular permission enforcement on all admin UI pages and REST API endpoints
+- **User Management**: Admin panel for creating users, assigning roles, disabling accounts, and resetting passwords
+- **Audit Log**: Persistent, searchable log of all mutations (who did what, when) with 365-day retention
+- **User-Scoped API Keys**: API keys inherit the permissions of their owning user
+- **Force Password Change**: Temporary passwords trigger a mandatory change on first login
+
+### Smart End-User Search
+- **Hybrid Search**: Combines full-text exact matching with semantic vector search (Voyage AI embeddings), merged via reciprocal rank fusion
+- **Intelligent Ranking**: Results ranked by structural importance — nav-linked pages surface first, followed by concept pages, then general content; video transcripts are deprioritised
+- **Title Boost**: Pages where the query appears in the title always rank above body-only matches
+- **Typeahead Suggestions**: Fast prefix-matching page suggestions with the same structural ranking
+- **Works Without Embeddings**: Falls back to full-text search if no Voyage API key is configured
+- **Rate Limiting**: Per-IP and global rate limiting for DDoS protection
+
+### Developer & Integration
+- **REST API**: Full `/api/v1/` JSON API with API key and OAuth token authentication, RBAC-enforced
+- **MCP Server**: 43 tools for agentic website management (stdio + HTTP streamable)
+- **OAuth 2.1**: Authorization code flow with PKCE for remote MCP clients — no embedded passwords
+- **CLI Tool**: Command-line interface for all content management operations
+- **URL Redirects**: 301/302 redirect rules managed from the admin panel
+
+### Site Customization
+- **Theme Customization**: Colors, fonts, border radius, custom CSS — all editable in the admin panel with version history
+- **Header/Footer HTML**: Full HTML control over site chrome injected around all pages
+- **Asset Management**: Upload and manage images, documents, and other files with path-based serving
 
 ## Prerequisites
 
@@ -45,8 +66,8 @@ A lightweight, AI-native content management system for building and managing web
 2. Copy `config.dev.json.example` to `config.dev.json`
 3. Edit `config.dev.json` with your MongoDB connection string
 4. Run `go run cmd/server/main.go`
-5. Visit http://localhost:8082/cm and login with `admin123`
-6. Change your password immediately via Security settings
+5. Visit http://localhost:8082/cm and log in with your email and password
+6. On first run, an admin account is created — set `LIGHTCMS_ADMIN_EMAIL` to use your email, or it defaults to `admin@localhost`
 
 ## MongoDB Atlas Setup
 
@@ -149,19 +170,30 @@ LightCMS uses JSON config files. Create either:
 - **Public site**: http://localhost:8082
 - **Admin panel**: http://localhost:8082/cm
 
-### Default Admin Password
+### First Login
 
-The default password is `admin123`. On first login, you'll be prompted to change it.
+Log in at `/cm/login` with your email and password. On first startup with an empty database, LightCMS creates an admin account from the `LIGHTCMS_ADMIN_EMAIL` environment variable (defaults to `admin@localhost` with password `admin123`). Change your password immediately after logging in.
 
-The admin password is stored securely in MongoDB using bcrypt hashing.
+To reset a password from the command line:
+```bash
+go run cmd/resetpw/main.go user@example.com
+```
 
 ### Creating Content
 
 1. Log in to the admin panel at `/cm`
 2. Go to **Content** → **New Content**
-3. Select a template (Blog Post, Press Release, or Explanatory Page)
+3. Select a template (Blog Post, Press Release, Explanatory Page, etc.)
 4. Fill in the fields
 5. Check "Published" and save
+
+### Managing Users (Admin Only)
+
+1. Go to **Users** in the left sidebar (visible to admins only)
+2. Create users with email, display name, and role (admin / editor / viewer)
+3. Users receive a temporary password and are prompted to change it on first login
+4. Disable accounts or reset passwords from the edit page
+5. View a full audit trail of all user actions at **Audit Log**
 
 ### Creating Custom Templates
 
@@ -192,6 +224,16 @@ Collections display grouped content (like a blog listing page).
 3. Add custom CSS if needed
 4. Save to apply changes site-wide
 
+### End-User Search
+
+LightCMS exposes a public search API at `/api/search` that your site's frontend can call. It supports three modes:
+
+- `mode=fulltext` — exact regex match across all content
+- `mode=semantic` — vector similarity search (requires Voyage AI key)
+- `mode=hybrid` — merges both using reciprocal rank fusion (recommended)
+
+Results are ranked by: title match → nav-linked pages → concept pages → general body content → video transcripts. Configure your Voyage AI key in the admin panel under **Configuration** to enable semantic search.
+
 ## Project Structure
 
 ```
@@ -199,20 +241,21 @@ lightcms/
 ├── cmd/
 │   ├── server/main.go        # HTTP server entry point
 │   ├── mcp/main.go           # MCP server entry point
-│   └── cli/main.go           # CLI tool entry point
+│   ├── cli/main.go           # CLI tool entry point
+│   └── resetpw/main.go       # Password reset utility
 ├── config/
 │   └── config.go             # Configuration loading
 ├── internal/
 │   ├── apiclient/            # Reusable HTTP client for REST API
-│   ├── auth/                 # Authentication logic
+│   ├── auth/                 # Authentication, RBAC permissions, session management
 │   ├── cli/                  # CLI subcommands and output formatting
 │   ├── database/             # MongoDB connection & operations
 │   ├── handlers/             # HTTP handlers (admin UI + REST API)
 │   ├── mcp/                  # MCP server and tool definitions
 │   ├── middleware/            # API auth middleware (API keys + OAuth)
-│   ├── oauth/                # OAuth 2.1 authorization server
 │   ├── models/               # Data models & default templates
-│   └── services/             # Business logic services
+│   ├── oauth/                # OAuth 2.1 authorization server
+│   └── services/             # Business logic (content, search, users, audit, etc.)
 ├── static/                   # CSS, JS, and uploaded files
 ├── content/                  # Custom pages and generated HTML
 └── .goreleaser.yaml          # Release configuration
@@ -229,6 +272,36 @@ Fields: headline, subheadline, dateline, release_date, body, boilerplate, contac
 ### Explanatory Page
 Fields: title, subtitle, hero_image, intro, main_content, sidebar, cta_text, cta_link
 
+### Concept Page
+Fields: title, definition, topic_links — ideal for wiki-style knowledge base entries
+
+### Standard Page, Blank Page, Homepage
+General-purpose layouts for flexible content.
+
+## Multi-User Access Control
+
+LightCMS v2.0+ supports multiple users with role-based permissions.
+
+### Roles
+
+| Role | Capabilities |
+|------|-------------|
+| **admin** | Full access: manage users, templates, theme, settings, audit log, all API keys |
+| **editor** | Create/edit/delete/publish content; upload and delete assets; manage own API keys |
+| **viewer** | Read-only access to content, templates, assets, and settings |
+
+### Audit Log
+
+Every mutation (content create/update/delete/publish, user management, settings changes, logins) is logged with the acting user's email, timestamp, and relevant details. Logs are retained for 365 days and accessible at `/cm/audit`.
+
+### API Key Permissions
+
+API keys created by a user inherit that user's role. A key created by an editor cannot perform admin-only operations even if its token is shared. Admins can manage all keys; non-admins can only manage their own.
+
+### First-Time Migration
+
+On first startup with an empty `users` collection, LightCMS automatically creates an admin user from the existing password hash in the database. Set the `LIGHTCMS_ADMIN_EMAIL` environment variable to specify which email address to use (defaults to `admin@localhost`).
+
 ## API Keys
 
 API keys are required for the REST API, MCP server, and CLI tool. Create them from the admin panel.
@@ -238,7 +311,7 @@ API keys are required for the REST API, MCP server, and CLI tool. Create them fr
 3. Click **Create New Key**, give it a name and description
 4. Copy the key immediately — it's only shown once
 
-Keys use the format `lc_` followed by 32 hex characters. They're stored as SHA-256 hashes.
+Keys use the format `lc_` followed by 32 hex characters. They're stored as SHA-256 hashes and inherit the permissions of the creating user.
 
 ## OAuth 2.1 Authorization
 
@@ -276,7 +349,7 @@ This is all handled automatically by MCP-compatible clients — you just provide
 
 ## REST API
 
-LightCMS provides a full REST API at `/api/v1/` authenticated with API keys or OAuth tokens.
+LightCMS provides a full REST API at `/api/v1/` authenticated with API keys or OAuth tokens. All endpoints enforce RBAC — the permissions of the authenticated user (or key owner) determine what's allowed.
 
 ### Authentication
 
@@ -409,7 +482,7 @@ The MCP HTTP endpoint accepts both authentication methods:
 - **API keys** (`lc_` prefix) — long-lived, created in admin panel
 - **OAuth 2.1 tokens** — short-lived, obtained through the authorization flow
 
-Both methods provide full access to all 43 MCP tools. The middleware auto-detects which type of token is being used.
+Both methods enforce RBAC based on the authenticated user's role.
 
 ### Available Tools
 
@@ -626,11 +699,22 @@ go build -o bin/lightcms ./cmd/cli
 
 For production:
 1. Use a strong `session_secret` (generate with `openssl rand -hex 32`)
-2. Change the default admin password immediately after first login
-3. Use HTTPS (put behind a reverse proxy like nginx or caddy)
-4. Restrict MongoDB Atlas IP whitelist to your server IPs
-5. Keep API keys secure — they grant full admin-level access to the REST API
-6. Regularly backup your MongoDB database
+2. Set `LIGHTCMS_ADMIN_EMAIL` so the initial admin account uses your real email
+3. Change the default admin password immediately after first login
+4. Use HTTPS (put behind a reverse proxy like nginx or caddy)
+5. Restrict MongoDB Atlas IP whitelist to your server IPs
+6. API keys inherit the permissions of their owning user — keep admin keys secure
+7. Review the audit log regularly at `/cm/audit`
+8. Regularly backup your MongoDB database
+
+Security features built in:
+- CSRF protection on all `/cm` routes
+- RBAC permission checks on all admin handlers and REST API endpoints
+- Session cookies: SameSite=Strict, 24-hour expiry, Secure in production
+- File uploads: extension whitelist + MIME validation
+- Login rate limiting: escalating lockouts (1 min → 5 min → 15 min)
+- Passwords: bcrypt with cost=12
+- Audit logging on all mutations with 365-day retention
 
 ## Privacy Policy
 

@@ -7,12 +7,27 @@ import (
 	"strings"
 )
 
-// APIKeyValidateFunc is a function that validates an API key.
-// Used to avoid import cycle between middleware and services packages.
-type APIKeyValidateFunc func(ctx context.Context, rawKey string) error
+// contextKey is an unexported type for context keys in this package
+type contextKey int
 
-// OAuthValidateFunc validates an OAuth access token.
-type OAuthValidateFunc func(ctx context.Context, rawToken string) error
+const (
+	// apiUserContextKey stores the authenticated API user in context
+	apiUserContextKey contextKey = iota
+)
+
+// APIKeyValidateFunc validates an API key and returns the authenticated user (as interface{}).
+// The returned value will be stored in the request context and can be retrieved with APIUserFromContext.
+type APIKeyValidateFunc func(ctx context.Context, rawKey string) (interface{}, error)
+
+// OAuthValidateFunc validates an OAuth access token and returns the authenticated user (as interface{}).
+type OAuthValidateFunc func(ctx context.Context, rawToken string) (interface{}, error)
+
+// APIUserFromContext extracts the authenticated API user from the request context.
+// Callers should type-assert the result to the expected user type.
+func APIUserFromContext(ctx context.Context) (interface{}, bool) {
+	user := ctx.Value(apiUserContextKey)
+	return user, user != nil
+}
 
 // APIAuth is middleware that authenticates requests via API key or OAuth token
 type APIAuth struct {
@@ -58,17 +73,27 @@ func (m *APIAuth) Middleware(next http.Handler) http.Handler {
 
 		// Route based on token prefix: lc_ = API key, anything else = OAuth token
 		if strings.HasPrefix(token, "lc_") {
-			if err := m.validate(r.Context(), token); err != nil {
+			user, err := m.validate(r.Context(), token)
+			if err != nil {
 				m.setWWWAuthenticate(w)
 				apiJsonError(w, http.StatusUnauthorized, "Invalid API key")
 				return
 			}
+			// Inject user into request context
+			if user != nil {
+				r = r.WithContext(context.WithValue(r.Context(), apiUserContextKey, user))
+			}
 			next.ServeHTTP(w, r)
 		} else if m.validateOAuth != nil {
-			if err := m.validateOAuth(r.Context(), token); err != nil {
+			user, err := m.validateOAuth(r.Context(), token)
+			if err != nil {
 				m.setWWWAuthenticate(w)
 				apiJsonError(w, http.StatusUnauthorized, "Invalid access token")
 				return
+			}
+			// Inject user into request context
+			if user != nil {
+				r = r.WithContext(context.WithValue(r.Context(), apiUserContextKey, user))
 			}
 			// Replace Authorization header with system API key so downstream
 			// handlers (MCP http_handler, REST API) work correctly

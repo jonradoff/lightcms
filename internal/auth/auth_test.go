@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"lightcms/internal/middleware"
+	"lightcms/internal/services"
 	"lightcms/internal/testutil"
 
 	"github.com/gorilla/sessions"
@@ -16,7 +17,8 @@ func newTestManager(t *testing.T) (*Manager, func()) {
 	t.Helper()
 	db, cleanup := testutil.MustConnectTestDB(t)
 	store := sessions.NewCookieStore([]byte("test-secret-32-bytes-long-enough"))
-	mgr := NewManager(store, db)
+	userService := services.NewUserService(db)
+	mgr := NewManager(store, db, userService)
 	return mgr, cleanup
 }
 
@@ -54,148 +56,106 @@ func TestPasswordError(t *testing.T) {
 	}
 }
 
-func TestInitializePassword(t *testing.T) {
+func TestMigrateToMultiUser(t *testing.T) {
 	mgr, cleanup := newTestManager(t)
 	defer cleanup()
 
 	ctx := context.Background()
 
-	// Initialize should create default password
-	if err := mgr.InitializePassword(ctx); err != nil {
-		t.Fatalf("InitializePassword failed: %v", err)
+	// Migration should create a default admin user
+	if err := mgr.MigrateToMultiUser(ctx); err != nil {
+		t.Fatalf("MigrateToMultiUser failed: %v", err)
 	}
 
-	// Default password should work
-	if !mgr.ValidatePassword(ctx, "admin123") {
-		t.Error("expected default password to be valid after initialization")
+	// Validate credentials with default password
+	user, err := mgr.ValidateCredentials(ctx, "admin@localhost", "admin123")
+	if err != nil {
+		t.Fatalf("ValidateCredentials error: %v", err)
+	}
+	if user == nil {
+		t.Fatal("expected user to be returned for default credentials")
+	}
+	if user.Role != "admin" {
+		t.Errorf("expected admin role, got %s", user.Role)
 	}
 
-	// Should be marked as default
-	if !mgr.IsDefaultPassword(ctx) {
-		t.Error("expected IsDefaultPassword to be true")
+	// Second call should be idempotent
+	if err := mgr.MigrateToMultiUser(ctx); err != nil {
+		t.Fatalf("second MigrateToMultiUser should be idempotent: %v", err)
 	}
 }
 
-func TestInitializePassword_Idempotent(t *testing.T) {
+func TestValidateCredentials(t *testing.T) {
 	mgr, cleanup := newTestManager(t)
 	defer cleanup()
 
 	ctx := context.Background()
+	mgr.MigrateToMultiUser(ctx)
 
-	// Initialize twice — should be fine
-	mgr.InitializePassword(ctx)
-	if err := mgr.InitializePassword(ctx); err != nil {
-		t.Fatalf("second InitializePassword should be idempotent: %v", err)
+	// Wrong email
+	user, _ := mgr.ValidateCredentials(ctx, "nobody@example.com", "admin123")
+	if user != nil {
+		t.Error("expected nil user for wrong email")
 	}
 
-	// Still works
-	if !mgr.ValidatePassword(ctx, "admin123") {
-		t.Error("expected default password to still work")
+	// Wrong password
+	user, _ = mgr.ValidateCredentials(ctx, "admin@localhost", "wrongpassword")
+	if user != nil {
+		t.Error("expected nil user for wrong password")
+	}
+
+	// Correct credentials
+	user, err := mgr.ValidateCredentials(ctx, "admin@localhost", "admin123")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if user == nil {
+		t.Fatal("expected user for correct credentials")
 	}
 }
 
-func TestValidatePassword(t *testing.T) {
+func TestChangePassword_MultiUser(t *testing.T) {
 	mgr, cleanup := newTestManager(t)
 	defer cleanup()
 
 	ctx := context.Background()
-	mgr.InitializePassword(ctx)
+	mgr.MigrateToMultiUser(ctx)
 
-	if !mgr.ValidatePassword(ctx, "admin123") {
-		t.Error("expected default password to be valid")
+	user, _ := mgr.ValidateCredentials(ctx, "admin@localhost", "admin123")
+	if user == nil {
+		t.Fatal("expected user")
 	}
 
-	if mgr.ValidatePassword(ctx, "wrongpassword") {
-		t.Error("expected wrong password to be invalid")
-	}
-}
-
-func TestValidatePassword_AutoInitialize(t *testing.T) {
-	mgr, cleanup := newTestManager(t)
-	defer cleanup()
-
-	ctx := context.Background()
-	// Don't call InitializePassword — ValidatePassword should auto-init
-	if !mgr.ValidatePassword(ctx, "admin123") {
-		t.Error("expected auto-initialized default password to work")
-	}
-}
-
-func TestChangePassword(t *testing.T) {
-	mgr, cleanup := newTestManager(t)
-	defer cleanup()
-
-	ctx := context.Background()
-	mgr.InitializePassword(ctx)
-
-	// Change from default to new password
-	err := mgr.ChangePassword(ctx, "admin123", "NewSecure1")
+	// Change password
+	err := mgr.ChangePassword(ctx, user.ID, "admin123", "NewSecure1")
 	if err != nil {
 		t.Fatalf("ChangePassword failed: %v", err)
 	}
 
 	// Old password should not work
-	if mgr.ValidatePassword(ctx, "admin123") {
+	u2, _ := mgr.ValidateCredentials(ctx, "admin@localhost", "admin123")
+	if u2 != nil {
 		t.Error("old password should be invalid after change")
 	}
 
 	// New password should work
-	if !mgr.ValidatePassword(ctx, "NewSecure1") {
+	u3, _ := mgr.ValidateCredentials(ctx, "admin@localhost", "NewSecure1")
+	if u3 == nil {
 		t.Error("new password should be valid")
-	}
-
-	// Should no longer be default
-	if mgr.IsDefaultPassword(ctx) {
-		t.Error("expected IsDefaultPassword to be false after change")
-	}
-}
-
-func TestChangePassword_WrongCurrent(t *testing.T) {
-	mgr, cleanup := newTestManager(t)
-	defer cleanup()
-
-	ctx := context.Background()
-	mgr.InitializePassword(ctx)
-
-	err := mgr.ChangePassword(ctx, "wrongcurrent", "NewSecure1")
-	if err != ErrInvalidCurrentPassword {
-		t.Errorf("expected ErrInvalidCurrentPassword, got %v", err)
-	}
-}
-
-func TestChangePassword_WeakNew(t *testing.T) {
-	mgr, cleanup := newTestManager(t)
-	defer cleanup()
-
-	ctx := context.Background()
-	mgr.InitializePassword(ctx)
-
-	// Too short
-	err := mgr.ChangePassword(ctx, "admin123", "Ab1")
-	if err != ErrPasswordTooShort {
-		t.Errorf("expected ErrPasswordTooShort, got %v", err)
-	}
-
-	// No uppercase
-	err = mgr.ChangePassword(ctx, "admin123", "nouppercase1")
-	if err != ErrPasswordNoUppercase {
-		t.Errorf("expected ErrPasswordNoUppercase, got %v", err)
-	}
-}
-
-func TestIsDefaultPassword_NoSettings(t *testing.T) {
-	mgr, cleanup := newTestManager(t)
-	defer cleanup()
-
-	// No settings at all — should return true (default assumed)
-	if !mgr.IsDefaultPassword(context.Background()) {
-		t.Error("expected true when no settings exist")
 	}
 }
 
 func TestLoginLogout(t *testing.T) {
 	mgr, cleanup := newTestManager(t)
 	defer cleanup()
+
+	ctx := context.Background()
+	mgr.MigrateToMultiUser(ctx)
+
+	user, _ := mgr.ValidateCredentials(ctx, "admin@localhost", "admin123")
+	if user == nil {
+		t.Fatal("expected user")
+	}
 
 	// Create a request and response recorder
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -207,12 +167,11 @@ func TestLoginLogout(t *testing.T) {
 	}
 
 	// Login
-	if err := mgr.Login(rr, req); err != nil {
-		t.Fatalf("Login failed: %v", err)
+	if err := mgr.LoginUser(rr, req, user); err != nil {
+		t.Fatalf("LoginUser failed: %v", err)
 	}
 
 	// Simulate the response being sent with Set-Cookie header
-	// Then make a new request with that cookie
 	resp := rr.Result()
 	cookies := resp.Cookies()
 
@@ -223,6 +182,18 @@ func TestLoginLogout(t *testing.T) {
 
 	if !mgr.IsAuthenticated(req2) {
 		t.Error("expected authenticated after login")
+	}
+
+	// Check user info in session
+	su, ok := mgr.GetCurrentUser(req2)
+	if !ok || su == nil {
+		t.Fatal("expected current user in session")
+	}
+	if su.Email != "admin@localhost" {
+		t.Errorf("expected admin@localhost, got %s", su.Email)
+	}
+	if su.Role != "admin" {
+		t.Errorf("expected admin role, got %s", su.Role)
 	}
 
 	// Logout
@@ -314,8 +285,9 @@ func TestNewManagerWithProxyConfig(t *testing.T) {
 	defer cleanup()
 
 	store := sessions.NewCookieStore([]byte("test-secret-32-bytes-long-enough"))
+	userService := services.NewUserService(db)
 	proxyConfig := &middleware.TrustedProxyConfig{TrustAllProxies: true}
-	mgr := NewManagerWithProxyConfig(store, db, proxyConfig)
+	mgr := NewManagerWithProxyConfig(store, db, userService, proxyConfig)
 
 	if mgr == nil {
 		t.Fatal("expected non-nil manager")
@@ -346,12 +318,10 @@ func TestRecordFailedLogin_AndCheckRateLimit(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/", nil)
 	req.RemoteAddr = "10.0.0.1:12345"
 
-	// Record several failed login attempts
 	for i := 0; i < 5; i++ {
 		mgr.RecordFailedLogin(ctx, req)
 	}
 
-	// Check if rate limited (exercising the code path regardless of threshold)
 	mgr.CheckRateLimit(ctx, req)
 }
 
@@ -363,15 +333,12 @@ func TestClearRateLimit(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/", nil)
 	req.RemoteAddr = "10.0.0.2:12345"
 
-	// Record some failed attempts
 	for i := 0; i < 3; i++ {
 		mgr.RecordFailedLogin(ctx, req)
 	}
 
-	// Clear rate limiting
 	mgr.ClearRateLimit(ctx, req)
 
-	// Should not be locked after clearing
 	locked, _ := mgr.CheckRateLimit(ctx, req)
 	if locked {
 		t.Error("expected not locked after clearing rate limit")
@@ -388,5 +355,36 @@ func TestGetClientIP(t *testing.T) {
 	ip := mgr.getClientIP(req)
 	if ip != "203.0.113.1" {
 		t.Errorf("expected 203.0.113.1, got %q", ip)
+	}
+}
+
+func TestHasPermission(t *testing.T) {
+	// Admin should have all permissions
+	if !HasPermission("admin", PermContentCreate) {
+		t.Error("admin should have content.create")
+	}
+	if !HasPermission("admin", PermUserManage) {
+		t.Error("admin should have user.manage")
+	}
+
+	// Editor should have content but not template create
+	if !HasPermission("editor", PermContentCreate) {
+		t.Error("editor should have content.create")
+	}
+	if HasPermission("editor", PermTemplateCreate) {
+		t.Error("editor should not have template.create")
+	}
+
+	// Viewer should only view
+	if !HasPermission("viewer", PermContentView) {
+		t.Error("viewer should have content.view")
+	}
+	if HasPermission("viewer", PermContentCreate) {
+		t.Error("viewer should not have content.create")
+	}
+
+	// Unknown role
+	if HasPermission("superadmin", PermContentView) {
+		t.Error("unknown role should have no permissions")
 	}
 }

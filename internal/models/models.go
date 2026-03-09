@@ -67,6 +67,8 @@ type ContentVersion struct {
 	ContentID       primitive.ObjectID     `bson:"content_id" json:"content_id"`         // Reference to the content item
 	Version         int                    `bson:"version" json:"version"`               // Version number (1, 2, 3...)
 	Comment         string                 `bson:"comment,omitempty" json:"comment,omitempty"` // Optional version comment
+	ModifiedBy      *primitive.ObjectID    `bson:"modified_by,omitempty" json:"modified_by,omitempty"`         // User who made this version
+	ModifiedByEmail string                 `bson:"modified_by_email,omitempty" json:"modified_by_email,omitempty"` // Denormalized email
 	TemplateID      primitive.ObjectID     `bson:"template_id" json:"template_id"`
 	TemplateName    string                 `bson:"template_name" json:"template_name"`
 	Title           string                 `bson:"title" json:"title"`
@@ -117,13 +119,14 @@ type Collection struct {
 
 // APIKey represents an API key for REST API access
 type APIKey struct {
-	ID          primitive.ObjectID `bson:"_id,omitempty" json:"id"`
-	Name        string             `bson:"name" json:"name"`
-	Description string             `bson:"description" json:"description"`
-	Prefix      string             `bson:"prefix" json:"prefix"`                               // First 11 chars (e.g., "lc_a1b2c3d4") for identification
-	KeyHash     string             `bson:"key_hash" json:"-"`                                  // SHA-256 hash of full key
-	LastUsedAt  *time.Time         `bson:"last_used_at,omitempty" json:"last_used_at,omitempty"`
-	CreatedAt   time.Time          `bson:"created_at" json:"created_at"`
+	ID          primitive.ObjectID  `bson:"_id,omitempty" json:"id"`
+	Name        string              `bson:"name" json:"name"`
+	Description string              `bson:"description" json:"description"`
+	Prefix      string              `bson:"prefix" json:"prefix"`                               // First 11 chars (e.g., "lc_a1b2c3d4") for identification
+	KeyHash     string              `bson:"key_hash" json:"-"`                                  // SHA-256 hash of full key
+	UserID      *primitive.ObjectID `bson:"user_id,omitempty" json:"user_id,omitempty"`         // Owning user
+	LastUsedAt  *time.Time          `bson:"last_used_at,omitempty" json:"last_used_at,omitempty"`
+	CreatedAt   time.Time           `bson:"created_at" json:"created_at"`
 }
 
 // ContactMessage represents a contact form submission or system message

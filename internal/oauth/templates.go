@@ -84,7 +84,7 @@ var oauthTemplates = map[string]string{
             margin-bottom: 0.5rem;
             font-weight: 500;
         }
-        input[type="password"] {
+        input[type="email"], input[type="password"] {
             width: 100%;
             padding: 0.875rem 1rem;
             background: rgba(15, 23, 42, 0.5);
@@ -93,8 +93,9 @@ var oauthTemplates = map[string]string{
             color: #f1f5f9;
             font-size: 1rem;
             transition: all 0.2s;
+            margin-bottom: 0.5rem;
         }
-        input[type="password"]:focus {
+        input[type="email"]:focus, input[type="password"]:focus {
             outline: none;
             border-color: #6366f1;
             box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
@@ -167,8 +168,10 @@ var oauthTemplates = map[string]string{
                 <input type="hidden" name="resource" value="{{.Resource}}">
                 <input type="hidden" name="scope" value="{{.Scope}}">
                 <input type="hidden" name="action" value="login">
-                <label for="password">Admin Password</label>
-                <input type="password" id="password" name="password" required autofocus>
+                <label for="email">Email</label>
+                <input type="email" id="email" name="email" required autofocus>
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" required>
                 <button type="submit" class="btn btn-primary">Sign In</button>
             </form>
         {{else}}

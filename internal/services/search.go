@@ -89,6 +89,10 @@ type SearchService struct {
 
 	keywordsMu sync.RWMutex
 	keywords   []string // cached extracted keywords, sorted by frequency desc
+
+	navPathsMu      sync.RWMutex
+	navPaths        []string  // cached internal paths from site nav header HTML
+	navPathsCachedAt time.Time
 }
 
 // NewSearchService creates a new search service
@@ -108,6 +112,68 @@ func NewSearchService(db *database.DB, voyageAPIKey string) *SearchService {
 // HasVoyageKey returns true if a Voyage API key is configured
 func (s *SearchService) HasVoyageKey() bool {
 	return s.voyageAPIKey != ""
+}
+
+var hrefRe = regexp.MustCompile(`href="(/[^"#?][^"]*)"`)
+
+// getNavPaths returns a set of internal paths linked directly from the site navigation header.
+// Results are cached for 5 minutes.
+func (s *SearchService) getNavPaths(ctx context.Context) map[string]bool {
+	s.navPathsMu.RLock()
+	cached := s.navPaths
+	fresh := time.Since(s.navPathsCachedAt) < 5*time.Minute
+	s.navPathsMu.RUnlock()
+
+	if fresh {
+		set := make(map[string]bool, len(cached))
+		for _, p := range cached {
+			set[p] = true
+		}
+		return set
+	}
+
+	theme, err := s.db.GetThemeSettings(ctx)
+	if err != nil || theme == nil {
+		return nil
+	}
+
+	matches := hrefRe.FindAllStringSubmatch(theme.HeaderHTML, -1)
+	paths := make([]string, 0, len(matches))
+	seen := make(map[string]bool)
+	for _, m := range matches {
+		p := m[1]
+		if idx := strings.IndexAny(p, "?#"); idx >= 0 {
+			p = p[:idx]
+		}
+		if p != "" && !seen[p] {
+			paths = append(paths, p)
+			seen[p] = true
+		}
+	}
+
+	s.navPathsMu.Lock()
+	s.navPaths = paths
+	s.navPathsCachedAt = time.Now()
+	s.navPathsMu.Unlock()
+
+	return seen
+}
+
+// pathBoost returns a score bonus based on structural importance.
+// Nav-linked pages rank highest; concept pages get a moderate boost;
+// video transcript pages are deprioritised.
+func pathBoost(fullPath, templateName string, navPaths map[string]bool) float64 {
+	if navPaths[fullPath] {
+		return 0.15 // direct nav link — highest structural boost
+	}
+	lower := strings.ToLower(fullPath)
+	if strings.HasPrefix(lower, "/videos/") || strings.HasPrefix(lower, "/video/") {
+		return -0.05 // video transcripts — deprioritise
+	}
+	if strings.Contains(strings.ToLower(templateName), "concept") {
+		return 0.05 // concept pages — moderate boost over generic content
+	}
+	return 0
 }
 
 // Search performs a combined search using the specified mode
@@ -149,22 +215,65 @@ func (s *SearchService) SearchFullText(ctx context.Context, query string, limit 
 		return nil, fmt.Errorf("full-text search failed: %w", err)
 	}
 
-	results := make([]SearchResult, 0, len(contents))
 	lowerQuery := strings.ToLower(query)
+	navPaths := s.getNavPaths(ctx)
 
-	for i, c := range contents {
+	// Collect all matches with tier: 0=title+nav, 1=title, 2=nav, 3=other, 4=video transcript
+	type rankedResult struct {
+		result SearchResult
+		tier   int
+	}
+	var ranked []rankedResult
+
+	for _, c := range contents {
+		snippet := extractSnippet(c.PlainText, lowerQuery)
+		titleMatch := strings.Contains(strings.ToLower(c.Title), lowerQuery)
+		nav := navPaths[c.FullPath]
+		lower := strings.ToLower(c.FullPath)
+		isVideo := strings.HasPrefix(lower, "/videos/") || strings.HasPrefix(lower, "/video/")
+
+		isConcept := strings.Contains(strings.ToLower(c.TemplateName), "concept")
+		// Tiers: 0=title+nav, 1=title, 2=nav, 3=concept, 4=body-only, 5=video transcript
+		tier := 4
+		switch {
+		case titleMatch && nav:
+			tier = 0
+		case titleMatch:
+			tier = 1
+		case nav:
+			tier = 2
+		case isConcept:
+			tier = 3
+		case isVideo:
+			tier = 5
+		}
+
+		ranked = append(ranked, rankedResult{
+			result: SearchResult{
+				ContentID: c.ID.Hex(),
+				Title:     c.Title,
+				FullPath:  c.FullPath,
+				Snippet:   snippet,
+				MatchType: "exact",
+			},
+			tier: tier,
+		})
+	}
+
+	// Stable insertion sort by tier (lower = better)
+	for i := 1; i < len(ranked); i++ {
+		for j := i; j > 0 && ranked[j].tier < ranked[j-1].tier; j-- {
+			ranked[j], ranked[j-1] = ranked[j-1], ranked[j]
+		}
+	}
+
+	results := make([]SearchResult, 0, limit)
+	for i, r := range ranked {
 		if i >= limit {
 			break
 		}
-		snippet := extractSnippet(c.PlainText, lowerQuery)
-		results = append(results, SearchResult{
-			ContentID: c.ID.Hex(),
-			Title:     c.Title,
-			FullPath:  c.FullPath,
-			Snippet:   snippet,
-			Score:     1.0 - float64(i)*0.01, // Simple rank score
-			MatchType: "exact",
-		})
+		r.result.Score = 1.0 - float64(i)*0.01
+		results = append(results, r.result)
 	}
 
 	return results, nil
@@ -251,7 +360,10 @@ func (s *SearchService) SearchHybrid(ctx context.Context, query string, limit in
 	}
 
 	// Merge with reciprocal rank fusion
-	const k = 60.0 // RRF constant
+	const k = 60.0             // RRF constant
+	const titleBoost = 1.0 / 5 // Significant boost for title matches
+	lowerQuery := strings.ToLower(query)
+	navPaths := s.getNavPaths(ctx)
 	scores := make(map[string]float64)
 	resultMap := make(map[string]*SearchResult)
 
@@ -269,6 +381,15 @@ func (s *SearchService) SearchHybrid(ctx context.Context, query string, limit in
 			copy := r
 			resultMap[r.ContentID] = &copy
 		}
+	}
+
+	// Boost results where the query appears in the title
+	// Also apply structural boost: nav-linked pages up, video transcripts down
+	for id, r := range resultMap {
+		if strings.Contains(strings.ToLower(r.Title), lowerQuery) {
+			scores[id] += titleBoost
+		}
+		scores[id] += pathBoost(r.FullPath, "", navPaths)
 	}
 
 	// Sort by RRF score
@@ -440,15 +561,56 @@ func (s *SearchService) Suggest(ctx context.Context, prefix string, limit int) (
 		return nil, fmt.Errorf("suggest title lookup failed: %w", err)
 	}
 
+	// Sort page suggestions:
+	// 0 = nav-linked + starts-with, 1 = nav-linked + contains
+	// 2 = concept page + starts-with, 3 = concept page + contains
+	// 4 = other + starts-with, 5 = other + contains
+	// 6 = video transcript (any)
+	navPaths := s.getNavPaths(ctx)
+	type scoredPage struct {
+		page SuggestPage
+		rank int
+	}
+	var scored []scoredPage
+	for _, c := range contents {
+		nav := navPaths[c.FullPath]
+		lowerPath := strings.ToLower(c.FullPath)
+		isVideo := strings.HasPrefix(lowerPath, "/videos/") || strings.HasPrefix(lowerPath, "/video/")
+		isConcept := strings.Contains(strings.ToLower(c.TemplateName), "concept")
+		startsWith := strings.HasPrefix(strings.ToLower(c.Title), lowerPrefix)
+
+		rank := 5
+		switch {
+		case isVideo:
+			rank = 6
+		case nav && startsWith:
+			rank = 0
+		case nav:
+			rank = 1
+		case isConcept && startsWith:
+			rank = 2
+		case isConcept:
+			rank = 3
+		case startsWith:
+			rank = 4
+		}
+		scored = append(scored, scoredPage{
+			page: SuggestPage{Title: c.Title, Path: c.FullPath},
+			rank: rank,
+		})
+	}
+	// Stable sort by rank
+	for i := 1; i < len(scored); i++ {
+		for j := i; j > 0 && scored[j].rank < scored[j-1].rank; j-- {
+			scored[j], scored[j-1] = scored[j-1], scored[j]
+		}
+	}
 	var pages []SuggestPage
-	for i, c := range contents {
+	for i, sp := range scored {
 		if i >= limit {
 			break
 		}
-		pages = append(pages, SuggestPage{
-			Title: c.Title,
-			Path:  c.FullPath,
-		})
+		pages = append(pages, sp.page)
 	}
 
 	return &SuggestResult{

@@ -65,7 +65,7 @@ var adminTemplates = map[string]string{
             margin-bottom: 0.5rem;
             font-weight: 500;
         }
-        input[type="password"] {
+        input[type="email"], input[type="password"] {
             width: 100%;
             padding: 0.875rem 1rem;
             background: rgba(15, 23, 42, 0.5);
@@ -74,8 +74,9 @@ var adminTemplates = map[string]string{
             color: #f1f5f9;
             font-size: 1rem;
             transition: all 0.2s;
+            margin-bottom: 1rem;
         }
-        input[type="password"]:focus {
+        input[type="email"]:focus, input[type="password"]:focus {
             outline: none;
             border-color: #6366f1;
             box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
@@ -106,8 +107,10 @@ var adminTemplates = map[string]string{
         {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
         <form method="POST" action="/cm/login" autocomplete="off">
             {{.CSRFField}}
-            <label for="password">Admin Password</label>
-            <input type="password" id="password" name="password" placeholder="Enter password" required autofocus autocomplete="current-password" {{if .RateLimited}}disabled{{end}}>
+            <label for="email">Email</label>
+            <input type="email" id="email" name="email" placeholder="Enter email" value="{{.Email}}" required autofocus autocomplete="username" {{if .RateLimited}}disabled{{end}}>
+            <label for="password">Password</label>
+            <input type="password" id="password" name="password" placeholder="Enter password" required autocomplete="current-password" {{if .RateLimited}}disabled{{end}}>
             <button type="submit" {{if .RateLimited}}disabled style="opacity: 0.5; cursor: not-allowed;"{{end}}>Sign In</button>
         </form>
     </div>
@@ -116,15 +119,6 @@ var adminTemplates = map[string]string{
 
 	"dashboard": adminLayoutStart + `
         <div class="dashboard">
-            {{if .IsDefaultPassword}}
-            <div class="security-alert">
-                <div class="alert-icon">⚠️</div>
-                <div class="alert-content">
-                    <strong>Security Warning:</strong> Your site is using the default password.
-                    <a href="/cm/security">Change your password now</a> to secure your admin panel.
-                </div>
-            </div>
-            {{end}}
             <h1>Dashboard</h1>
             <div class="stats-grid">
                 <div class="stat-card">
@@ -5308,6 +5302,289 @@ document.getElementById('site-search').addEventListener('input', async (e) => {
         }
         </script>
     ` + adminLayoutEnd,
+
+	"force_change_password": `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Change Password - LightCMS</title>
+    <link rel="icon" type="image/x-icon" href="/static/images/favicon.ico">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Inter', system-ui, sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1rem;
+        }
+        .card {
+            background: rgba(30, 27, 75, 0.5);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(99, 102, 241, 0.2);
+            border-radius: 24px;
+            padding: 3rem;
+            width: 100%;
+            max-width: 420px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        }
+        h2 { color: #f1f5f9; margin-bottom: 0.5rem; font-family: 'Space Grotesk', sans-serif; }
+        .info { color: #94a3b8; margin-bottom: 1.5rem; font-size: 0.9rem; line-height: 1.5; }
+        .error {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #f87171;
+            padding: 0.75rem 1rem;
+            border-radius: 8px;
+            margin-bottom: 1.5rem;
+            font-size: 0.9rem;
+        }
+        label { display: block; color: #e2e8f0; margin-bottom: 0.5rem; font-weight: 500; }
+        input[type="password"] {
+            width: 100%;
+            padding: 0.875rem 1rem;
+            background: rgba(15, 23, 42, 0.5);
+            border: 1px solid rgba(99, 102, 241, 0.3);
+            border-radius: 12px;
+            color: #f1f5f9;
+            font-size: 1rem;
+            margin-bottom: 1rem;
+        }
+        input[type="password"]:focus { outline: none; border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2); }
+        button {
+            width: 100%;
+            padding: 0.875rem;
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            border: none;
+            border-radius: 12px;
+            color: white;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 0.5rem;
+        }
+        button:hover { transform: translateY(-2px); box-shadow: 0 10px 20px -10px rgba(99, 102, 241, 0.5); }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h2>Change Your Password</h2>
+        <p class="info">You must change your temporary password before continuing.</p>
+        {{if .Error}}<div class="error">{{.Error}}</div>{{end}}
+        <form method="POST" action="/cm/change-password">
+            {{.CSRFField}}
+            <label for="current_password">Current Password</label>
+            <input type="password" id="current_password" name="current_password" required autofocus>
+            <label for="new_password">New Password</label>
+            <input type="password" id="new_password" name="new_password" required>
+            <label for="confirm_password">Confirm New Password</label>
+            <input type="password" id="confirm_password" name="confirm_password" required>
+            <button type="submit">Change Password</button>
+        </form>
+    </div>
+</body>
+</html>`,
+
+	"users_list": adminLayoutStart + `
+        <div class="content-section">
+            <div class="section-header">
+                <h1>Users</h1>
+                <a href="/cm/users/new" class="btn btn-primary">+ New User</a>
+            </div>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Email</th>
+                        <th>Display Name</th>
+                        <th>Role</th>
+                        <th>Status</th>
+                        <th>Last Login</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {{range .Users}}
+                    <tr>
+                        <td>{{.Email}}</td>
+                        <td>{{.DisplayName}}</td>
+                        <td><span class="badge badge-{{.Role}}">{{.Role}}</span></td>
+                        <td>{{if .Disabled}}<span style="color:#f87171;">Disabled</span>{{else}}<span style="color:#4ade80;">Active</span>{{end}}</td>
+                        <td>{{if .LastLoginAt}}{{.LastLoginAt.Format "Jan 2, 2006 15:04"}}{{else}}Never{{end}}</td>
+                        <td>
+                            <a href="/cm/users/{{.ID.Hex}}" class="btn btn-small">Edit</a>
+                        </td>
+                    </tr>
+                {{end}}
+                </tbody>
+            </table>
+        </div>
+    ` + adminLayoutEnd,
+
+	"user_new": adminLayoutStart + `
+        <div class="content-section">
+            <h1>Create New User</h1>
+            {{if .Error}}<div class="error-message">{{.Error}}</div>{{end}}
+            <form method="POST" action="/cm/users/new" class="form-card">
+                {{.CSRFField}}
+                <div class="form-group">
+                    <label for="email">Email *</label>
+                    <input type="email" id="email" name="email" required>
+                </div>
+                <div class="form-group">
+                    <label for="display_name">Display Name</label>
+                    <input type="text" id="display_name" name="display_name">
+                </div>
+                <div class="form-group">
+                    <label for="role">Role *</label>
+                    <select id="role" name="role" required>
+                        <option value="viewer">Viewer (read-only)</option>
+                        <option value="editor" selected>Editor (content management)</option>
+                        <option value="admin">Admin (full access)</option>
+                    </select>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">Create User</button>
+                    <a href="/cm/users" class="btn btn-outline">Cancel</a>
+                </div>
+            </form>
+        </div>
+    ` + adminLayoutEnd,
+
+	"user_created": adminLayoutStart + `
+        <div class="content-section">
+            <h1>User Created</h1>
+            <div class="success-card" style="background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.3); padding: 1.5rem; border-radius: 12px; margin-bottom: 1.5rem;">
+                <p><strong>{{.NewUser.Email}}</strong> has been created with the role <strong>{{.NewUser.Role}}</strong>.</p>
+                <p style="margin-top: 1rem;">Temporary password (shown once):</p>
+                <code style="display: block; padding: 1rem; background: rgba(15, 23, 42, 0.5); border-radius: 8px; margin-top: 0.5rem; font-size: 1.1rem; color: #4ade80; user-select: all;">{{.TempPassword}}</code>
+                <p style="margin-top: 1rem; color: #94a3b8; font-size: 0.9rem;">The user will be required to change this password on first login.</p>
+            </div>
+            <a href="/cm/users" class="btn btn-primary">Done</a>
+        </div>
+    ` + adminLayoutEnd,
+
+	"user_edit": adminLayoutStart + `
+        <div class="content-section">
+            <h1>Edit User: {{.EditUser.Email}}</h1>
+            {{if .Error}}<div class="error-message">{{.Error}}</div>{{end}}
+            <form method="POST" action="/cm/users/{{.EditUser.ID.Hex}}" class="form-card">
+                {{.CSRFField}}
+                <div class="form-group">
+                    <label>Email</label>
+                    <input type="text" value="{{.EditUser.Email}}" disabled style="opacity: 0.6;">
+                </div>
+                <div class="form-group">
+                    <label for="display_name">Display Name</label>
+                    <input type="text" id="display_name" name="display_name" value="{{.EditUser.DisplayName}}">
+                </div>
+                <div class="form-group">
+                    <label for="role">Role</label>
+                    <select id="role" name="role">
+                        <option value="viewer" {{if eq .EditUser.Role "viewer"}}selected{{end}}>Viewer</option>
+                        <option value="editor" {{if eq .EditUser.Role "editor"}}selected{{end}}>Editor</option>
+                        <option value="admin" {{if eq .EditUser.Role "admin"}}selected{{end}}>Admin</option>
+                    </select>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                    <a href="/cm/users" class="btn btn-outline">Cancel</a>
+                </div>
+            </form>
+            <div style="margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid rgba(99, 102, 241, 0.2);">
+                <h3 style="margin-bottom: 1rem;">Account Actions</h3>
+                <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+                    <form method="POST" action="/cm/users/{{.EditUser.ID.Hex}}/toggle-disabled" style="display:inline;">
+                        {{.CSRFField}}
+                        <button type="submit" class="btn btn-outline">{{if .EditUser.Disabled}}Enable Account{{else}}Disable Account{{end}}</button>
+                    </form>
+                    <form method="POST" action="/cm/users/{{.EditUser.ID.Hex}}/reset-password" style="display:inline;">
+                        {{.CSRFField}}
+                        <button type="submit" class="btn btn-outline">Reset Password</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    ` + adminLayoutEnd,
+
+	"user_password_reset": adminLayoutStart + `
+        <div class="content-section">
+            <h1>Password Reset</h1>
+            <div class="success-card" style="background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.3); padding: 1.5rem; border-radius: 12px; margin-bottom: 1.5rem;">
+                <p>Password for <strong>{{.TargetUser.Email}}</strong> has been reset.</p>
+                <p style="margin-top: 1rem;">New temporary password (shown once):</p>
+                <code style="display: block; padding: 1rem; background: rgba(15, 23, 42, 0.5); border-radius: 8px; margin-top: 0.5rem; font-size: 1.1rem; color: #4ade80; user-select: all;">{{.TempPassword}}</code>
+                <p style="margin-top: 1rem; color: #94a3b8; font-size: 0.9rem;">The user will be required to change this password on next login.</p>
+            </div>
+            <a href="/cm/users" class="btn btn-primary">Done</a>
+        </div>
+    ` + adminLayoutEnd,
+
+	"audit_log": adminLayoutStart + `
+        <div class="content-section">
+            <h1>Audit Log</h1>
+            <div style="margin-bottom: 1.5rem;">
+                <form method="GET" action="/cm/audit" style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: end;">
+                    <div>
+                        <label style="font-size: 0.8rem; display: block; margin-bottom: 0.25rem;">Action</label>
+                        <select name="action" style="padding: 0.5rem;">
+                            <option value="">All</option>
+                            <option value="login.success">Login</option>
+                            <option value="login.failure">Failed Login</option>
+                            <option value="password.change">Password Change</option>
+                            <option value="user.create">User Created</option>
+                            <option value="content.create">Content Created</option>
+                            <option value="content.update">Content Updated</option>
+                            <option value="content.delete">Content Deleted</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label style="font-size: 0.8rem; display: block; margin-bottom: 0.25rem;">Since</label>
+                        <input type="date" name="since" style="padding: 0.5rem;">
+                    </div>
+                    <div>
+                        <label style="font-size: 0.8rem; display: block; margin-bottom: 0.25rem;">Until</label>
+                        <input type="date" name="until" style="padding: 0.5rem;">
+                    </div>
+                    <button type="submit" class="btn btn-primary" style="height: fit-content;">Filter</button>
+                </form>
+            </div>
+            <p style="color: #94a3b8; margin-bottom: 1rem;">{{.Total}} entries total, page {{.CurrentPage}} of {{.TotalPages}}</p>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>User</th>
+                        <th>Action</th>
+                        <th>Resource</th>
+                        <th>Details</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {{range .Logs}}
+                    <tr>
+                        <td style="white-space: nowrap;">{{.CreatedAt.Format "Jan 2, 15:04:05"}}</td>
+                        <td>{{.UserEmail}}</td>
+                        <td><code>{{.Action}}</code></td>
+                        <td>{{.Resource}}{{if .ResourceID}} <span style="color:#94a3b8;font-size:0.8rem;">{{.ResourceID}}</span>{{end}}</td>
+                        <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis;">{{range $k, $v := .Details}}<span style="color:#94a3b8;">{{$k}}:</span> {{$v}} {{end}}</td>
+                    </tr>
+                {{end}}
+                </tbody>
+            </table>
+            {{if gt .TotalPages 1}}
+            <div style="margin-top: 1rem; display: flex; gap: 0.5rem;">
+                {{if gt .CurrentPage 1}}<a href="/cm/audit?page={{subtract .CurrentPage 1}}" class="btn btn-outline">Previous</a>{{end}}
+                {{if lt .CurrentPage .TotalPages}}<a href="/cm/audit?page={{add .CurrentPage 1}}" class="btn btn-outline">Next</a>{{end}}
+            </div>
+            {{end}}
+        </div>
+    ` + adminLayoutEnd,
 }
 
 const adminLayoutStart = `<!DOCTYPE html>
@@ -5950,6 +6227,10 @@ const adminLayoutStart = `<!DOCTYPE html>
                     <a href="/cm/config" class="nav-link">⚙️ Configuration</a>
                     <a href="/cm/api-keys" class="nav-link">🔑 API Keys</a>
                     <a href="/cm/security" class="nav-link">🔒 Security</a>
+                    {{if and .CurrentUser (eq .CurrentUser.Role "admin")}}
+                    <a href="/cm/users" class="nav-link">👥 Users</a>
+                    <a href="/cm/audit" class="nav-link">📜 Audit Log</a>
+                    {{end}}
                 </div>
                 <div class="nav-section">
                     <div class="nav-section-title">Tools</div>
@@ -5962,6 +6243,7 @@ const adminLayoutStart = `<!DOCTYPE html>
                 </div>
                 <div class="nav-section">
                     <a href="/" target="_blank" class="nav-link">🌐 View Site</a>
+                    {{if .CurrentUser}}<div style="color: #94a3b8; font-size: 0.75rem; padding: 0.25rem 0.75rem; word-break: break-all;">{{.CurrentUser.Email}}</div>{{end}}
                     <form method="POST" action="/cm/logout" style="margin: 0;">
                         {{.CSRFField}}
                         <button type="submit" class="nav-link logout-btn">🚪 Logout</button>

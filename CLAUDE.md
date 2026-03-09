@@ -158,6 +158,9 @@ All business logic goes through services in `internal/services/`:
 - **TemplateService**: Template management with content regeneration
 - **AssetService**: File uploads with validation
 - **SettingsService**: Theme, config, redirects, folders, collections
+- **UserService**: User CRUD, password management, credential validation
+- **AuditService**: Sync/async audit log writes, filtered listing
+- **APIKeyService**: API key management with user ownership
 
 ### Content Versioning
 Every content update automatically creates a version. Versions are stored in `content_versions` collection. Use `revert_to_version` to restore previous versions.
@@ -179,13 +182,16 @@ Published content is rendered to `content/generated/{path}.html` using template 
 
 ### Database Collections
 - `content` - Content items with full_path (unique index)
-- `content_versions` - Version history
+- `content_versions` - Version history (includes modified_by, modified_by_email)
 - `templates` - Content templates with fields + HTML layout
 - `folders` - Content organization hierarchy
 - `collections` - Content grouping by category
 - `assets` - File metadata (binary stored on filesystem)
 - `redirects` - URL redirect rules
-- `settings` - Theme, config, admin settings
+- `settings` - Theme, config settings
+- `users` - User accounts with email/password/role (unique email index)
+- `audit_logs` - Audit trail (who did what, when; 365-day TTL)
+- `api_keys` - API keys with optional user_id ownership
 - `contact_messages` - Form submissions
 - `login_attempts` - Rate limiting data
 
@@ -217,6 +223,27 @@ opts := options.Find().SetSort(bson.D{{Key: "created_at", Value: -1}})
 ### Context
 Always pass context as first parameter for DB/service methods.
 
+## Multiuser RBAC System (v2.0+)
+
+### Roles
+- **admin**: Full access — manage users, templates, settings, audit logs, all API keys
+- **editor**: Create/edit/delete/publish content, upload/delete assets, manage own API keys
+- **viewer**: Read-only access to content, templates, assets, settings
+
+### Auth Flow
+- Login with email + password (migrated from single-admin password)
+- Session stores: user_id, user_email, user_role
+- Force password change on first login with temporary password
+- API keys carry the permissions of their owning user
+
+### Migration
+On first startup with empty `users` collection, creates admin user from existing `settings.admin` password hash. Set `LIGHTCMS_ADMIN_EMAIL` env var (default: `admin@localhost`).
+
+### Password Reset
+```bash
+go run cmd/resetpw/main.go [email]  # Reset specific user, or first admin if no email given
+```
+
 ## Security Notes
 
 - CSRF protection on all `/cm` routes (Gorilla CSRF)
@@ -225,6 +252,8 @@ Always pass context as first parameter for DB/service methods.
 - Path traversal protection on all file operations
 - Login rate limiting: Escalating lockout (10→1min, 15→5min, 20+→15min)
 - Passwords: bcrypt with cost=12
+- RBAC permission checks on all admin handlers and REST API endpoints
+- Audit logging on all mutations (async, 365-day TTL auto-cleanup)
 
 ## Configuration
 
@@ -271,4 +300,4 @@ Deployed to Fly.io. Uses environment variables for configuration. Health check a
 1. Create `config.dev.json` with MongoDB Atlas connection
 2. `go build -o bin/lightcms ./cmd/server`
 3. `./bin/lightcms`
-4. Access admin at http://localhost:8082/cm (default password: admin123)
+4. Access admin at http://localhost:8082/cm (default: admin@localhost / admin123)
