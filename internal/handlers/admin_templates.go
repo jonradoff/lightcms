@@ -5625,11 +5625,11 @@ async function doSearch(q) {
 	"audit_log": adminLayoutStart + `
         <div class="content-section">
             <h1>Audit Log</h1>
-            <div style="margin-bottom: 1.5rem;">
+            <div style="margin-bottom: 1rem;">
                 <form method="GET" action="/cm/audit" style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: end;">
                     <div>
-                        <label style="font-size: 0.8rem; display: block; margin-bottom: 0.25rem;">Action</label>
-                        <select name="action" style="padding: 0.5rem;">
+                        <label style="font-size: 0.75rem; display: block; margin-bottom: 0.2rem; color: var(--text-muted);">Action</label>
+                        <select name="action" style="padding: 0.375rem 0.625rem; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 0.875rem;">
                             <option value="">All</option>
                             <option value="login.success">Login</option>
                             <option value="login.failure">Failed Login</option>
@@ -5641,46 +5641,94 @@ async function doSearch(q) {
                         </select>
                     </div>
                     <div>
-                        <label style="font-size: 0.8rem; display: block; margin-bottom: 0.25rem;">Since</label>
-                        <input type="date" name="since" style="padding: 0.5rem;">
+                        <label style="font-size: 0.75rem; display: block; margin-bottom: 0.2rem; color: var(--text-muted);">Since</label>
+                        <input type="date" name="since" style="padding: 0.375rem 0.625rem; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 0.875rem;">
                     </div>
                     <div>
-                        <label style="font-size: 0.8rem; display: block; margin-bottom: 0.25rem;">Until</label>
-                        <input type="date" name="until" style="padding: 0.5rem;">
+                        <label style="font-size: 0.75rem; display: block; margin-bottom: 0.2rem; color: var(--text-muted);">Until</label>
+                        <input type="date" name="until" style="padding: 0.375rem 0.625rem; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 0.875rem;">
                     </div>
-                    <button type="submit" class="btn btn-primary" style="height: fit-content;">Filter</button>
+                    <button type="submit" class="btn btn-primary" style="height: fit-content; padding: 0.375rem 0.875rem; font-size: 0.875rem;">Filter</button>
                 </form>
             </div>
-            <p style="color: #94a3b8; margin-bottom: 1rem;">{{.Total}} entries total, page {{.CurrentPage}} of {{.TotalPages}}</p>
-            <table class="data-table">
+            <p style="color: var(--text-muted); font-size: 0.8rem; margin-bottom: 0.75rem;">{{.Total}} entries &middot; page {{.CurrentPage}} of {{.TotalPages}}</p>
+            <table class="data-table" style="font-size: 0.8125rem;">
                 <thead>
                     <tr>
-                        <th>Time</th>
-                        <th>User</th>
-                        <th>Action</th>
-                        <th>Resource</th>
+                        <th style="width: 9rem;">Time</th>
+                        <th style="width: 11rem;">User</th>
+                        <th style="width: 10rem;">Action</th>
+                        <th style="width: 8rem;">Resource</th>
                         <th>Details</th>
                     </tr>
                 </thead>
                 <tbody>
                 {{range .Logs}}
-                    <tr>
-                        <td style="white-space: nowrap;">{{.CreatedAt.Format "Jan 2, 15:04:05"}}</td>
-                        <td>{{.UserEmail}}</td>
-                        <td><code>{{.Action}}</code></td>
-                        <td>{{.Resource}}{{if .ResourceID}} <span style="color:#94a3b8;font-size:0.8rem;">{{.ResourceID}}</span>{{end}}</td>
-                        <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis;">{{range $k, $v := .Details}}<span style="color:#94a3b8;">{{$k}}:</span> {{$v}} {{end}}</td>
+                    <tr style="vertical-align: top;">
+                        <td style="white-space: nowrap; padding: 0.4rem 0.625rem; color: var(--text-muted);">{{.CreatedAt.Format "Jan 2 15:04:05"}}</td>
+                        <td style="padding: 0.4rem 0.625rem; max-width: 11rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{.UserEmail}}</td>
+                        <td style="padding: 0.4rem 0.625rem;"><code style="font-size: 0.75rem;">{{.Action}}</code></td>
+                        <td style="padding: 0.4rem 0.625rem;">{{.Resource}}{{if .ResourceID}}<br><span style="color:var(--text-muted);font-size:0.7rem;font-family:monospace;">{{slice .ResourceID 0 8}}…</span>{{end}}</td>
+                        <td style="padding: 0.4rem 0.625rem;">
+                            {{if .Details}}
+                            <span class="audit-details-preview">{{range $k, $v := .Details}}<span style="color:var(--text-muted);">{{$k}}:</span> {{$v}} {{end}}</span>
+                            <a href="#" class="audit-more-link" style="display:none; font-size:0.75rem; color:var(--primary); white-space:nowrap;" data-details="{{range $k, $v := .Details}}{{$k}}: {{$v}}&#10;{{end}}">More ›</a>
+                            {{end}}
+                        </td>
                     </tr>
                 {{end}}
                 </tbody>
             </table>
             {{if gt .TotalPages 1}}
-            <div style="margin-top: 1rem; display: flex; gap: 0.5rem;">
+            <div style="margin-top: 0.75rem; display: flex; gap: 0.5rem;">
                 {{if gt .CurrentPage 1}}<a href="/cm/audit?page={{subtract .CurrentPage 1}}" class="btn btn-outline">Previous</a>{{end}}
                 {{if lt .CurrentPage .TotalPages}}<a href="/cm/audit?page={{add .CurrentPage 1}}" class="btn btn-outline">Next</a>{{end}}
             </div>
             {{end}}
         </div>
+
+        <!-- Details modal -->
+        <div id="audit-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:1000; align-items:center; justify-content:center;">
+            <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:12px; padding:1.5rem; max-width:560px; width:90%; max-height:80vh; overflow-y:auto; position:relative;">
+                <button onclick="document.getElementById('audit-modal').style.display='none'" style="position:absolute; top:0.75rem; right:1rem; background:none; border:none; color:var(--text-muted); font-size:1.25rem; cursor:pointer;">&times;</button>
+                <h3 style="margin-bottom:1rem; font-size:1rem;">Entry Details</h3>
+                <pre id="audit-modal-body" style="white-space:pre-wrap; font-size:0.8125rem; color:var(--text); font-family:monospace; line-height:1.6;"></pre>
+            </div>
+        </div>
+
+        <style>
+        .audit-details-preview {
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            line-height: 1.4;
+        }
+        .audit-details-preview.clipped + .audit-more-link { display: inline !important; }
+        </style>
+        <script>
+        // Show "More ›" only on rows whose preview text actually overflows 2 lines
+        document.querySelectorAll('.audit-details-preview').forEach(function(el) {
+            if (el.scrollHeight > el.clientHeight + 2) {
+                el.classList.add('clipped');
+            }
+        });
+        // Modal open
+        document.querySelectorAll('.audit-more-link').forEach(function(a) {
+            a.addEventListener('click', function(e) {
+                e.preventDefault();
+                document.getElementById('audit-modal-body').textContent = this.dataset.details;
+                var modal = document.getElementById('audit-modal');
+                modal.style.display = 'flex';
+            });
+        });
+        // Close on backdrop click
+        document.getElementById('audit-modal').addEventListener('click', function(e) {
+            if (e.target === this) this.style.display = 'none';
+        });
+        </script>
     ` + adminLayoutEnd,
 }
 
