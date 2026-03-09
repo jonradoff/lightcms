@@ -48,6 +48,20 @@ func (s *ContentService) triggerEmbedding(contentID primitive.ObjectID) {
 	}()
 }
 
+// triggerKeywordRebuild asynchronously rebuilds the search keyword cache
+func (s *ContentService) triggerKeywordRebuild() {
+	if s.searchService == nil {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := s.searchService.RebuildKeywords(ctx); err != nil {
+			fmt.Printf("Warning: failed to rebuild search keywords: %v\n", err)
+		}
+	}()
+}
+
 // CreateContent creates new content and saves the initial version
 func (s *ContentService) CreateContent(ctx context.Context, content *models.Content, versionComment ...string) error {
 	now := time.Now()
@@ -165,6 +179,9 @@ func (s *ContentService) UpdateContent(ctx context.Context, content *models.Cont
 		s.removeStaticPage(content.FullPath)
 	}
 
+	// Rebuild search keyword cache when content changes
+	s.triggerKeywordRebuild()
+
 	return nil
 }
 
@@ -218,6 +235,9 @@ func (s *ContentService) DeleteContent(ctx context.Context, id primitive.ObjectI
 	// Remove static page
 	s.removeStaticPage(content.FullPath)
 
+	// Rebuild search keyword cache
+	s.triggerKeywordRebuild()
+
 	return nil
 }
 
@@ -246,6 +266,9 @@ func (s *ContentService) RestoreContent(ctx context.Context, id primitive.Object
 	if content.Published {
 		s.GenerateStaticPage(ctx, &content)
 	}
+
+	// Rebuild search keyword cache
+	s.triggerKeywordRebuild()
 
 	return nil
 }

@@ -46,6 +46,37 @@ func (a *APIHandler) APIEndUserSearch(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// APIEndUserSearchSuggest handles the authenticated API v1 suggest endpoint
+func (a *APIHandler) APIEndUserSearchSuggest(w http.ResponseWriter, r *http.Request) {
+	prefix := r.URL.Query().Get("q")
+	if prefix == "" || len(prefix) < 2 {
+		a.jsonResponse(w, http.StatusOK, map[string]interface{}{
+			"keywords": []string{},
+			"pages":    []interface{}{},
+		})
+		return
+	}
+
+	if len(prefix) > 100 {
+		prefix = prefix[:100]
+	}
+
+	limit := 8
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 20 {
+			limit = parsed
+		}
+	}
+
+	result, err := a.searchService.Suggest(r.Context(), prefix, limit)
+	if err != nil {
+		a.jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	a.jsonResponse(w, http.StatusOK, result)
+}
+
 // APIReindexEmbeddings triggers batch embedding generation via API
 func (a *APIHandler) APIReindexEmbeddings(w http.ResponseWriter, r *http.Request) {
 	processed, errCount, err := a.searchService.BatchGenerateEmbeddings(r.Context())

@@ -107,12 +107,21 @@ func main() {
 
 	// Initialize search service (always available; semantic search requires Voyage API key)
 	searchService := services.NewSearchService(db, cfg.VoyageAPIKey)
+	contentService.SetSearchService(searchService) // Always set — needed for keyword cache rebuild on content changes
 	if cfg.VoyageAPIKey != "" {
-		contentService.SetSearchService(searchService)
 		log.Println("End-user search enabled (fulltext + semantic via Voyage AI)")
 	} else {
 		log.Println("End-user search enabled (fulltext only — set VOYAGE_API_KEY for semantic search)")
 	}
+
+	// Build search keyword cache on startup
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := searchService.RebuildKeywords(ctx); err != nil {
+			log.Printf("Warning: failed to build search keywords: %v", err)
+		}
+	}()
 
 	// Start content change watcher for real-time sync with database changes
 	// This enables automatic static page regeneration when content is modified via MCP
@@ -327,6 +336,7 @@ func main() {
 
 	// End-user search (authenticated API)
 	apiv1.HandleFunc("/end-user-search", apiHandler.APIEndUserSearch).Methods("GET")
+	apiv1.HandleFunc("/end-user-search/suggest", apiHandler.APIEndUserSearchSuggest).Methods("GET")
 	apiv1.HandleFunc("/reindex-embeddings", apiHandler.APIReindexEmbeddings).Methods("POST")
 
 	// API Keys
@@ -352,6 +362,7 @@ func main() {
 	api.HandleFunc("/tools/broken-links/scan", h.BrokenLinkScan).Methods("GET")    // Auth checked in handler
 	api.HandleFunc("/tools/fix-link", h.FixBrokenLink).Methods("POST")             // Auth checked in handler
 	api.HandleFunc("/search", h.EndUserSearch).Methods("GET")                       // Public end-user search
+	api.HandleFunc("/search/suggest", h.EndUserSearchSuggest).Methods("GET")       // Public typeahead suggestions
 
 	// OAuth 2.1 endpoints (no auth middleware — these implement their own auth)
 	r.HandleFunc("/oauth/register", oauthHandler.Register).Methods("POST")

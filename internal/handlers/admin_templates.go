@@ -5024,8 +5024,11 @@ var adminTemplates = map[string]string{
         <div class="info-card" style="margin-bottom: 1.5rem;">
             <h2 style="margin-top: 0; font-size: 1.25rem;">Test Search</h2>
             <div style="display: flex; gap: 0.75rem; margin-bottom: 1rem; flex-wrap: wrap;">
-                <input type="text" id="search-query" placeholder="Enter search query..."
-                    style="flex: 1; min-width: 200px; padding: 0.625rem 1rem; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 0.9375rem;">
+                <div style="flex: 1; min-width: 200px; position: relative;">
+                    <input type="text" id="search-query" placeholder="Enter search query..." autocomplete="off"
+                        style="width: 100%; padding: 0.625rem 1rem; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 0.9375rem;">
+                    <div id="suggest-dropdown" style="display: none; position: absolute; top: 100%; left: 0; right: 0; z-index: 100; background: var(--bg-card); border: 1px solid var(--border); border-radius: 0 0 8px 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); max-height: 320px; overflow-y: auto;"></div>
+                </div>
                 <select id="search-mode" style="padding: 0.625rem 1rem; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 8px; color: var(--text);">
                     <option value="hybrid">Hybrid</option>
                     <option value="exact">Exact Match</option>
@@ -5079,6 +5082,19 @@ var adminTemplates = map[string]string{
     }
   ]
 }</code></pre>
+
+            <h3 style="font-size: 1rem; margin-bottom: 0.5rem;">Typeahead Suggest API</h3>
+            <pre style="background: var(--bg-dark); padding: 1rem; border-radius: 8px; overflow-x: auto; font-size: 0.875rem; margin-bottom: 1rem;"><code>GET {{.BaseURL}}/api/search/suggest?q=PREFIX&limit=8
+
+Response:
+{
+  "keywords": ["game design", "monetization", ...],
+  "pages": [{"title": "Page Title", "path": "/my-page"}, ...]
+}</code></pre>
+            <p style="color: var(--text-muted); margin-bottom: 1rem; font-size: 0.875rem;">
+                Keywords are extracted from titles and descriptions of published content, updated automatically on publish/delete.
+                Selecting a keyword triggers a search; selecting a page navigates directly.
+            </p>
 
             <h3 style="font-size: 1rem; margin-bottom: 0.5rem;">JavaScript Example</h3>
             <pre style="background: var(--bg-dark); padding: 1rem; border-radius: 8px; overflow-x: auto; font-size: 0.875rem; margin-bottom: 1rem;"><code>&lt;input type="text" id="site-search" placeholder="Search..."&gt;
@@ -5183,6 +5199,83 @@ document.getElementById('site-search').addEventListener('input', async (e) => {
             var div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
+        }
+
+        // Typeahead suggest
+        var suggestTimer = null;
+        var searchInput = document.getElementById('search-query');
+        var suggestDropdown = document.getElementById('suggest-dropdown');
+
+        searchInput.addEventListener('input', function() {
+            clearTimeout(suggestTimer);
+            var q = searchInput.value.trim();
+            if (q.length < 2) {
+                suggestDropdown.style.display = 'none';
+                return;
+            }
+            suggestTimer = setTimeout(function() { fetchSuggestions(q); }, 200);
+        });
+
+        searchInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                suggestDropdown.style.display = 'none';
+            }
+        });
+
+        document.addEventListener('click', function(e) {
+            if (!searchInput.contains(e.target) && !suggestDropdown.contains(e.target)) {
+                suggestDropdown.style.display = 'none';
+            }
+        });
+
+        async function fetchSuggestions(q) {
+            try {
+                var res = await fetch('/api/search/suggest?q=' + encodeURIComponent(q) + '&limit=8');
+                var data = await res.json();
+                renderSuggestions(data);
+            } catch (err) {
+                suggestDropdown.style.display = 'none';
+            }
+        }
+
+        function renderSuggestions(data) {
+            var html = '';
+            if (data.keywords && data.keywords.length > 0) {
+                html += '<div style="padding: 0.375rem 0.75rem; font-size: 0.7rem; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em;">Keywords</div>';
+                data.keywords.forEach(function(kw) {
+                    html += '<div class="suggest-item" data-type="keyword" data-value="' + escapeHtml(kw) + '" style="padding: 0.5rem 0.75rem; cursor: pointer; font-size: 0.875rem; color: var(--text);">' +
+                        '<span style="margin-right: 0.5rem; color: var(--text-muted);">&#x1F50D;</span>' + escapeHtml(kw) + '</div>';
+                });
+            }
+            if (data.pages && data.pages.length > 0) {
+                html += '<div style="padding: 0.375rem 0.75rem; font-size: 0.7rem; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em; border-top: 1px solid var(--border);">Pages</div>';
+                data.pages.forEach(function(p) {
+                    html += '<div class="suggest-item" data-type="page" data-path="' + escapeHtml(p.path) + '" data-value="' + escapeHtml(p.title) + '" style="padding: 0.5rem 0.75rem; cursor: pointer; font-size: 0.875rem; color: var(--text);">' +
+                        '<span style="margin-right: 0.5rem; color: var(--text-muted);">&#x1F4C4;</span>' + escapeHtml(p.title) +
+                        '<span style="float: right; font-size: 0.75rem; color: var(--text-muted);">' + escapeHtml(p.path) + '</span></div>';
+                });
+            }
+            if (!html) {
+                suggestDropdown.style.display = 'none';
+                return;
+            }
+            suggestDropdown.innerHTML = html;
+            suggestDropdown.style.display = 'block';
+
+            // Add hover + click handlers
+            suggestDropdown.querySelectorAll('.suggest-item').forEach(function(item) {
+                item.addEventListener('mouseenter', function() { this.style.background = 'var(--bg-hover)'; });
+                item.addEventListener('mouseleave', function() { this.style.background = 'transparent'; });
+                item.addEventListener('click', function() {
+                    if (this.dataset.type === 'page') {
+                        window.open(this.dataset.path, '_blank');
+                    } else {
+                        searchInput.value = this.dataset.value;
+                        suggestDropdown.style.display = 'none';
+                        doSearch();
+                    }
+                });
+            });
         }
 
         // Reindex

@@ -155,6 +155,59 @@ func (h *Handler) EndUserSearch(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// EndUserSearchSuggest handles the public typeahead suggest endpoint (no auth required)
+func (h *Handler) EndUserSearchSuggest(w http.ResponseWriter, r *http.Request) {
+	// Share rate limiting with search
+	if checkGlobalSearchRateLimit() {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Retry-After", "60")
+		w.WriteHeader(http.StatusTooManyRequests)
+		json.NewEncoder(w).Encode(map[string]string{"error": "service temporarily overloaded, try again later"})
+		return
+	}
+	if checkSearchRateLimit(r) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Retry-After", "60")
+		w.WriteHeader(http.StatusTooManyRequests)
+		json.NewEncoder(w).Encode(map[string]string{"error": "rate limit exceeded, try again later"})
+		return
+	}
+
+	prefix := r.URL.Query().Get("q")
+	if prefix == "" || len(prefix) < 2 {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"keywords": []string{},
+			"pages":    []interface{}{},
+		})
+		return
+	}
+
+	if len(prefix) > 100 {
+		prefix = prefix[:100]
+	}
+
+	limit := 8
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 20 {
+			limit = parsed
+		}
+	}
+
+	result, err := h.searchService.Suggest(r.Context(), prefix, limit)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	json.NewEncoder(w).Encode(result)
+}
+
 // SearchToolPage renders the admin search tool page
 func (h *Handler) SearchToolPage(w http.ResponseWriter, r *http.Request) {
 	if !h.auth.IsAuthenticated(r) {

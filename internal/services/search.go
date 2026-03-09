@@ -69,11 +69,26 @@ type SearchResult struct {
 	MatchType string  `json:"match_type"`
 }
 
+// SuggestResult holds typeahead suggestions
+type SuggestResult struct {
+	Keywords []string       `json:"keywords"`
+	Pages    []SuggestPage  `json:"pages"`
+}
+
+// SuggestPage is a title+path pair for direct navigation
+type SuggestPage struct {
+	Title string `json:"title"`
+	Path  string `json:"path"`
+}
+
 // SearchService handles end-user search with full-text and semantic (vector) search
 type SearchService struct {
 	db           *database.DB
 	voyageAPIKey string
 	httpClient   *http.Client
+
+	keywordsMu sync.RWMutex
+	keywords   []string // cached extracted keywords, sorted by frequency desc
 }
 
 // NewSearchService creates a new search service
@@ -385,6 +400,180 @@ func (s *SearchService) EmbeddingStats(ctx context.Context) (total, withEmbeddin
 	}
 	withEmbedding, err = s.db.Count(ctx, "content", embeddedFilter)
 	return
+}
+
+// Suggest returns typeahead suggestions: matching keywords + title prefix matches
+func (s *SearchService) Suggest(ctx context.Context, prefix string, limit int) (*SuggestResult, error) {
+	if limit <= 0 || limit > 20 {
+		limit = 8
+	}
+	lowerPrefix := strings.ToLower(prefix)
+
+	// 1. Match cached keywords
+	s.keywordsMu.RLock()
+	allKeywords := s.keywords
+	s.keywordsMu.RUnlock()
+
+	var matchedKeywords []string
+	for _, kw := range allKeywords {
+		if strings.Contains(kw, lowerPrefix) {
+			matchedKeywords = append(matchedKeywords, kw)
+			if len(matchedKeywords) >= limit {
+				break
+			}
+		}
+	}
+
+	// 2. Title prefix match from DB
+	escaped := regexp.QuoteMeta(prefix)
+	filter := bson.M{
+		"published": true,
+		"deleted":   bson.M{"$ne": true},
+		"title": bson.M{
+			"$regex":   escaped,
+			"$options": "i",
+		},
+	}
+
+	var contents []models.Content
+	if err := s.db.FindAll(ctx, "content", filter, &contents); err != nil {
+		return nil, fmt.Errorf("suggest title lookup failed: %w", err)
+	}
+
+	var pages []SuggestPage
+	for i, c := range contents {
+		if i >= limit {
+			break
+		}
+		pages = append(pages, SuggestPage{
+			Title: c.Title,
+			Path:  c.FullPath,
+		})
+	}
+
+	return &SuggestResult{
+		Keywords: matchedKeywords,
+		Pages:    pages,
+	}, nil
+}
+
+// RebuildKeywords scans all published content and extracts common keywords.
+// Call this on startup and after content publish/unpublish/delete.
+func (s *SearchService) RebuildKeywords(ctx context.Context) error {
+	filter := bson.M{
+		"published": true,
+		"deleted":   bson.M{"$ne": true},
+	}
+
+	var contents []models.Content
+	if err := s.db.FindAll(ctx, "content", filter, &contents); err != nil {
+		return fmt.Errorf("failed to list content for keywords: %w", err)
+	}
+
+	// Count frequency of 1-3 word phrases from titles and meta descriptions
+	freq := make(map[string]int)
+	for _, c := range contents {
+		extractPhrases(c.Title, freq)
+		extractPhrases(c.MetaDescription, freq)
+	}
+
+	// Filter to phrases that appear in at least 2 pieces of content, or are from titles
+	// Sort by frequency descending
+	type kf struct {
+		keyword string
+		count   int
+	}
+	var sorted []kf
+	for phrase, count := range freq {
+		if count >= 2 && len(phrase) > 2 {
+			sorted = append(sorted, kf{phrase, count})
+		}
+	}
+	// Sort by frequency desc, then alphabetically
+	for i := 1; i < len(sorted); i++ {
+		for j := i; j > 0 && (sorted[j].count > sorted[j-1].count ||
+			(sorted[j].count == sorted[j-1].count && sorted[j].keyword < sorted[j-1].keyword)); j-- {
+			sorted[j], sorted[j-1] = sorted[j-1], sorted[j]
+		}
+	}
+
+	keywords := make([]string, 0, len(sorted))
+	for _, kv := range sorted {
+		keywords = append(keywords, kv.keyword)
+		if len(keywords) >= 500 { // cap at 500 keywords
+			break
+		}
+	}
+
+	s.keywordsMu.Lock()
+	s.keywords = keywords
+	s.keywordsMu.Unlock()
+
+	log.Printf("Search keywords rebuilt: %d terms from %d pages", len(keywords), len(contents))
+	return nil
+}
+
+// stopWords are common English words to exclude from keyword extraction
+var stopWords = map[string]bool{
+	"a": true, "an": true, "the": true, "and": true, "or": true, "but": true,
+	"in": true, "on": true, "at": true, "to": true, "for": true, "of": true,
+	"with": true, "by": true, "from": true, "is": true, "it": true, "as": true,
+	"be": true, "was": true, "are": true, "were": true, "been": true, "has": true,
+	"have": true, "had": true, "do": true, "does": true, "did": true, "will": true,
+	"would": true, "could": true, "should": true, "may": true, "might": true,
+	"not": true, "no": true, "if": true, "then": true, "than": true, "so": true,
+	"up": true, "out": true, "about": true, "into": true, "over": true, "after": true,
+	"this": true, "that": true, "these": true, "those": true, "what": true, "which": true,
+	"who": true, "how": true, "when": true, "where": true, "why": true, "all": true,
+	"each": true, "every": true, "both": true, "few": true, "more": true, "most": true,
+	"other": true, "some": true, "such": true, "only": true, "own": true, "same": true,
+	"also": true, "can": true, "just": true, "your": true, "you": true, "we": true,
+	"our": true, "its": true, "his": true, "her": true, "my": true, "their": true,
+	"i": true, "me": true, "he": true, "she": true, "they": true, "them": true,
+	"us": true, "him": true, "am": true, "get": true, "new": true,
+}
+
+// wordSplitter splits text on non-alphanumeric characters
+var wordSplitter = regexp.MustCompile(`[^a-zA-Z0-9]+`)
+
+// extractPhrases extracts 1-3 word phrases from text and adds them to the frequency map
+func extractPhrases(text string, freq map[string]int) {
+	if text == "" {
+		return
+	}
+	// Clean and split into words
+	cleaned := wordSplitter.ReplaceAllString(text, " ")
+	words := strings.Fields(strings.ToLower(cleaned))
+
+	// Extract single words (excluding stop words and short words)
+	for _, w := range words {
+		if len(w) > 2 && !stopWords[w] {
+			freq[w]++
+		}
+	}
+
+	// Extract 2-word phrases
+	for i := 0; i < len(words)-1; i++ {
+		if stopWords[words[i]] && stopWords[words[i+1]] {
+			continue
+		}
+		phrase := words[i] + " " + words[i+1]
+		if len(phrase) > 4 {
+			freq[phrase]++
+		}
+	}
+
+	// Extract 3-word phrases
+	for i := 0; i < len(words)-2; i++ {
+		// Skip if all three are stop words
+		if stopWords[words[i]] && stopWords[words[i+1]] && stopWords[words[i+2]] {
+			continue
+		}
+		phrase := words[i] + " " + words[i+1] + " " + words[i+2]
+		if len(phrase) > 6 {
+			freq[phrase]++
+		}
+	}
 }
 
 // generateEmbedding calls Voyage AI API to generate a vector embedding
