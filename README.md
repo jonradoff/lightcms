@@ -37,9 +37,10 @@ A lightweight, AI-native content management system for building and managing web
 
 ### Smart End-User Search
 - **Hybrid Search**: Combines full-text exact matching with semantic vector search (Voyage AI embeddings), merged via reciprocal rank fusion
-- **Intelligent Ranking**: Results ranked by structural importance — nav-linked pages surface first, followed by concept pages, then general content; video transcripts are deprioritised
+- **Configurable Ranking**: All ranking weights editable in the admin panel — nav boost, title boost, boosted templates, demoted path prefixes, and penalty scores
+- **Intelligent Defaults**: Nav-linked pages surface first, concept-template pages rank above generic content, video transcripts are deprioritised
 - **Title Boost**: Pages where the query appears in the title always rank above body-only matches
-- **Typeahead Suggestions**: Fast prefix-matching page suggestions with the same structural ranking
+- **Typeahead Suggestions**: Fast prefix-matching suggestions — pages for direct navigation, keywords for full search — with the same structural ranking
 - **Works Without Embeddings**: Falls back to full-text search if no Voyage API key is configured
 - **Rate Limiting**: Per-IP and global rate limiting for DDoS protection
 
@@ -226,13 +227,97 @@ Collections display grouped content (like a blog listing page).
 
 ### End-User Search
 
-LightCMS exposes a public search API at `/api/search` that your site's frontend can call. It supports three modes:
+LightCMS exposes a public search API at `/api/search` that your site's frontend can call.
 
-- `mode=fulltext` — exact regex match across all content
-- `mode=semantic` — vector similarity search (requires Voyage AI key)
-- `mode=hybrid` — merges both using reciprocal rank fusion (recommended)
+#### Search API
 
-Results are ranked by: title match → nav-linked pages → concept pages → general body content → video transcripts. Configure your Voyage AI key in the admin panel under **Configuration** to enable semantic search.
+```
+GET /api/search?q=QUERY&mode=hybrid&limit=10
+```
+
+| Parameter | Description |
+|-----------|-------------|
+| `q` | Search query (required) |
+| `mode` | `hybrid` (default), `fulltext`, or `semantic` |
+| `limit` | Max results 1–50 (default 10) |
+
+```json
+{
+  "query": "game design",
+  "mode": "hybrid",
+  "total": 3,
+  "results": [
+    { "id": "...", "title": "Game Design", "full_path": "/concepts/game-design",
+      "snippet": "...matching context...", "score": 0.97, "match_type": "both" }
+  ]
+}
+```
+
+`match_type` is `exact`, `semantic`, or `both`.
+
+#### Typeahead Suggest API
+
+```
+GET /api/search/suggest?q=PREFIX&limit=8
+```
+
+Returns two lists for building a live typeahead dropdown:
+
+```json
+{
+  "keywords": ["game design", "game mechanics"],
+  "pages":    [{"title": "About Jon Radoff", "path": "/about"}]
+}
+```
+
+- **keywords** — extracted from published content; clicking one triggers a full search
+- **pages** — direct-navigation results, ranked by: nav-linked → boosted-template → title-starts-with → title-contains → demoted paths
+
+#### JavaScript Example
+
+```html
+<input type="text" id="q" placeholder="Search..." autocomplete="off">
+<ul id="suggest"></ul>
+<div id="results"></div>
+
+<script>
+const input = document.getElementById('q');
+const suggest = document.getElementById('suggest');
+const results = document.getElementById('results');
+let timer;
+
+// Typeahead while typing
+input.addEventListener('input', () => {
+  clearTimeout(timer);
+  const q = input.value.trim();
+  if (q.length < 2) { suggest.innerHTML = ''; return; }
+  timer = setTimeout(async () => {
+    const r = await fetch('/api/search/suggest?q=' + encodeURIComponent(q) + '&limit=8');
+    const d = await r.json();
+    suggest.innerHTML = [
+      ...(d.pages    || []).map(p => `<li><a href="${p.path}">📄 ${p.title}</a></li>`),
+      ...(d.keywords || []).map(k => `<li><a onclick="doSearch('${k}')">🔍 ${k}</a></li>`),
+    ].join('');
+  }, 200);
+});
+
+// Full search on Enter
+input.addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(input.value); });
+
+async function doSearch(q) {
+  suggest.innerHTML = '';
+  const r = await fetch('/api/search?q=' + encodeURIComponent(q) + '&mode=hybrid&limit=10');
+  const d = await r.json();
+  results.innerHTML = (d.results || [])
+    .map(r => `<div><a href="${r.full_path}"><strong>${r.title}</strong></a><p>${r.snippet}</p></div>`)
+    .join('') || '<p>No results.</p>';
+}
+</script>
+```
+
+#### Ranking Configuration
+
+Ranking weights are configurable in the admin panel under **Tools → End User Search → Search Ranking**. Defaults: title-match boost 0.20, nav-page boost 0.15, concept-template boost 0.05, video-path penalty −0.05. Configure your Voyage AI key under **Configuration** to enable semantic search.
 
 ## Project Structure
 

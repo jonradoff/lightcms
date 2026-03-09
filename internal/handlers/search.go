@@ -2,12 +2,16 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"lightcms/internal/auth"
+	"lightcms/internal/database"
 )
 
 // searchRateLimiter tracks per-IP request counts for the public search endpoint
@@ -215,10 +219,17 @@ func (h *Handler) SearchToolPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	searchCfg, _ := h.db.GetSearchConfig(r.Context())
+	if searchCfg == nil {
+		searchCfg = database.DefaultSearchConfig()
+	}
+
 	data := map[string]interface{}{
-		"SearchEnabled":    true,
-		"SemanticEnabled":  h.searchService.HasVoyageKey(),
-		"BaseURL":          h.baseURL,
+		"SearchEnabled":       true,
+		"SemanticEnabled":     h.searchService.HasVoyageKey(),
+		"BaseURL":             h.baseURL,
+		"SearchRankingConfig": searchCfg,
+		"SavedConfig":         r.URL.Query().Get("saved") == "1",
 	}
 
 	total, withEmbedding, err := h.searchService.EmbeddingStats(r.Context())
@@ -228,6 +239,66 @@ func (h *Handler) SearchToolPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.renderAdmin(w, r, "search_tool", data)
+}
+
+// SearchToolSaveConfig saves search ranking configuration (admin only)
+func (h *Handler) SearchToolSaveConfig(w http.ResponseWriter, r *http.Request) {
+	user, ok := h.auth.GetCurrentUser(r)
+	if !ok || !auth.HasPermission(user.Role, auth.PermSettingsEdit) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
+		return
+	}
+
+	parseFloat := func(key string, fallback float64) float64 {
+		v, err := strconv.ParseFloat(strings.TrimSpace(r.FormValue(key)), 64)
+		if err != nil {
+			return fallback
+		}
+		return v
+	}
+	parseLines := func(key string) []string {
+		raw := strings.TrimSpace(r.FormValue(key))
+		if raw == "" {
+			return nil
+		}
+		var out []string
+		for _, line := range strings.Split(raw, "\n") {
+			if s := strings.TrimSpace(line); s != "" {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+
+	def := database.DefaultSearchConfig()
+	cfg := &database.SearchConfig{
+		NavBoost:           clampFloat(parseFloat("nav_boost", def.NavBoost), -1, 1),
+		TitleBoost:         clampFloat(parseFloat("title_boost", def.TitleBoost), 0, 1),
+		BoostTemplates:     parseLines("boost_templates"),
+		BoostTemplateScore: clampFloat(parseFloat("boost_template_score", def.BoostTemplateScore), -1, 1),
+		DemotePathPrefixes: parseLines("demote_path_prefixes"),
+		DemoteScore:        clampFloat(parseFloat("demote_score", def.DemoteScore), -1, 1),
+	}
+
+	if err := h.db.SaveSearchConfig(r.Context(), cfg); err != nil {
+		http.Error(w, fmt.Sprintf("Failed to save: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Invalidate service cache so changes take effect immediately
+	h.searchService.InvalidateSearchConfigCache()
+
+	http.Redirect(w, r, "/cm/tools/search?saved=1", http.StatusSeeOther)
+}
+
+func clampFloat(v, min, max float64) float64 {
+	if v < min {
+		return min
+	}
+	if v > max {
+		return max
+	}
+	return v
 }
 
 // SearchToolTest handles the admin AJAX search test endpoint

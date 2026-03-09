@@ -5014,6 +5014,68 @@ var adminTemplates = map[string]string{
         </div>
         {{end}}
 
+        <!-- Search Ranking Configuration -->
+        {{if .SearchRankingConfig}}
+        <div class="info-card" style="margin-bottom: 1.5rem;">
+            <h2 style="margin-top: 0; font-size: 1.25rem;">Search Ranking</h2>
+            <p style="color: var(--text-muted); margin-bottom: 1.25rem; font-size: 0.875rem;">
+                Controls how results are prioritised. Nav-linked pages are detected automatically from your header HTML.
+                Leave a field blank or at zero to disable that factor.
+            </p>
+            {{if .SavedConfig}}<div style="margin-bottom: 1rem; padding: 0.625rem 1rem; background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.3); border-radius: 8px; color: var(--success); font-size: 0.875rem;">Settings saved.</div>{{end}}
+            <form method="POST" action="/cm/tools/search/config">
+                {{.CSRFField}}
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin-bottom: 1.25rem;">
+                    <div>
+                        <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.375rem;">Title Match Boost</label>
+                        <input type="number" name="title_boost" step="0.01" min="0" max="1"
+                            value="{{.SearchRankingConfig.TitleBoost}}"
+                            style="width: 100%; padding: 0.5rem 0.75rem; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 6px; color: var(--text);">
+                        <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">Added when query appears in page title (default 0.20)</div>
+                    </div>
+                    <div>
+                        <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.375rem;">Nav Page Boost</label>
+                        <input type="number" name="nav_boost" step="0.01" min="-1" max="1"
+                            value="{{.SearchRankingConfig.NavBoost}}"
+                            style="width: 100%; padding: 0.5rem 0.75rem; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 6px; color: var(--text);">
+                        <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">Boost for pages linked from site navigation (default 0.15)</div>
+                    </div>
+                    <div>
+                        <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.375rem;">Template Boost Score</label>
+                        <input type="number" name="boost_template_score" step="0.01" min="-1" max="1"
+                            value="{{.SearchRankingConfig.BoostTemplateScore}}"
+                            style="width: 100%; padding: 0.5rem 0.75rem; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 6px; color: var(--text);">
+                        <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">Boost for pages using a boosted template (default 0.05)</div>
+                    </div>
+                    <div>
+                        <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.375rem;">Demotion Score</label>
+                        <input type="number" name="demote_score" step="0.01" min="-1" max="1"
+                            value="{{.SearchRankingConfig.DemoteScore}}"
+                            style="width: 100%; padding: 0.5rem 0.75rem; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 6px; color: var(--text);">
+                        <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">Score penalty for demoted paths (default -0.05)</div>
+                    </div>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin-bottom: 1.25rem;">
+                    <div>
+                        <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.375rem;">Boosted Templates <span style="font-weight: normal;">(one per line)</span></label>
+                        <textarea name="boost_templates" rows="4"
+                            style="width: 100%; padding: 0.5rem 0.75rem; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-family: monospace; font-size: 0.875rem; resize: vertical;">{{range .SearchRankingConfig.BoostTemplates}}{{.}}
+{{end}}</textarea>
+                        <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">Template name substrings that get a ranking boost (e.g. concept)</div>
+                    </div>
+                    <div>
+                        <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.375rem;">Demoted Path Prefixes <span style="font-weight: normal;">(one per line)</span></label>
+                        <textarea name="demote_path_prefixes" rows="4"
+                            style="width: 100%; padding: 0.5rem 0.75rem; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-family: monospace; font-size: 0.875rem; resize: vertical;">{{range .SearchRankingConfig.DemotePathPrefixes}}{{.}}
+{{end}}</textarea>
+                        <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">URL path prefixes to rank lower (e.g. /videos/)</div>
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary">Save Ranking Config</button>
+            </form>
+        </div>
+        {{end}}
+
         <!-- Test Search -->
         <div class="info-card" style="margin-bottom: 1.5rem;">
             <h2 style="margin-top: 0; font-size: 1.25rem;">Test Search</h2>
@@ -5078,34 +5140,69 @@ var adminTemplates = map[string]string{
 }</code></pre>
 
             <h3 style="font-size: 1rem; margin-bottom: 0.5rem;">Typeahead Suggest API</h3>
-            <pre style="background: var(--bg-dark); padding: 1rem; border-radius: 8px; overflow-x: auto; font-size: 0.875rem; margin-bottom: 1rem;"><code>GET {{.BaseURL}}/api/search/suggest?q=PREFIX&limit=8
-
-Response:
-{
-  "keywords": ["game design", "monetization", ...],
-  "pages": [{"title": "Page Title", "path": "/my-page"}, ...]
+            <pre style="background: var(--bg-dark); padding: 1rem; border-radius: 8px; overflow-x: auto; font-size: 0.875rem; margin-bottom: 0.5rem;"><code>GET {{.BaseURL}}/api/search/suggest?q=PREFIX&amp;limit=8</code></pre>
+            <table style="width: 100%; margin-bottom: 1rem; font-size: 0.875rem;">
+                <tr style="border-bottom: 1px solid var(--border);">
+                    <td style="padding: 0.5rem; font-weight: 500;">q</td>
+                    <td style="padding: 0.5rem; color: var(--text-muted);">Prefix to match (required, min 2 chars)</td>
+                </tr>
+                <tr>
+                    <td style="padding: 0.5rem; font-weight: 500;">limit</td>
+                    <td style="padding: 0.5rem; color: var(--text-muted);">Max suggestions 1–20 (default 8)</td>
+                </tr>
+            </table>
+            <pre style="background: var(--bg-dark); padding: 1rem; border-radius: 8px; overflow-x: auto; font-size: 0.875rem; margin-bottom: 1rem;"><code>{
+  "keywords": ["game design", "game mechanics", ...],
+  "pages": [
+    {"title": "About Jon Radoff", "path": "/about"},
+    {"title": "Game Design", "path": "/concepts/game-design"}
+  ]
 }</code></pre>
             <p style="color: var(--text-muted); margin-bottom: 1rem; font-size: 0.875rem;">
-                Keywords are extracted from titles and descriptions of published content, updated automatically on publish/delete.
-                Selecting a keyword triggers a search; selecting a page navigates directly.
+                <strong>keywords</strong> are extracted from titles/descriptions of published content and updated on publish/delete.
+                Clicking a keyword triggers a full search for that term.<br>
+                <strong>pages</strong> are direct-navigation results, ranked by: nav-linked &rsaquo; boosted-template &rsaquo; title-starts-with &rsaquo; title-contains &rsaquo; demoted paths.
+                Clicking a page navigates directly without a search round-trip.
             </p>
 
-            <h3 style="font-size: 1rem; margin-bottom: 0.5rem;">JavaScript Example</h3>
-            <pre style="background: var(--bg-dark); padding: 1rem; border-radius: 8px; overflow-x: auto; font-size: 0.875rem; margin-bottom: 1rem;"><code>&lt;input type="text" id="site-search" placeholder="Search..."&gt;
+            <h3 style="font-size: 1rem; margin-bottom: 0.5rem;">Full Search + Suggest Together (JavaScript)</h3>
+            <pre style="background: var(--bg-dark); padding: 1rem; border-radius: 8px; overflow-x: auto; font-size: 0.875rem; margin-bottom: 1rem;"><code>&lt;input type="text" id="q" placeholder="Search..." autocomplete="off"&gt;
+&lt;ul id="suggest"&gt;&lt;/ul&gt;
 &lt;div id="results"&gt;&lt;/div&gt;
 
 &lt;script&gt;
-document.getElementById('site-search').addEventListener('input', async (e) => {
-  const q = e.target.value.trim();
-  if (q.length < 2) return;
-  const res = await fetch('/api/search?q=' + encodeURIComponent(q));
-  const data = await res.json();
-  document.getElementById('results').innerHTML = data.results
-    .map(r => '&lt;a href="' + r.full_path + '"&gt;' +
-      '&lt;strong&gt;' + r.title + '&lt;/strong&gt;' +
-      '&lt;p&gt;' + r.snippet + '&lt;/p&gt;&lt;/a&gt;')
-    .join('');
+const input = document.getElementById('q');
+const suggest = document.getElementById('suggest');
+const results = document.getElementById('results');
+let timer;
+
+// Typeahead: show suggestions while typing
+input.addEventListener('input', () => {
+  clearTimeout(timer);
+  const q = input.value.trim();
+  if (q.length &lt; 2) { suggest.innerHTML = ''; return; }
+  timer = setTimeout(async () => {
+    const r = await fetch('/api/search/suggest?q=' + encodeURIComponent(q) + '&amp;limit=8');
+    const d = await r.json();
+    suggest.innerHTML = [
+      ...(d.pages  || []).map(p =&gt; '&lt;li&gt;&lt;a href="' + p.path + '"&gt;&#x1F4C4; ' + p.title + '&lt;/a&gt;&lt;/li&gt;'),
+      ...(d.keywords || []).map(k =&gt; '&lt;li&gt;&lt;a onclick="doSearch(\'' + k + '\')"&gt;&#x1F50D; ' + k + '&lt;/a&gt;&lt;/li&gt;'),
+    ].join('');
+  }, 200);
 });
+
+// Full search on Enter
+input.addEventListener('keydown', e =&gt; { if (e.key === 'Enter') doSearch(input.value); });
+
+async function doSearch(q) {
+  suggest.innerHTML = '';
+  const r = await fetch('/api/search?q=' + encodeURIComponent(q) + '&amp;mode=hybrid&amp;limit=10');
+  const d = await r.json();
+  results.innerHTML = (d.results || []).map(function(r) {
+    return '&lt;div&gt;&lt;a href="' + r.full_path + '"&gt;&lt;strong&gt;' + r.title + '&lt;/strong&gt;&lt;/a&gt;' +
+           '&lt;p&gt;' + r.snippet + '&lt;/p&gt;&lt;/div&gt;';
+  }).join('') || '&lt;p&gt;No results.&lt;/p&gt;';
+}
 &lt;/script&gt;</code></pre>
 
             <h3 style="font-size: 1rem; margin-bottom: 0.5rem;">MongoDB Atlas Vector Search Index</h3>

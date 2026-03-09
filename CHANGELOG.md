@@ -4,6 +4,22 @@ All notable changes to LightCMS are documented here, organized by version.
 
 ---
 
+## v2.0.1 — Configurable Search Ranking
+
+### Configurable Search Ranking
+- All search ranking parameters are now stored in the database (`settings` collection, `type=search_config`) and editable from the admin panel at **Tools → End User Search → Search Ranking**
+- Previously hardcoded values (nav boost 0.15, title boost 0.20, concept template boost 0.05, `/videos/` demotion −0.05) are now the defaults that ship with every new install
+- Configurable fields: title match boost, nav page boost, boosted template name substrings (one per line), template boost score, demoted path prefixes (one per line), demotion penalty score
+- Values are clamped to −1.0…1.0 to prevent accidental misconfiguration
+- Changes take effect immediately — in-memory cache is invalidated on save
+- Save confirmation banner shown after successful update
+
+### Search API Documentation
+- Expanded typeahead suggest API documentation in the admin Integration Guide, including full parameter table, response schema, and a combined search+suggest JavaScript example
+- Updated README with full Search API and Suggest API reference sections including JavaScript example
+
+---
+
 ## v2.0.0 — Multi-User RBAC & Smart Search
 
 ### Multi-User Access Control

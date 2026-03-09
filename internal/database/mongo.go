@@ -552,6 +552,59 @@ func (db *DB) SaveSiteConfig(ctx context.Context, config *SiteConfig) error {
 	return err
 }
 
+// SearchConfig stores configurable search ranking parameters
+type SearchConfig struct {
+	ID                  primitive.ObjectID `bson:"_id,omitempty"`
+	NavBoost            float64            `bson:"nav_boost"`             // Score bonus for nav-linked pages (default 0.15)
+	TitleBoost          float64            `bson:"title_boost"`           // Score bonus when query appears in title (default 0.20)
+	BoostTemplates      []string           `bson:"boost_templates"`       // Template name substrings that get a boost (default ["concept"])
+	BoostTemplateScore  float64            `bson:"boost_template_score"`  // Score bonus for boosted templates (default 0.05)
+	DemotePathPrefixes  []string           `bson:"demote_path_prefixes"`  // URL path prefixes to deprioritise (default ["/videos/", "/video/"])
+	DemoteScore         float64            `bson:"demote_score"`          // Score penalty for demoted pages (default -0.05)
+	UpdatedAt           time.Time          `bson:"updated_at"`
+}
+
+// DefaultSearchConfig returns the built-in default search ranking configuration.
+func DefaultSearchConfig() *SearchConfig {
+	return &SearchConfig{
+		NavBoost:           0.15,
+		TitleBoost:         0.20,
+		BoostTemplates:     []string{"concept"},
+		BoostTemplateScore: 0.05,
+		DemotePathPrefixes: []string{"/videos/", "/video/"},
+		DemoteScore:        -0.05,
+	}
+}
+
+// GetSearchConfig retrieves the search ranking configuration.
+func (db *DB) GetSearchConfig(ctx context.Context) (*SearchConfig, error) {
+	var cfg SearchConfig
+	err := db.Settings().FindOne(ctx, bson.M{"type": "search_config"}).Decode(&cfg)
+	if err == mongo.ErrNoDocuments {
+		return DefaultSearchConfig(), nil
+	}
+	if err != nil {
+		return DefaultSearchConfig(), err
+	}
+	// If record exists but was saved with zero values, fill in defaults
+	if cfg.NavBoost == 0 && cfg.TitleBoost == 0 && len(cfg.BoostTemplates) == 0 && len(cfg.DemotePathPrefixes) == 0 {
+		return DefaultSearchConfig(), nil
+	}
+	return &cfg, nil
+}
+
+// SaveSearchConfig persists the search ranking configuration.
+func (db *DB) SaveSearchConfig(ctx context.Context, cfg *SearchConfig) error {
+	cfg.UpdatedAt = time.Now()
+	_, err := db.Settings().UpdateOne(
+		ctx,
+		bson.M{"type": "search_config"},
+		bson.M{"$set": cfg, "$setOnInsert": bson.M{"type": "search_config"}},
+		options.Update().SetUpsert(true),
+	)
+	return err
+}
+
 // DatabaseVersion tracks the software version used with the database
 type DatabaseVersion struct {
 	ID        primitive.ObjectID `bson:"_id,omitempty"`

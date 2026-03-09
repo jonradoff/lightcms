@@ -257,6 +257,7 @@ func main() {
 	admin.HandleFunc("/tools/search", h.SearchToolPage).Methods("GET")
 	admin.HandleFunc("/tools/search/test", h.SearchToolTest).Methods("GET")
 	admin.HandleFunc("/tools/search/reindex", h.SearchToolReindex).Methods("POST")
+	admin.HandleFunc("/tools/search/config", h.SearchToolSaveConfig).Methods("POST")
 
 	// REST API v1 routes (API key authenticated, JSON only)
 	apiKeyService := services.NewAPIKeyService(db)

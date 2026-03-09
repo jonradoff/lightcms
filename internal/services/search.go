@@ -90,9 +90,13 @@ type SearchService struct {
 	keywordsMu sync.RWMutex
 	keywords   []string // cached extracted keywords, sorted by frequency desc
 
-	navPathsMu      sync.RWMutex
-	navPaths        []string  // cached internal paths from site nav header HTML
+	navPathsMu       sync.RWMutex
+	navPaths         []string  // cached internal paths from site nav header HTML
 	navPathsCachedAt time.Time
+
+	searchConfigMu       sync.RWMutex
+	cachedSearchConfig   *database.SearchConfig
+	searchConfigCachedAt time.Time
 }
 
 // NewSearchService creates a new search service
@@ -159,21 +163,75 @@ func (s *SearchService) getNavPaths(ctx context.Context) map[string]bool {
 	return seen
 }
 
-// pathBoost returns a score bonus based on structural importance.
-// Nav-linked pages rank highest; concept pages get a moderate boost;
-// video transcript pages are deprioritised.
-func pathBoost(fullPath, templateName string, navPaths map[string]bool) float64 {
+// getSearchConfig returns the search ranking config, using a 5-minute in-memory cache.
+func (s *SearchService) getSearchConfig(ctx context.Context) *database.SearchConfig {
+	s.searchConfigMu.RLock()
+	cfg := s.cachedSearchConfig
+	fresh := cfg != nil && time.Since(s.searchConfigCachedAt) < 5*time.Minute
+	s.searchConfigMu.RUnlock()
+	if fresh {
+		return cfg
+	}
+	loaded, err := s.db.GetSearchConfig(ctx)
+	if err != nil || loaded == nil {
+		loaded = database.DefaultSearchConfig()
+	}
+	s.searchConfigMu.Lock()
+	s.cachedSearchConfig = loaded
+	s.searchConfigCachedAt = time.Now()
+	s.searchConfigMu.Unlock()
+	return loaded
+}
+
+// InvalidateSearchConfigCache clears the cached search config so the next request reloads it from DB.
+func (s *SearchService) InvalidateSearchConfigCache() {
+	s.searchConfigMu.Lock()
+	s.cachedSearchConfig = nil
+	s.searchConfigMu.Unlock()
+}
+
+// pathBoost returns a score bonus based on structural importance using the provided config.
+// Nav-linked pages rank highest; template-boosted pages get a moderate boost;
+// demoted path-prefix pages are penalised.
+func pathBoost(fullPath, templateName string, navPaths map[string]bool, cfg *database.SearchConfig) float64 {
 	if navPaths[fullPath] {
-		return 0.15 // direct nav link — highest structural boost
+		return cfg.NavBoost
 	}
 	lower := strings.ToLower(fullPath)
-	if strings.HasPrefix(lower, "/videos/") || strings.HasPrefix(lower, "/video/") {
-		return -0.05 // video transcripts — deprioritise
+	for _, prefix := range cfg.DemotePathPrefixes {
+		if strings.HasPrefix(lower, strings.ToLower(prefix)) {
+			return cfg.DemoteScore
+		}
 	}
-	if strings.Contains(strings.ToLower(templateName), "concept") {
-		return 0.05 // concept pages — moderate boost over generic content
+	lowerTemplate := strings.ToLower(templateName)
+	for _, tmpl := range cfg.BoostTemplates {
+		if strings.Contains(lowerTemplate, strings.ToLower(tmpl)) {
+			return cfg.BoostTemplateScore
+		}
 	}
 	return 0
+}
+
+// isDemotedPath returns true if fullPath starts with any configured demote prefix.
+func isDemotedPath(fullPath string, cfg *database.SearchConfig) bool {
+	lower := strings.ToLower(fullPath)
+	for _, prefix := range cfg.DemotePathPrefixes {
+		if strings.HasPrefix(lower, strings.ToLower(prefix)) {
+			return true
+		}
+	}
+	return false
+}
+
+// isBoostedTemplate returns true if templateName matches any configured boost template.
+func isBoostedTemplate(templateName string, cfg *database.SearchConfig) bool {
+	lower := strings.ToLower(templateName)
+	for _, tmpl := range cfg.BoostTemplates {
+		if strings.Contains(lower, strings.ToLower(tmpl)) {
+			return true
+		}
+	}
+	return false
 }
 
 // Search performs a combined search using the specified mode
@@ -217,8 +275,9 @@ func (s *SearchService) SearchFullText(ctx context.Context, query string, limit 
 
 	lowerQuery := strings.ToLower(query)
 	navPaths := s.getNavPaths(ctx)
+	cfg := s.getSearchConfig(ctx)
 
-	// Collect all matches with tier: 0=title+nav, 1=title, 2=nav, 3=other, 4=video transcript
+	// Collect all matches with tier: 0=title+nav, 1=title, 2=nav, 3=boosted-template, 4=body-only, 5=demoted
 	type rankedResult struct {
 		result SearchResult
 		tier   int
@@ -229,11 +288,10 @@ func (s *SearchService) SearchFullText(ctx context.Context, query string, limit 
 		snippet := extractSnippet(c.PlainText, lowerQuery)
 		titleMatch := strings.Contains(strings.ToLower(c.Title), lowerQuery)
 		nav := navPaths[c.FullPath]
-		lower := strings.ToLower(c.FullPath)
-		isVideo := strings.HasPrefix(lower, "/videos/") || strings.HasPrefix(lower, "/video/")
+		isBoosted := isBoostedTemplate(c.TemplateName, cfg)
+		isDemoted := isDemotedPath(c.FullPath, cfg)
 
-		isConcept := strings.Contains(strings.ToLower(c.TemplateName), "concept")
-		// Tiers: 0=title+nav, 1=title, 2=nav, 3=concept, 4=body-only, 5=video transcript
+		// Tiers: 0=title+nav, 1=title, 2=nav, 3=boosted-template, 4=body-only, 5=demoted
 		tier := 4
 		switch {
 		case titleMatch && nav:
@@ -242,9 +300,9 @@ func (s *SearchService) SearchFullText(ctx context.Context, query string, limit 
 			tier = 1
 		case nav:
 			tier = 2
-		case isConcept:
+		case isBoosted:
 			tier = 3
-		case isVideo:
+		case isDemoted:
 			tier = 5
 		}
 
@@ -360,10 +418,10 @@ func (s *SearchService) SearchHybrid(ctx context.Context, query string, limit in
 	}
 
 	// Merge with reciprocal rank fusion
-	const k = 60.0             // RRF constant
-	const titleBoost = 1.0 / 5 // Significant boost for title matches
+	const k = 60.0 // RRF constant
 	lowerQuery := strings.ToLower(query)
 	navPaths := s.getNavPaths(ctx)
+	cfg := s.getSearchConfig(ctx)
 	scores := make(map[string]float64)
 	resultMap := make(map[string]*SearchResult)
 
@@ -383,13 +441,12 @@ func (s *SearchService) SearchHybrid(ctx context.Context, query string, limit in
 		}
 	}
 
-	// Boost results where the query appears in the title
-	// Also apply structural boost: nav-linked pages up, video transcripts down
+	// Apply title boost and structural boost (nav up, demoted paths down, template boost)
 	for id, r := range resultMap {
 		if strings.Contains(strings.ToLower(r.Title), lowerQuery) {
-			scores[id] += titleBoost
+			scores[id] += cfg.TitleBoost
 		}
-		scores[id] += pathBoost(r.FullPath, "", navPaths)
+		scores[id] += pathBoost(r.FullPath, "", navPaths, cfg)
 	}
 
 	// Sort by RRF score
@@ -565,8 +622,9 @@ func (s *SearchService) Suggest(ctx context.Context, prefix string, limit int) (
 	// 0 = nav-linked + starts-with, 1 = nav-linked + contains
 	// 2 = concept page + starts-with, 3 = concept page + contains
 	// 4 = other + starts-with, 5 = other + contains
-	// 6 = video transcript (any)
+	// 6 = demoted path (any)
 	navPaths := s.getNavPaths(ctx)
+	cfg := s.getSearchConfig(ctx)
 	type scoredPage struct {
 		page SuggestPage
 		rank int
@@ -574,22 +632,21 @@ func (s *SearchService) Suggest(ctx context.Context, prefix string, limit int) (
 	var scored []scoredPage
 	for _, c := range contents {
 		nav := navPaths[c.FullPath]
-		lowerPath := strings.ToLower(c.FullPath)
-		isVideo := strings.HasPrefix(lowerPath, "/videos/") || strings.HasPrefix(lowerPath, "/video/")
-		isConcept := strings.Contains(strings.ToLower(c.TemplateName), "concept")
+		isBoosted := isBoostedTemplate(c.TemplateName, cfg)
+		isDemoted := isDemotedPath(c.FullPath, cfg)
 		startsWith := strings.HasPrefix(strings.ToLower(c.Title), lowerPrefix)
 
 		rank := 5
 		switch {
-		case isVideo:
+		case isDemoted:
 			rank = 6
 		case nav && startsWith:
 			rank = 0
 		case nav:
 			rank = 1
-		case isConcept && startsWith:
+		case isBoosted && startsWith:
 			rank = 2
-		case isConcept:
+		case isBoosted:
 			rank = 3
 		case startsWith:
 			rank = 4
