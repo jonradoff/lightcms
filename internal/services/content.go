@@ -1,12 +1,14 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"html/template"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -141,6 +143,7 @@ func (s *ContentService) UpdateContent(ctx context.Context, content *models.Cont
 			"folder_path":      content.FolderPath,
 			"full_path":        content.FullPath,
 			"category":         content.Category,
+			"tags":             content.Tags,
 			"meta_description": content.MetaDescription,
 			"og_image":         content.OGImage,
 			"data":             content.Data,
@@ -181,6 +184,13 @@ func (s *ContentService) UpdateContent(ctx context.Context, content *models.Cont
 
 	// Rebuild search keyword cache when content changes
 	s.triggerKeywordRebuild()
+
+	// Regenerate index pages that may reference this content via lc:query
+	go func() {
+		rCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		s.RegenerateIndexPages(rCtx)
+	}()
 
 	return nil
 }
@@ -237,6 +247,13 @@ func (s *ContentService) DeleteContent(ctx context.Context, id primitive.ObjectI
 
 	// Rebuild search keyword cache
 	s.triggerKeywordRebuild()
+
+	// Regenerate index pages that referenced this content
+	go func() {
+		rCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		s.RegenerateIndexPages(rCtx)
+	}()
 
 	return nil
 }
@@ -367,6 +384,7 @@ func (s *ContentService) RevertToVersion(ctx context.Context, contentID primitiv
 	content.FolderPath = v.FolderPath
 	content.FullPath = v.FullPath
 	content.Category = v.Category
+	content.Tags = v.Tags
 	content.MetaDescription = v.MetaDescription
 	content.OGImage = v.OGImage
 	content.Data = v.Data
@@ -402,6 +420,7 @@ func (s *ContentService) saveVersion(ctx context.Context, content *models.Conten
 			FolderPath:      original.FolderPath,
 			FullPath:        original.FullPath,
 			Category:        original.Category,
+			Tags:            original.Tags,
 			MetaDescription: original.MetaDescription,
 			OGImage:         original.OGImage,
 			Data:            original.Data,
@@ -433,6 +452,7 @@ func (s *ContentService) saveVersion(ctx context.Context, content *models.Conten
 		FolderPath:      content.FolderPath,
 		FullPath:        content.FullPath,
 		Category:        content.Category,
+		Tags:            content.Tags,
 		MetaDescription: content.MetaDescription,
 		OGImage:         content.OGImage,
 		Data:            content.Data,
@@ -457,10 +477,18 @@ func (s *ContentService) GenerateStaticPage(ctx context.Context, content *models
 		return fmt.Errorf("template not found: %w", err)
 	}
 
-	// Render content
+	// Render content (template fields interpolated)
 	html, err := s.renderContent(content, &tmpl)
 	if err != nil {
 		return fmt.Errorf("failed to render content: %w", err)
+	}
+
+	// Process any lc:query directives in the rendered HTML
+	if strings.Contains(html, "lc:query") {
+		html, err = s.processQueryDirectives(ctx, html)
+		if err != nil {
+			fmt.Printf("Warning: lc:query processing error for %s: %v\n", content.FullPath, err)
+		}
 	}
 
 	// Determine file path
@@ -547,6 +575,198 @@ func (s *ContentService) extractInternalLinks(content *models.Content) []string 
 		links = append(links, link)
 	}
 	return links
+}
+
+// QueryContentForDirective fetches published content matching the given filter criteria, sorted as specified.
+// filter: map of field->value (supported keys: tag, category, template, folder)
+// sortField: "title", "created_at", "published_at" — sortDir: "asc" or "desc"
+func (s *ContentService) QueryContentForDirective(ctx context.Context, filter map[string]string, sortField, sortDir string) ([]models.Content, error) {
+	q := bson.M{"published": true, "deleted": bson.M{"$ne": true}}
+
+	if v, ok := filter["tag"]; ok && v != "" {
+		q["tags"] = v
+	}
+	if v, ok := filter["category"]; ok && v != "" {
+		q["category"] = v
+	}
+	if v, ok := filter["template"]; ok && v != "" {
+		q["template_name"] = v
+	}
+	if v, ok := filter["folder"]; ok && v != "" {
+		q["folder_path"] = bson.M{"$regex": "^" + regexp.QuoteMeta(v)}
+	}
+
+	var contents []models.Content
+	if err := s.db.FindAll(ctx, "content", q, &contents); err != nil {
+		return nil, fmt.Errorf("lc:query failed: %w", err)
+	}
+
+	// Sort in Go (avoids mongo index requirements for arbitrary fields)
+	dir := 1
+	if sortDir == "desc" {
+		dir = -1
+	}
+	switch sortField {
+	case "title", "":
+		sort.Slice(contents, func(i, j int) bool {
+			if dir == 1 {
+				return strings.ToLower(contents[i].Title) < strings.ToLower(contents[j].Title)
+			}
+			return strings.ToLower(contents[i].Title) > strings.ToLower(contents[j].Title)
+		})
+	case "created_at":
+		sort.Slice(contents, func(i, j int) bool {
+			if dir == 1 {
+				return contents[i].CreatedAt.Before(contents[j].CreatedAt)
+			}
+			return contents[i].CreatedAt.After(contents[j].CreatedAt)
+		})
+	case "published_at":
+		sort.Slice(contents, func(i, j int) bool {
+			ai := contents[i].PublishedAt
+			aj := contents[j].PublishedAt
+			if ai == nil {
+				return dir == -1
+			}
+			if aj == nil {
+				return dir == 1
+			}
+			if dir == 1 {
+				return ai.Before(*aj)
+			}
+			return ai.After(*aj)
+		})
+	}
+	return contents, nil
+}
+
+// lcQueryDirectiveRE matches <!-- lc:query ... --> comment blocks (single-line or across multiple lines).
+var lcQueryDirectiveRE = regexp.MustCompile(`(?s)<!--\s*lc:query\s+(.*?)-->`)
+
+// parseDirectiveAttrs parses key="value" pairs from a directive attribute string.
+func parseDirectiveAttrs(s string) map[string]string {
+	attrs := make(map[string]string)
+	re := regexp.MustCompile(`(\w+)="([^"]*)"`)
+	for _, m := range re.FindAllStringSubmatch(s, -1) {
+		attrs[m[1]] = m[2]
+	}
+	return attrs
+}
+
+// processQueryDirectives scans html for <!-- lc:query ... --> directives, evaluates each
+// against the database, renders each result through the named snippet, and returns the
+// final HTML with directives replaced.
+func (s *ContentService) processQueryDirectives(ctx context.Context, html string) (string, error) {
+	var firstErr error
+	result := lcQueryDirectiveRE.ReplaceAllStringFunc(html, func(match string) string {
+		sub := lcQueryDirectiveRE.FindStringSubmatch(match)
+		if len(sub) < 2 {
+			return match
+		}
+		attrs := parseDirectiveAttrs(sub[1])
+
+		// Resolve filter
+		filterMap := make(map[string]string)
+		for _, key := range []string{"tag", "category", "template", "folder"} {
+			if v, ok := attrs[key]; ok {
+				filterMap[key] = v
+			}
+		}
+
+		// Resolve sort
+		sortField, sortDir := "title", "asc"
+		if sv, ok := attrs["sort"]; ok {
+			parts := strings.SplitN(sv, ":", 2)
+			sortField = parts[0]
+			if len(parts) == 2 {
+				sortDir = parts[1]
+			}
+		}
+
+		// Query
+		items, err := s.QueryContentForDirective(ctx, filterMap, sortField, sortDir)
+		if err != nil {
+			firstErr = err
+			return "<!-- lc:query error: " + err.Error() + " -->"
+		}
+
+		// Get snippet HTML
+		snippetName := attrs["snippet"]
+		snippetHTML := ""
+		if snippetName != "" {
+			var snip models.Snippet
+			if err := s.db.FindOne(ctx, "snippets", bson.M{"name": snippetName}, &snip); err == nil {
+				snippetHTML = snip.HTML
+			}
+		}
+
+		// Render items
+		var rendered strings.Builder
+		for _, item := range items {
+			if snippetHTML != "" {
+				itemHTML, err := renderSnippet(snippetHTML, item)
+				if err != nil {
+					rendered.WriteString("<!-- snippet render error: " + err.Error() + " -->")
+				} else {
+					rendered.WriteString(itemHTML)
+				}
+			} else {
+				// Default: simple link
+				rendered.WriteString(`<a href="` + item.FullPath + `">` + item.Title + `</a>`)
+			}
+		}
+		return rendered.String()
+	})
+	return result, firstErr
+}
+
+// renderSnippet renders a snippet HTML template with the given content item.
+func renderSnippet(snippetHTML string, item models.Content) (string, error) {
+	t, err := template.New("snippet").Parse(snippetHTML)
+	if err != nil {
+		return "", err
+	}
+	var buf bytes.Buffer
+	if err := t.Execute(&buf, item); err != nil {
+		return "", err
+	}
+	return buf.String(), nil
+}
+
+// RegenerateIndexPages regenerates all published pages whose templates contain lc:query directives.
+// Called after any content mutation so index pages stay in sync.
+func (s *ContentService) RegenerateIndexPages(ctx context.Context) {
+	// Find all templates with lc:query directives
+	var templates []models.Template
+	if err := s.db.FindAll(ctx, "templates", bson.M{}, &templates); err != nil {
+		return
+	}
+
+	var indexTemplateIDs []primitive.ObjectID
+	for _, tmpl := range templates {
+		if strings.Contains(tmpl.HTMLLayout, "lc:query") {
+			indexTemplateIDs = append(indexTemplateIDs, tmpl.ID)
+		}
+	}
+	if len(indexTemplateIDs) == 0 {
+		return
+	}
+
+	// Find all published pages using index templates
+	var pages []models.Content
+	if err := s.db.FindAll(ctx, "content", bson.M{
+		"template_id": bson.M{"$in": indexTemplateIDs},
+		"published":   true,
+		"deleted":     bson.M{"$ne": true},
+	}, &pages); err != nil {
+		return
+	}
+
+	for i := range pages {
+		if err := s.GenerateStaticPage(ctx, &pages[i]); err != nil {
+			fmt.Printf("Warning: failed to regenerate index page %s: %v\n", pages[i].FullPath, err)
+		}
+	}
 }
 
 // RegenerateAllContent regenerates all published content

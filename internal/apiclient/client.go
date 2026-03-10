@@ -647,3 +647,44 @@ func (c *Client) ScopedSearchReplaceExecute(ctx context.Context, search, replace
 	}
 	return &result, nil
 }
+
+// ListSnippets returns all snippets.
+func (c *Client) ListSnippets(ctx context.Context) ([]Snippet, error) {
+	var snippets []Snippet
+	if err := c.do(ctx, "GET", "/snippets", nil, &snippets); err != nil {
+		return nil, err
+	}
+	return snippets, nil
+}
+
+// GetSnippet returns a snippet by ID.
+func (c *Client) GetSnippet(ctx context.Context, id string) (*Snippet, error) {
+	var snip Snippet
+	if err := c.do(ctx, "GET", "/snippets/"+id, nil, &snip); err != nil {
+		return nil, err
+	}
+	return &snip, nil
+}
+
+// CreateSnippet creates a new snippet.
+func (c *Client) CreateSnippet(ctx context.Context, req CreateSnippetRequest) (*Snippet, error) {
+	var snip Snippet
+	if err := c.do(ctx, "POST", "/snippets", req, &snip); err != nil {
+		return nil, err
+	}
+	return &snip, nil
+}
+
+// UpdateSnippet updates an existing snippet.
+func (c *Client) UpdateSnippet(ctx context.Context, id string, req UpdateSnippetRequest) (*Snippet, error) {
+	var snip Snippet
+	if err := c.do(ctx, "PUT", "/snippets/"+id, req, &snip); err != nil {
+		return nil, err
+	}
+	return &snip, nil
+}
+
+// DeleteSnippet deletes a snippet by ID.
+func (c *Client) DeleteSnippet(ctx context.Context, id string) error {
+	return c.do(ctx, "DELETE", "/snippets/"+id, nil, nil)
+}

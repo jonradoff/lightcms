@@ -96,6 +96,7 @@ func (a *APIHandler) APICreateContent(w http.ResponseWriter, r *http.Request) {
 		Slug            string                 `json:"slug"`
 		FolderPath      string                 `json:"folder_path"`
 		Category        string                 `json:"category"`
+		Tags            []string               `json:"tags"`
 		MetaDescription string                 `json:"meta_description"`
 		OGImage         string                 `json:"og_image"`
 		Data            map[string]interface{} `json:"data"`
@@ -150,6 +151,7 @@ func (a *APIHandler) APICreateContent(w http.ResponseWriter, r *http.Request) {
 		FolderID:        folderID,
 		FolderPath:      folderPath,
 		Category:        req.Category,
+		Tags:            req.Tags,
 		MetaDescription: req.MetaDescription,
 		OGImage:         req.OGImage,
 		Data:            req.Data,
@@ -231,6 +233,9 @@ func (a *APIHandler) APIUpdateContent(w http.ResponseWriter, r *http.Request) {
 	}
 	if v, ok := raw["category"]; ok {
 		json.Unmarshal(v, &content.Category)
+	}
+	if v, ok := raw["tags"]; ok {
+		json.Unmarshal(v, &content.Tags)
 	}
 	if v, ok := raw["meta_description"]; ok {
 		json.Unmarshal(v, &content.MetaDescription)
@@ -888,6 +893,9 @@ func (a *APIHandler) APIUpdateContentByPath(w http.ResponseWriter, r *http.Reque
 	}
 	if v, ok := raw["category"]; ok {
 		json.Unmarshal(v, &content.Category)
+	}
+	if v, ok := raw["tags"]; ok {
+		json.Unmarshal(v, &content.Tags)
 	}
 	if v, ok := raw["meta_description"]; ok {
 		json.Unmarshal(v, &content.MetaDescription)

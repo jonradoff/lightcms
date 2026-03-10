@@ -28,6 +28,7 @@ type CreateContentInput struct {
 	Slug            string                 `json:"slug" jsonschema:"URL slug for the content,required"`
 	FolderPath      string                 `json:"folder_path,omitempty" jsonschema:"Folder path (e.g., /blog)"`
 	Category        string                 `json:"category,omitempty" jsonschema:"Content category for collections"`
+	Tags            []string               `json:"tags,omitempty" jsonschema:"Tags for lc:query index pages (e.g. ['AI & Machine Intelligence', 'Generative AI'])"`
 	MetaDescription string                 `json:"meta_description,omitempty" jsonschema:"SEO meta description"`
 	OGImage         string                 `json:"og_image,omitempty" jsonschema:"Open Graph image URL"`
 	Data            map[string]interface{} `json:"data" jsonschema:"Template field values,required"`
@@ -46,6 +47,7 @@ type UpdateContentInput struct {
 	Slug            string                 `json:"slug,omitempty" jsonschema:"URL slug"`
 	FolderPath      string                 `json:"folder_path,omitempty" jsonschema:"Folder path"`
 	Category        string                 `json:"category,omitempty" jsonschema:"Content category"`
+	Tags            []string               `json:"tags,omitempty" jsonschema:"Tags for lc:query index pages"`
 	MetaDescription string                 `json:"meta_description,omitempty" jsonschema:"SEO meta description"`
 	OGImage         string                 `json:"og_image,omitempty" jsonschema:"Open Graph image URL"`
 	Data            map[string]interface{} `json:"data,omitempty" jsonschema:"Template field values"`
@@ -91,14 +93,15 @@ type PreviewContentInput struct {
 }
 
 type UpdateContentByPathInput struct {
-	Path           string                 `json:"path" jsonschema:"URL path of the content to update (e.g. /about or /blog/my-post),required"`
-	Title          string                 `json:"title,omitempty" jsonschema:"New title"`
-	Data           map[string]interface{} `json:"data,omitempty" jsonschema:"Field values to update"`
-	Category       string                 `json:"category,omitempty" jsonschema:"Content category"`
-	MetaDescription string                `json:"meta_description,omitempty" jsonschema:"SEO meta description"`
-	OGImage        string                 `json:"og_image,omitempty" jsonschema:"Open Graph image URL"`
-	Published      *bool                  `json:"published,omitempty" jsonschema:"Publish state"`
-	VersionComment string                 `json:"version_comment,omitempty" jsonschema:"Version comment"`
+	Path            string                 `json:"path" jsonschema:"URL path of the content to update (e.g. /about or /blog/my-post),required"`
+	Title           string                 `json:"title,omitempty" jsonschema:"New title"`
+	Data            map[string]interface{} `json:"data,omitempty" jsonschema:"Field values to update"`
+	Category        string                 `json:"category,omitempty" jsonschema:"Content category"`
+	Tags            []string               `json:"tags,omitempty" jsonschema:"Tags for lc:query index pages"`
+	MetaDescription string                 `json:"meta_description,omitempty" jsonschema:"SEO meta description"`
+	OGImage         string                 `json:"og_image,omitempty" jsonschema:"Open Graph image URL"`
+	Published       *bool                  `json:"published,omitempty" jsonschema:"Publish state"`
+	VersionComment  string                 `json:"version_comment,omitempty" jsonschema:"Version comment"`
 }
 
 type ScopedSearchReplaceInput struct {
@@ -255,6 +258,7 @@ Always include version_comment to make history readable.`,
 			Slug:            args.Slug,
 			FolderPath:      args.FolderPath,
 			Category:        args.Category,
+			Tags:            args.Tags,
 			MetaDescription: args.MetaDescription,
 			OGImage:         args.OGImage,
 			Data:            args.Data,
@@ -314,6 +318,9 @@ Example: {"id": "abc123", "data": {"body": "<p>Updated text</p>"}, "version_comm
 		}
 		if args.Category != "" {
 			updates["category"] = args.Category
+		}
+		if args.Tags != nil {
+			updates["tags"] = args.Tags
 		}
 		if args.MetaDescription != "" {
 			updates["meta_description"] = args.MetaDescription
@@ -615,6 +622,9 @@ Only the fields you provide are changed. Always include a version_comment descri
 		}
 		if args.Category != "" {
 			updates["category"] = args.Category
+		}
+		if args.Tags != nil {
+			updates["tags"] = args.Tags
 		}
 		if args.MetaDescription != "" {
 			updates["meta_description"] = args.MetaDescription

@@ -42,6 +42,7 @@ type Content struct {
 	FolderPath      string                 `bson:"folder_path" json:"folder_path"` // Cached folder path for quick lookups
 	FullPath        string                 `bson:"full_path" json:"full_path"` // Complete URL path (folder + slug)
 	Category        string                 `bson:"category" json:"category"`
+	Tags            []string               `bson:"tags,omitempty" json:"tags,omitempty"` // Multi-value tags for lc:query filtering
 	MetaDescription string                 `bson:"meta_description" json:"meta_description"` // SEO meta description
 	OGImage         string                 `bson:"og_image" json:"og_image"`                 // Open Graph image URL
 	Data            map[string]interface{} `bson:"data" json:"data"` // Dynamic field values
@@ -77,6 +78,7 @@ type ContentVersion struct {
 	FolderPath      string                 `bson:"folder_path" json:"folder_path"`
 	FullPath        string                 `bson:"full_path" json:"full_path"`
 	Category        string                 `bson:"category" json:"category"`
+	Tags            []string               `bson:"tags,omitempty" json:"tags,omitempty"`
 	MetaDescription string                 `bson:"meta_description" json:"meta_description"`
 	OGImage         string                 `bson:"og_image" json:"og_image"`
 	Data            map[string]interface{} `bson:"data" json:"data"`
@@ -127,6 +129,16 @@ type APIKey struct {
 	UserID      *primitive.ObjectID `bson:"user_id,omitempty" json:"user_id,omitempty"`         // Owning user
 	LastUsedAt  *time.Time          `bson:"last_used_at,omitempty" json:"last_used_at,omitempty"`
 	CreatedAt   time.Time           `bson:"created_at" json:"created_at"`
+}
+
+// Snippet is a named, reusable HTML fragment used as an item renderer in lc:query directives.
+// The HTML is a Go text/template with access to content fields (.Title, .FullPath, .Tags, .Data, etc.).
+type Snippet struct {
+	ID        primitive.ObjectID `bson:"_id,omitempty" json:"id"`
+	Name      string             `bson:"name" json:"name"`       // Unique name referenced in <!-- lc:query snippet="name" -->
+	HTML      string             `bson:"html" json:"html"`       // Go template HTML rendered per result item
+	CreatedAt time.Time          `bson:"created_at" json:"created_at"`
+	UpdatedAt time.Time          `bson:"updated_at" json:"updated_at"`
 }
 
 // ContactMessage represents a contact form submission or system message

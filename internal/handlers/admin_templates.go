@@ -1416,6 +1416,11 @@ var adminTemplates = map[string]string{
             <div class="form-section">
                 <h3>SEO Settings</h3>
                 <div class="form-group">
+                    <label for="content_tags">Tags</label>
+                    <input type="text" id="content_tags" name="content_tags" value="{{if .Content}}{{join .Content.Tags ", "}}{{end}}" placeholder="e.g., AI & Machine Intelligence, Generative AI">
+                    <p class="help-text">Comma-separated tags used to include this page in <code>lc:query</code> index pages</p>
+                </div>
+                <div class="form-group">
                     <label for="meta_description">Meta Description</label>
                     <textarea id="meta_description" name="meta_description" rows="2" placeholder="Brief description for search engines (150-160 characters)">{{if .Content}}{{.Content.MetaDescription}}{{end}}</textarea>
                     <p class="help-text">Recommended: 150-160 characters for best SEO results</p>
@@ -5730,6 +5735,74 @@ async function doSearch(q) {
         });
         </script>
     ` + adminLayoutEnd,
+
+	"snippets_list": adminLayoutStart + `
+        <div class="page-header">
+            <h1>Snippets</h1>
+            <a href="/cm/snippets/new" class="btn btn-primary">+ New Snippet</a>
+        </div>
+        <p class="help-text" style="margin-bottom: 1.5rem;">Snippets are reusable HTML templates used to render individual items in <code>lc:query</code> index pages. Reference them by name in your template layouts.</p>
+
+        {{if .Snippets}}
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Updated</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range .Snippets}}
+                    <tr>
+                        <td><strong><code>{{.Name}}</code></strong></td>
+                        <td>{{.UpdatedAt.Format "Jan 2, 2006"}}</td>
+                        <td style="display:flex; gap:0.5rem; justify-content:flex-end;">
+                            <a href="/cm/snippets/{{.ID.Hex}}" class="btn btn-outline btn-sm">Edit</a>
+                            <form method="POST" action="/cm/snippets/{{.ID.Hex}}/delete" style="display:inline;">
+                                {{$.CSRFField}}
+                                <button type="submit" class="btn btn-danger btn-sm delete-btn" data-message="Delete snippet '{{.Name}}'?">Delete</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+        {{else}}
+        <div class="empty-state">
+            <p>No snippets yet. Create one to use with <code>lc:query</code> directives in your templates.</p>
+        </div>
+        {{end}}
+    ` + adminLayoutEnd,
+
+	"snippet_form": adminLayoutStart + `
+        <div class="page-header">
+            <h1>{{.Title}}</h1>
+        </div>
+        {{if .Error}}<div class="error-message">{{.Error}}</div>{{end}}
+
+        <form method="POST" class="form-card">
+            {{.CSRFField}}
+            <div class="form-section">
+                <div class="form-group">
+                    <label for="name">Name <span class="required">*</span></label>
+                    <input type="text" id="name" name="name" required placeholder="e.g., glossary-card, blog-card" value="{{if .Snippet}}{{.Snippet.Name}}{{end}}">
+                    <p class="help-text">Used in <code>lc:query</code> directives: <code>snippet="your-name-here"</code></p>
+                </div>
+                <div class="form-group">
+                    <label for="html">HTML Template <span class="required">*</span></label>
+                    <textarea id="html" name="html" rows="20" style="font-family: monospace; font-size: 0.875rem;">{{if .Snippet}}{{.Snippet.HTML}}{{end}}</textarea>
+                    <p class="help-text">Go template. Available fields: <code>.Title</code>, <code>.FullPath</code>, <code>.Tags</code>, <code>.MetaDescription</code>, <code>.Category</code>, <code>.Data</code> (map of template field values).</p>
+                </div>
+            </div>
+            <div class="form-actions">
+                <a href="/cm/snippets" class="btn btn-outline">Cancel</a>
+                <button type="submit" class="btn btn-primary">{{if .Snippet}}Save Changes{{else}}Create Snippet{{end}}</button>
+            </div>
+        </form>
+    ` + adminLayoutEnd,
 }
 
 const adminLayoutStart = `<!DOCTYPE html>
@@ -6358,6 +6431,7 @@ const adminLayoutStart = `<!DOCTYPE html>
                     <a href="/cm" class="nav-link">📊 Dashboard</a>
                     <a href="/cm/content" class="nav-link">📄 Content</a>
                     <a href="/cm/templates" class="nav-link">📋 Templates</a>
+                    <a href="/cm/snippets" class="nav-link">✂️ Snippets</a>
                     <a href="/cm/collections" class="nav-link">📁 Collections</a>
                     <a href="/cm/folders" class="nav-link">🗂️ Folders</a>
                 </div>

@@ -89,8 +89,11 @@ func main() {
 		log.Printf("Warning: Failed to migrate to multi-user: %%v", err)
 	}
 
+	// Initialize snippet service (needed by both handlers and API handler)
+	snippetService := services.NewSnippetService(db)
+
 	// Initialize handlers with config
-	h := handlers.New(db, authManager, cfg.BaseURL, cfg.Env, userService, auditService)
+	h := handlers.New(db, authManager, cfg.BaseURL, cfg.Env, userService, auditService, snippetService)
 
 	// Initialize trusted proxy config for rate limiting
 	proxyConfig := middleware.DefaultCloudConfig()
@@ -270,6 +273,14 @@ func main() {
 	// Audit log (admin only)
 	admin.HandleFunc("/audit", h.AuditLogPage).Methods("GET")
 
+	// Snippets
+	admin.HandleFunc("/snippets", h.ListSnippets).Methods("GET")
+	admin.HandleFunc("/snippets/new", h.NewSnippet).Methods("GET")
+	admin.HandleFunc("/snippets/new", h.CreateSnippet).Methods("POST")
+	admin.HandleFunc("/snippets/{id}", h.EditSnippet).Methods("GET")
+	admin.HandleFunc("/snippets/{id}", h.UpdateSnippet).Methods("POST")
+	admin.HandleFunc("/snippets/{id}/delete", h.DeleteSnippet).Methods("POST")
+
 	// Tools routes
 	admin.HandleFunc("/tools/broken-links", h.BrokenLinkFinder).Methods("GET")
 	admin.HandleFunc("/tools/search", h.SearchToolPage).Methods("GET")
@@ -279,7 +290,7 @@ func main() {
 
 	// REST API v1 routes (API key authenticated, JSON only)
 	apiKeyService := services.NewAPIKeyService(db)
-	apiHandler := handlers.NewAPIHandler(contentService, templateService, assetService, settingsService, apiKeyService, auditService)
+	apiHandler := handlers.NewAPIHandler(contentService, templateService, assetService, settingsService, apiKeyService, auditService, snippetService)
 	apiHandler.SetSearchService(searchService)
 	apiAuthMiddleware := middleware.NewAPIAuth(func(ctx context.Context, rawKey string) (interface{}, error) {
 		apiKey, err := apiKeyService.ValidateAPIKey(ctx, rawKey)
@@ -409,6 +420,13 @@ func main() {
 	apiv1.HandleFunc("/api-keys", apiHandler.APIListAPIKeys).Methods("GET")
 	apiv1.HandleFunc("/api-keys", apiHandler.APICreateAPIKey).Methods("POST")
 	apiv1.HandleFunc("/api-keys/{id}", apiHandler.APIDeleteAPIKey).Methods("DELETE")
+
+	// Snippets
+	apiv1.HandleFunc("/snippets", apiHandler.APIListSnippets).Methods("GET")
+	apiv1.HandleFunc("/snippets", apiHandler.APICreateSnippet).Methods("POST")
+	apiv1.HandleFunc("/snippets/{id}", apiHandler.APIGetSnippet).Methods("GET")
+	apiv1.HandleFunc("/snippets/{id}", apiHandler.APIUpdateSnippet).Methods("PUT")
+	apiv1.HandleFunc("/snippets/{id}", apiHandler.APIDeleteSnippet).Methods("DELETE")
 
 	// Regenerate
 	apiv1.HandleFunc("/regenerate", apiHandler.APIRegenerateAllContent).Methods("POST")

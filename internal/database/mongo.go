@@ -86,6 +86,23 @@ func (db *DB) createIndexes(ctx context.Context) error {
 		return err
 	}
 
+	// Content tags index (multikey — MongoDB automatically handles arrays)
+	_, err = db.database.Collection("content").Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: bson.D{{Key: "tags", Value: 1}},
+	})
+	if err != nil {
+		return err
+	}
+
+	// Snippet name index (unique)
+	_, err = db.database.Collection("snippets").Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    bson.D{{Key: "name", Value: 1}},
+		Options: options.Index().SetUnique(true),
+	})
+	if err != nil {
+		return err
+	}
+
 	// Template name index
 	_, err = db.database.Collection("templates").Indexes().CreateOne(ctx, mongo.IndexModel{
 		Keys:    bson.D{{Key: "name", Value: 1}},

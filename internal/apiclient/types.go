@@ -14,6 +14,7 @@ type Content struct {
 	FolderPath      string                 `json:"folder_path"`
 	FullPath        string                 `json:"full_path"`
 	Category        string                 `json:"category"`
+	Tags            []string               `json:"tags,omitempty"`
 	MetaDescription string                 `json:"meta_description"`
 	OGImage         string                 `json:"og_image"`
 	Data            map[string]interface{} `json:"data"`
@@ -61,6 +62,7 @@ type CreateContentRequest struct {
 	Slug            string                 `json:"slug"`
 	FolderPath      string                 `json:"folder_path,omitempty"`
 	Category        string                 `json:"category,omitempty"`
+	Tags            []string               `json:"tags,omitempty"`
 	MetaDescription string                 `json:"meta_description,omitempty"`
 	OGImage         string                 `json:"og_image,omitempty"`
 	Data            map[string]interface{} `json:"data"`
@@ -70,6 +72,26 @@ type CreateContentRequest struct {
 	UseTheme        bool                   `json:"use_theme,omitempty"`
 	RawMode         bool                   `json:"raw_mode,omitempty"`
 	VersionComment  string                 `json:"version_comment,omitempty"`
+}
+
+// Snippet types
+
+type Snippet struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	HTML      string    `json:"html"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type CreateSnippetRequest struct {
+	Name string `json:"name"`
+	HTML string `json:"html"`
+}
+
+type UpdateSnippetRequest struct {
+	Name string `json:"name"`
+	HTML string `json:"html"`
 }
 
 type UpdateContentRequest map[string]interface{}

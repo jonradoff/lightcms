@@ -38,6 +38,7 @@ func NewServer(client *apiclient.Client) *Server {
 	s.registerAssetTools()
 	s.registerSettingsTools()
 	s.registerSearchTools()
+	s.registerSnippetTools()
 
 	return s
 }

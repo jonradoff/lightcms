@@ -33,16 +33,17 @@ import (
 )
 
 type Handler struct {
-	db            *database.DB
-	auth          *auth.Manager
-	baseURL       string
-	env           string
-	errors        *errors.Handler
-	apiKeyService *services.APIKeyService
-	searchService *services.SearchService
-	userService   *services.UserService
-	auditService  *services.AuditService
-	proxyConfig   *middleware.TrustedProxyConfig
+	db             *database.DB
+	auth           *auth.Manager
+	baseURL        string
+	env            string
+	errors         *errors.Handler
+	apiKeyService  *services.APIKeyService
+	searchService  *services.SearchService
+	userService    *services.UserService
+	auditService   *services.AuditService
+	snippetService *services.SnippetService
+	proxyConfig    *middleware.TrustedProxyConfig
 }
 
 // SetSearchService sets the search service for end-user search features
@@ -55,17 +56,18 @@ func (h *Handler) SetProxyConfig(pc *middleware.TrustedProxyConfig) {
 	h.proxyConfig = pc
 }
 
-func New(db *database.DB, authManager *auth.Manager, baseURL string, env string, userService *services.UserService, auditService *services.AuditService) *Handler {
+func New(db *database.DB, authManager *auth.Manager, baseURL string, env string, userService *services.UserService, auditService *services.AuditService, snippetService *services.SnippetService) *Handler {
 	isDev := env == "development" || env == "dev"
 	return &Handler{
-		db:            db,
-		auth:          authManager,
-		baseURL:       baseURL,
-		env:           env,
-		errors:        errors.NewHandler(isDev),
-		apiKeyService: services.NewAPIKeyService(db),
-		userService:   userService,
-		auditService:  auditService,
+		db:             db,
+		auth:           authManager,
+		baseURL:        baseURL,
+		env:            env,
+		errors:         errors.NewHandler(isDev),
+		apiKeyService:  services.NewAPIKeyService(db),
+		userService:    userService,
+		auditService:   auditService,
+		snippetService: snippetService,
 	}
 }
 
@@ -842,6 +844,16 @@ func (h *Handler) CreateContent(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Parse tags (comma-separated input)
+	var contentTags []string
+	if tagsStr := r.FormValue("content_tags"); tagsStr != "" {
+		for _, t := range strings.Split(tagsStr, ",") {
+			if trimmed := strings.TrimSpace(t); trimmed != "" {
+				contentTags = append(contentTags, trimmed)
+			}
+		}
+	}
+
 	content := models.Content{
 		TemplateID:      templateID,
 		TemplateName:    tmpl.Name,
@@ -851,6 +863,7 @@ func (h *Handler) CreateContent(w http.ResponseWriter, r *http.Request) {
 		FolderPath:      folderPath,
 		FullPath:        fullPath,
 		Category:        tmpl.Category,
+		Tags:            contentTags,
 		MetaDescription: metaDescription,
 		OGImage:         ogImage,
 		Data:            data,
@@ -1157,6 +1170,16 @@ func (h *Handler) UpdateContent(w http.ResponseWriter, r *http.Request) {
 	// Handle version comment (optional)
 	versionComment := r.FormValue("version_comment")
 
+	// Parse tags (comma-separated input)
+	var updatedTags []string
+	if tagsStr := r.FormValue("content_tags"); tagsStr != "" {
+		for _, t := range strings.Split(tagsStr, ",") {
+			if trimmed := strings.TrimSpace(t); trimmed != "" {
+				updatedTags = append(updatedTags, trimmed)
+			}
+		}
+	}
+
 	// Handle SEO fields
 	metaDescription := r.FormValue("meta_description")
 	ogImage := existingContent.OGImage // Keep existing if not uploading new
@@ -1185,6 +1208,7 @@ func (h *Handler) UpdateContent(w http.ResponseWriter, r *http.Request) {
 			"folder_id":        folderID,
 			"folder_path":      folderPath,
 			"full_path":        fullPath,
+			"tags":             updatedTags,
 			"meta_description": metaDescription,
 			"og_image":         ogImage,
 			"data":             data,
@@ -3523,6 +3547,9 @@ func (h *Handler) renderAdmin(w http.ResponseWriter, r *http.Request, name strin
 		"split": func(s, sep string) []string {
 			return strings.Split(s, sep)
 		},
+		"join": func(items []string, sep string) string {
+			return strings.Join(items, sep)
+		},
 		"multiply": func(a, b int) int {
 			return a * b
 		},
@@ -5747,4 +5774,130 @@ func sanitizeContactInput(input string) string {
 		result.WriteRune(r)
 	}
 	return result.String()
+}
+
+// ── Snippets ──────────────────────────────────────────────────────────────────
+
+func (h *Handler) ListSnippets(w http.ResponseWriter, r *http.Request) {
+	if !h.auth.IsAuthenticated(r) {
+		http.Redirect(w, r, "/cm/login", http.StatusFound)
+		return
+	}
+	snippets, err := h.snippetService.ListSnippets(r.Context())
+	if err != nil {
+		h.errors.HTTPError(w, err, http.StatusInternalServerError)
+		return
+	}
+	h.renderAdmin(w, r, "snippets_list", map[string]interface{}{
+		"Title":    "Snippets",
+		"Snippets": snippets,
+	})
+}
+
+func (h *Handler) NewSnippet(w http.ResponseWriter, r *http.Request) {
+	if !h.auth.IsAuthenticated(r) {
+		http.Redirect(w, r, "/cm/login", http.StatusFound)
+		return
+	}
+	h.renderAdmin(w, r, "snippet_form", map[string]interface{}{
+		"Title": "New Snippet",
+	})
+}
+
+func (h *Handler) CreateSnippet(w http.ResponseWriter, r *http.Request) {
+	if !h.auth.IsAuthenticated(r) {
+		http.Redirect(w, r, "/cm/login", http.StatusFound)
+		return
+	}
+	name := strings.TrimSpace(r.FormValue("name"))
+	html := r.FormValue("html")
+	if name == "" {
+		h.renderAdmin(w, r, "snippet_form", map[string]interface{}{
+			"Title": "New Snippet",
+			"Error": "Name is required",
+		})
+		return
+	}
+	if _, err := h.snippetService.CreateSnippet(r.Context(), name, html); err != nil {
+		h.renderAdmin(w, r, "snippet_form", map[string]interface{}{
+			"Title": "New Snippet",
+			"Error": err.Error(),
+		})
+		return
+	}
+	http.Redirect(w, r, "/cm/snippets", http.StatusFound)
+}
+
+func (h *Handler) EditSnippet(w http.ResponseWriter, r *http.Request) {
+	if !h.auth.IsAuthenticated(r) {
+		http.Redirect(w, r, "/cm/login", http.StatusFound)
+		return
+	}
+	vars := mux.Vars(r)
+	id, err := primitive.ObjectIDFromHex(vars["id"])
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	snip, err := h.snippetService.GetSnippet(r.Context(), id)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	h.renderAdmin(w, r, "snippet_form", map[string]interface{}{
+		"Title":   "Edit Snippet",
+		"Snippet": snip,
+	})
+}
+
+func (h *Handler) UpdateSnippet(w http.ResponseWriter, r *http.Request) {
+	if !h.auth.IsAuthenticated(r) {
+		http.Redirect(w, r, "/cm/login", http.StatusFound)
+		return
+	}
+	vars := mux.Vars(r)
+	id, err := primitive.ObjectIDFromHex(vars["id"])
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	name := strings.TrimSpace(r.FormValue("name"))
+	html := r.FormValue("html")
+	if name == "" {
+		snip, _ := h.snippetService.GetSnippet(r.Context(), id)
+		h.renderAdmin(w, r, "snippet_form", map[string]interface{}{
+			"Title":   "Edit Snippet",
+			"Snippet": snip,
+			"Error":   "Name is required",
+		})
+		return
+	}
+	if _, err := h.snippetService.UpdateSnippet(r.Context(), id, name, html); err != nil {
+		snip, _ := h.snippetService.GetSnippet(r.Context(), id)
+		h.renderAdmin(w, r, "snippet_form", map[string]interface{}{
+			"Title":   "Edit Snippet",
+			"Snippet": snip,
+			"Error":   err.Error(),
+		})
+		return
+	}
+	http.Redirect(w, r, "/cm/snippets", http.StatusFound)
+}
+
+func (h *Handler) DeleteSnippet(w http.ResponseWriter, r *http.Request) {
+	if !h.auth.IsAuthenticated(r) {
+		http.Redirect(w, r, "/cm/login", http.StatusFound)
+		return
+	}
+	vars := mux.Vars(r)
+	id, err := primitive.ObjectIDFromHex(vars["id"])
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if err := h.snippetService.DeleteSnippet(r.Context(), id); err != nil {
+		h.errors.HTTPError(w, err, http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/cm/snippets", http.StatusFound)
 }

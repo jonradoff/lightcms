@@ -21,6 +21,7 @@ type APIHandler struct {
 	apiKeyService   *services.APIKeyService
 	searchService   *services.SearchService
 	auditService    *services.AuditService
+	snippetService  *services.SnippetService
 }
 
 // NewAPIHandler creates a new API handler
@@ -31,6 +32,7 @@ func NewAPIHandler(
 	settingsService *services.SettingsService,
 	apiKeyService *services.APIKeyService,
 	auditService *services.AuditService,
+	snippetService *services.SnippetService,
 ) *APIHandler {
 	return &APIHandler{
 		contentService:  contentService,
@@ -39,6 +41,7 @@ func NewAPIHandler(
 		settingsService: settingsService,
 		apiKeyService:   apiKeyService,
 		auditService:    auditService,
+		snippetService:  snippetService,
 	}
 }
 
