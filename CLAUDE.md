@@ -78,11 +78,13 @@ Once connected, you can ask Claude to manage your content naturally:
 Binary: `bin/lightcms-mcp`
 Config: Uses same `config.dev.json` or environment variables as main server
 
-### Available MCP Tools (54 total):
+### Available MCP Tools (59 total):
 
 **Content (18 tools):** list_content, get_content, create_content, update_content, update_content_by_path, publish_content, publish_multiple, unpublish_content, delete_content, restore_content, preview_content, get_content_versions, get_content_version, revert_to_version
 
 **Templates (5 tools):** list_templates, get_template, create_template, update_template, delete_template
+
+**Snippets (5 tools):** list_snippets, get_snippet, create_snippet, update_snippet, delete_snippet
 
 **Assets (6 tools):** list_assets, list_asset_folders, get_asset, upload_asset, upload_asset_from_url, delete_asset
 
