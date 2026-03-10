@@ -9,15 +9,26 @@
 	--border-radius: 12px;
 }
 
+/* Tinted glass header - match SPA style */
+.site-header {
+  background: rgba(8, 12, 26, 0.7) !important;
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+  padding: 16px 40px !important;
+  z-index: 100;
+}
+
+.site-header nav,
+.site-header .header-inner {
+  background: transparent !important;
+}
+
+/* Tinted glass footer - match SPA style */
 .main-footer {
   background: rgba(15, 23, 42, 0.65) !important;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border-top: 1px solid rgba(99, 102, 241, 0.2) !important;
-}
-.main-nav {
-  background: rgba(15, 23, 42, 0.65) !important;
   backdrop-filter: blur(12px) !important;
-  -webkit-backdrop-filter: blur(12px);
-  border-bottom: 1px solid rgba(99, 102, 241, 0.2) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  border-top: 1px solid rgba(99, 102, 241, 0.2) !important;
+  padding: 40px 48px 32px !important;
+  margin-top: 48px;
 }
