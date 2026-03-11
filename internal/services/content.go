@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"html/template"
+	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -477,18 +478,21 @@ func (s *ContentService) GenerateStaticPage(ctx context.Context, content *models
 		return fmt.Errorf("template not found: %w", err)
 	}
 
-	// Render content (template fields interpolated)
-	html, err := s.renderContent(content, &tmpl)
-	if err != nil {
-		return fmt.Errorf("failed to render content: %w", err)
+	// Process lc:query directives in the raw template layout BEFORE html/template rendering,
+	// because html/template strips HTML comments (which is how lc:query directives are expressed).
+	layout := tmpl.HTMLLayout
+	if strings.Contains(layout, "lc:query") {
+		var lcErr error
+		layout, lcErr = s.processQueryDirectives(ctx, layout)
+		if lcErr != nil {
+			log.Printf("Warning: lc:query processing error for %s: %v", content.FullPath, lcErr)
+		}
 	}
 
-	// Process any lc:query directives in the rendered HTML
-	if strings.Contains(html, "lc:query") {
-		html, err = s.processQueryDirectives(ctx, html)
-		if err != nil {
-			fmt.Printf("Warning: lc:query processing error for %s: %v\n", content.FullPath, err)
-		}
+	// Render content (template fields interpolated into the processed layout)
+	html, err := s.renderContentFromLayout(content, layout)
+	if err != nil {
+		return fmt.Errorf("failed to render content: %w", err)
 	}
 
 	// Determine file path
@@ -521,8 +525,13 @@ func (s *ContentService) removeStaticPage(fullPath string) {
 	os.Remove(filePath)
 }
 
-// renderContent renders content using its template
+// renderContent renders content using its template's HTML layout.
 func (s *ContentService) renderContent(content *models.Content, tmpl *models.Template) (string, error) {
+	return s.renderContentFromLayout(content, tmpl.HTMLLayout)
+}
+
+// renderContentFromLayout renders content using the provided HTML layout string.
+func (s *ContentService) renderContentFromLayout(content *models.Content, layout string) (string, error) {
 	// Build data map with template.HTML for string values
 	data := make(map[string]interface{})
 	for k, v := range content.Data {
@@ -537,7 +546,7 @@ func (s *ContentService) renderContent(content *models.Content, tmpl *models.Tem
 	data["title"] = content.Title
 
 	// Parse and execute template
-	t, err := template.New("content").Parse(tmpl.HTMLLayout)
+	t, err := template.New("content").Parse(layout)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse template: %w", err)
 	}
