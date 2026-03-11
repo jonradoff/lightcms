@@ -665,11 +665,17 @@ func (s *ContentService) processQueryDirectives(ctx context.Context, html string
 		}
 		attrs := parseDirectiveAttrs(sub[1])
 
-		// Resolve filter
+		// Resolve filter — supports both direct keys (tag="X") and compound filter="key:value"
 		filterMap := make(map[string]string)
 		for _, key := range []string{"tag", "category", "template", "folder"} {
 			if v, ok := attrs[key]; ok {
 				filterMap[key] = v
+			}
+		}
+		if fv, ok := attrs["filter"]; ok {
+			parts := strings.SplitN(fv, ":", 2)
+			if len(parts) == 2 {
+				filterMap[strings.TrimSpace(parts[0])] = strings.TrimSpace(parts[1])
 			}
 		}
 
