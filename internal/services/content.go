@@ -726,8 +726,8 @@ func (s *ContentService) processQueryDirectives(ctx context.Context, html string
 					rendered.WriteString(itemHTML)
 				}
 			} else {
-				// Default: simple link
-				rendered.WriteString(`<a href="` + item.FullPath + `">` + item.Title + `</a>`)
+				// Default: simple link — escape to prevent XSS from titles with HTML characters
+				rendered.WriteString(`<a href="` + template.HTMLEscapeString(item.FullPath) + `">` + template.HTMLEscapeString(item.Title) + `</a>`)
 			}
 		}
 		return rendered.String()

@@ -23,6 +23,9 @@ A lightweight, AI-native content management system for building and managing web
 - **Static Page Generation**: Fast page loads from pre-rendered HTML — no runtime templating overhead
 - **Content Versioning**: Full version history with diff comparison and one-click revert
 - **Soft Delete**: Recover deleted content with undelete functionality
+- **Content Tagging**: Tag any content item with one or more freeform labels, then query by tag across your site
+- **Snippets**: Named HTML template fragments used as reusable rendering units in dynamic queries
+- **`lc:query` Directives**: Embed live content queries directly in template layouts — at publish time they expand into rendered lists of matching pages
 - **Content Collections**: Auto-generated paginated listing pages filtered by category
 - **Folders & URL Organization**: Hierarchical content organization with clean URL paths
 - **Rich Text Editor**: TinyMCE integration for visual content editing
@@ -208,6 +211,202 @@ go run cmd/resetpw/main.go user@example.com
 - `{{.slug}}` - URL slug
 - `{{.published_at}}` - Publication date
 - `{{.your_field_name}}` - Any custom field you define
+
+### Dynamic Index Pages: Tags, Snippets, and `lc:query`
+
+LightCMS includes a system for building dynamic index pages that automatically update as you publish content. Three features work together: **tags** label individual pages, **snippets** define how each result is rendered, and **`lc:query` directives** embed live queries directly inside template layouts.
+
+---
+
+#### Tags
+
+Tags are freeform string labels you attach to any content item. A page can have zero or many tags. They're the primary way to group content for querying.
+
+**Setting tags in the admin UI:**
+1. Open any content item in the editor
+2. Find the **Tags** field (below the main fields)
+3. Type a tag name and press Enter — repeat for multiple tags
+4. Save the content item
+
+**Setting tags via the API:**
+```bash
+curl -X PUT http://localhost:8082/api/v1/content/{id} \
+  -H "Authorization: Bearer lc_your_key" \
+  -H "Content-Type: application/json" \
+  -d '{"tags": ["AI & Machine Intelligence", "Featured"]}'
+```
+
+Tags are exact-match strings. Capitalization and spaces are preserved — `"AI & Machine Intelligence"` and `"ai & machine intelligence"` are treated as different tags.
+
+---
+
+#### Snippets
+
+A snippet is a named HTML template fragment stored in the CMS. When `lc:query` runs, it renders each matching content item through a snippet and concatenates the results.
+
+**Creating a snippet:**
+1. Go to **Settings → Snippets** in the admin panel
+2. Click **New Snippet**, give it a name (e.g. `glossary-pill`)
+3. Write HTML using Go template variables:
+
+```html
+<a href="{{.FullPath}}">{{.Title}}</a>
+```
+
+**Available variables inside a snippet:**
+
+| Variable | Description |
+|----------|-------------|
+| `{{.Title}}` | The content item's title |
+| `{{.FullPath}}` | The public URL path (e.g. `/my-page`) |
+| `{{.Slug}}` | URL slug only (e.g. `my-page`) |
+| `{{.MetaDescription}}` | Meta description field |
+| `{{.PublishedAt}}` | Publication timestamp |
+
+**Example snippets:**
+
+A pill-style link (for glossary / tag cloud layouts):
+```html
+<a href="{{.FullPath}}" class="pill">{{.Title}}</a>
+```
+
+A card with description:
+```html
+<div class="card">
+  <h3><a href="{{.FullPath}}">{{.Title}}</a></h3>
+  <p>{{.MetaDescription}}</p>
+</div>
+```
+
+A simple list item:
+```html
+<li><a href="{{.FullPath}}">{{.Title}}</a></li>
+```
+
+---
+
+#### `lc:query` Directives
+
+An `lc:query` directive is an HTML comment you embed in a **template layout**. At page generation time — before the page is rendered — the CMS finds all matching content items, renders each one through the named snippet, and replaces the comment with the combined HTML.
+
+**Syntax:**
+```html
+<!-- lc:query filter="tag:TAGNAME" sort="title:asc" snippet="snippet-name" -->
+```
+
+**Attributes:**
+
+| Attribute | Required | Description |
+|-----------|----------|-------------|
+| `filter` | Yes | Filter expression. Currently supports `tag:TAGNAME` to match content tagged with `TAGNAME`. |
+| `sort` | No | Sort field and direction: `title:asc`, `title:desc`, `created_at:asc`, `created_at:desc`. Defaults to `title:asc`. |
+| `snippet` | Yes | Name of the snippet to render each result through. |
+
+**Example in a template layout:**
+```html
+<h2>AI & Machine Intelligence</h2>
+<div class="links">
+<!-- lc:query filter="tag:AI & Machine Intelligence" sort="title:asc" snippet="glossary-pill" -->
+</div>
+```
+
+After the page is published, the directive is replaced with the rendered output of every published page tagged `AI & Machine Intelligence`, each passed through the `glossary-pill` snippet:
+
+```html
+<h2>AI & Machine Intelligence</h2>
+<div class="links">
+<a href="/artificial-intelligence" class="pill">Artificial Intelligence</a>
+<a href="/machine-learning" class="pill">Machine Learning</a>
+<a href="/neural-networks" class="pill">Neural Networks</a>
+</div>
+```
+
+**Important:** `lc:query` directives must be placed in the template's **HTML layout** field, not inside content data fields. The CMS processes them during page generation before Go's template engine runs (which would otherwise strip HTML comments).
+
+---
+
+#### Automatic Regeneration
+
+Index pages that use `lc:query` are automatically regenerated whenever:
+
+- A tagged content item is **published** or **updated**
+- The **template layout** is changed
+- The **snippet** is updated
+- **Regenerate All** is triggered manually from the admin panel
+
+This means you never need to manually rebuild your index pages — publish a new concept page tagged `"Games & Interactive Experiences"` and it appears in every index that queries for that tag within seconds.
+
+---
+
+#### Complete Walkthrough: Building a Tagging-Powered Index
+
+Here's how to build a concepts glossary that automatically stays up to date.
+
+**Step 1: Tag your concept pages**
+
+For each concept page, add the appropriate tag in the content editor. You can use as many tags as you like, and the same content item can appear in multiple index sections.
+
+**Step 2: Create a snippet**
+
+In **Settings → Snippets**, create a snippet named `glossary-pill`:
+```html
+<a href="{{.FullPath}}">{{.Title}}</a>
+```
+
+**Step 3: Create a template with `lc:query` sections**
+
+Create a new template (e.g. "Concepts Index") with this HTML layout:
+
+```html
+<article class="index-page">
+  <h1>{{.title}}</h1>
+  <div class="page-content">
+
+    <h2>AI &amp; Machine Intelligence</h2>
+    <div class="concept-links">
+<!-- lc:query filter="tag:AI & Machine Intelligence" sort="title:asc" snippet="glossary-pill" -->
+    </div>
+
+    <h2>Games &amp; Interactive Experiences</h2>
+    <div class="concept-links">
+<!-- lc:query filter="tag:Games & Interactive Experiences" sort="title:asc" snippet="glossary-pill" -->
+    </div>
+
+    <h2>3D Graphics &amp; Rendering</h2>
+    <div class="concept-links">
+<!-- lc:query filter="tag:3D Graphics & Rendering" sort="title:asc" snippet="glossary-pill" -->
+    </div>
+
+  </div>
+</article>
+```
+
+Note that `{{.title}}` is the Go template variable for the content item's title. Template variables use Go's `{{.field}}` syntax and are resolved after `lc:query` directives are expanded.
+
+**Step 4: Create and publish an index page**
+
+Create a new content item using your "Concepts Index" template. Give it a title and slug (e.g. `/glossary`). Publish it — the static page is generated with all the current tagged content already in place.
+
+**Step 5: Keep publishing**
+
+From now on, every time you create and publish a new concept page with a matching tag, all index pages that query for that tag are automatically regenerated and updated.
+
+---
+
+#### Template Variables
+
+Beyond content data fields, templates have access to a few built-in variables:
+
+| Variable | Description |
+|----------|-------------|
+| `{{.title}}` | The content item's title |
+| `{{.slug}}` | URL slug |
+| `{{.published_at}}` | Publication timestamp |
+| `{{.your_field}}` | Any custom field defined in the template (richtext fields render as HTML) |
+
+Custom fields defined on your template are available directly by key. If you define a field with key `intro`, it's available as `{{.intro}}` in the layout. Richtext fields are automatically marked safe — their HTML is rendered as-is without escaping.
+
+---
 
 ### Creating Collections
 
@@ -454,6 +653,7 @@ curl -H "Authorization: Bearer <oauth_access_token>" http://localhost:8082/api/v
 |----------|-----------|
 | Content | `GET/POST /content`, `GET/PUT/DELETE /content/{id}`, `POST .../publish`, `.../unpublish`, `.../restore`, `GET .../versions`, `POST .../versions/{v}/revert`, `GET /content/by-path?path=...` |
 | Templates | `GET/POST /templates`, `GET/PUT/DELETE /templates/{id}` |
+| Snippets | `GET/POST /snippets`, `GET/PUT/DELETE /snippets/{id}` |
 | Assets | `GET/POST /assets`, `GET/DELETE /assets/{id}`, `GET /assets/folders`, `GET /assets/by-path?path=...` |
 | Theme | `GET/PUT /theme`, `GET /theme/versions`, `POST /theme/versions/{v}/revert` |
 | Config | `GET/PUT /config` |
@@ -745,7 +945,53 @@ These examples show how the MCP tools work together to manage a website through 
    ```
    A paginated blog listing is now live at `/blog`, automatically including any content with category "blog".
 
-### Example 10: Full-Text Search and Content Audit
+### Example 10: Build a Dynamic Tagged Index Page
+
+**Prompt:** "Create a glossary index that automatically lists all my concept pages grouped by category, and keep it updated as I add new pages"
+
+**Tool calls:**
+1. `create_snippet` — creates a reusable rendering template for each result:
+   ```json
+   {
+     "name": "glossary-pill",
+     "html": "<a href=\"{{.FullPath}}\">{{.Title}}</a>"
+   }
+   ```
+
+2. `create_template` — creates the index page template with `lc:query` directives embedded:
+   ```json
+   {
+     "name": "Concepts Index",
+     "slug": "concepts-index",
+     "fields": [
+       { "name": "intro", "label": "Introduction", "type": "textarea" }
+     ],
+     "html_layout": "<article class=\"index-page\">\n<h1>{{.title}}</h1>\n{{if .intro}}<p>{{.intro}}</p>{{end}}\n\n<h2>AI &amp; Machine Intelligence</h2>\n<div class=\"links\">\n<!-- lc:query filter=\"tag:AI & Machine Intelligence\" sort=\"title:asc\" snippet=\"glossary-pill\" -->\n</div>\n\n<h2>Games &amp; Interactive Experiences</h2>\n<div class=\"links\">\n<!-- lc:query filter=\"tag:Games & Interactive Experiences\" sort=\"title:asc\" snippet=\"glossary-pill\" -->\n</div>\n</article>"
+   }
+   ```
+
+3. `create_content` — creates the index page using the new template:
+   ```json
+   {
+     "template_id": "<concepts-index-template-id>",
+     "title": "Concepts Glossary",
+     "slug": "glossary",
+     "data": {
+       "intro": "An index of all concepts, grouped by category."
+     }
+   }
+   ```
+
+4. `update_content` — tags several existing concept pages (each call):
+   ```json
+   { "tags": ["AI & Machine Intelligence"] }
+   ```
+
+5. `publish_content` — publishes the index page; the `lc:query` directives are resolved at this moment and the page is generated with all currently-tagged content already populated.
+
+From now on, every time a new concept page is published with a matching tag, the index page at `/glossary` is automatically regenerated — no further action needed.
+
+### Example 11: Full-Text Search and Content Audit
 
 **Prompt:** "Find all pages that mention 'pricing' and show me which ones are still in draft"
 

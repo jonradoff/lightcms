@@ -4,6 +4,65 @@ All notable changes to LightCMS are documented here, organized by version.
 
 ---
 
+## v3.0.0 — Dynamic Index Pages: Tags, Snippets & `lc:query`
+
+This release adds a first-class system for building dynamic, automatically-updated index pages — the most significant content modelling capability added since v1.0.
+
+### Content Tagging
+
+- **Tags field on all content items**: any content item can now carry zero or more freeform string labels
+- Tags are set in the admin editor (below the main fields) or via `{"tags": [...]}` in the REST API
+- Tags are exact-match strings; capitalization and spacing are preserved
+- Full REST API support: `GET /api/v1/content?tag=TAGNAME` filters by tag; `PUT /api/v1/content/{id}` accepts a `tags` array
+- Tags are indexed in MongoDB for efficient filtering
+
+### Snippets
+
+- **New `snippets` collection**: named HTML template fragments with Go template variable support
+- **Admin UI** at `/cm/snippets`: create, edit, and delete snippets with a live editor
+- **REST API**: `GET/POST /api/v1/snippets`, `GET/PUT/DELETE /api/v1/snippets/{id}`
+- **Available variables in snippets**: `{{.Title}}`, `{{.FullPath}}`, `{{.Slug}}`, `{{.MetaDescription}}`, `{{.PublishedAt}}`
+- Snippets are rendered through Go's `html/template`, so struct fields are HTML-escaped by default — safe from XSS
+
+### `lc:query` Directives
+
+- **Embed live content queries in template layouts** using HTML comment syntax:
+  ```html
+  <!-- lc:query filter="tag:TAGNAME" sort="title:asc" snippet="snippet-name" -->
+  ```
+- Directives are processed at page generation time before Go's template engine runs, then replaced with the rendered output of all matching published content items
+- Supports `filter="tag:X"`, `filter="category:X"`, `filter="template:X"`, `filter="folder:X"` (and shorthand `tag="X"` etc.)
+- Sort options: `title:asc`, `title:desc`, `created_at:asc`, `created_at:desc`
+- Multiple directives per template — each is an independent query
+- Falls back to a plain `<a href>` link if no snippet is specified
+
+### Automatic Cascade Regeneration
+
+- When a tagged content item is published or updated, all index pages whose templates contain `lc:query` directives are automatically regenerated — no manual rebuild needed
+- Regeneration also triggers when a template layout or snippet is updated
+- `POST /api/v1/regenerate` triggers a full-site regeneration (unchanged behaviour, now also covers `lc:query` pages)
+
+### MCP Tools (5 new, 54 → 59 total)
+
+- `list_snippets` — list all snippets
+- `get_snippet` — retrieve a snippet by ID or name
+- `create_snippet` — create a new named HTML snippet
+- `update_snippet` — update a snippet's name or HTML
+- `delete_snippet` — delete a snippet
+
+### Security Fix
+
+- **XSS in `lc:query` default fallback**: when `lc:query` had no `snippet` attribute, `item.Title` and `item.FullPath` were concatenated directly into HTML without escaping. Fixed to use `template.HTMLEscapeString()` on both values. The snippet path (which is the recommended usage) was already safe via `html/template` auto-escaping.
+
+### Documentation
+
+- README expanded with full documentation of Tags, Snippets, `lc:query`, and the complete walkthrough for building a tagging-powered index page
+- New MCP example (Example 10): building a dynamic glossary index end-to-end
+- Snippets endpoint added to REST API reference table
+- Security analysis section in changelog (this entry)
+
+---
+
 ## v2.6.0 — MCP Tool Improvements
 
 ### Bug Fixes
