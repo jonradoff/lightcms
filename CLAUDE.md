@@ -78,9 +78,9 @@ Once connected, you can ask Claude to manage your content naturally:
 Binary: `bin/lightcms-mcp`
 Config: Uses same `config.dev.json` or environment variables as main server
 
-### Available MCP Tools (59 total):
+### Available MCP Tools (63 total):
 
-**Content (18 tools):** list_content, get_content, create_content, update_content, update_content_by_path, publish_content, publish_multiple, unpublish_content, delete_content, restore_content, preview_content, get_content_versions, get_content_version, revert_to_version
+**Content (22 tools):** list_content, get_content, create_content, update_content, update_content_by_path, publish_content, publish_multiple, unpublish_content, delete_content, restore_content, preview_content, get_content_versions, get_content_version, revert_to_version, bulk_update_content, bulk_field_operation, export_content, get_backlinks
 
 **Templates (5 tools):** list_templates, get_template, create_template, update_template, delete_template
 
@@ -113,6 +113,52 @@ Assistant: "This would affect 15 pages (12 published, 3 drafts) with 47 total re
 User: "Yes, go ahead"
 [Run search_replace_execute]
 ```
+
+## Content Authoring: Wiki-Like Markup
+
+When creating or updating content via MCP or admin UI, the following markup features are processed at page generation time:
+
+### Wikilinks
+- `[[Page Title]]` — links to a page by its title (case-insensitive lookup)
+- `[[Page Title|display text]]` — link with custom label
+- `[[/full/path]]` — links to a page by its URL path
+- `[[/full/path|display text]]` — path link with custom label
+- Broken links render as `<span class="broken-link">text</span>`
+- Links auto-update when a page's title or path changes (via `UpdateWikilinksOnRename`)
+
+### Snippet Includes
+- `[[include:snippet-name]]` — embeds a named snippet inline
+- Snippet name must match the `name` field in the snippets collection
+- Recursion depth limit: 3 levels; cycles are detected and dropped
+
+### Table of Contents
+- Add `{{.lc_toc}}` in a template's HTML layout where the TOC should appear
+- Auto-generates `<nav class="lc-toc"><ul>...</ul></nav>` from page headings
+- All headings automatically get `id=` attributes for anchor navigation
+
+### Markdown Fields
+- Set a template field type to `markdown` for GFM rendering at publish time
+- Supports tables, strikethrough, task lists, autolinks
+- Script policy controls whether raw HTML/scripts are allowed (see Script Policy below)
+
+### Inline Tag Detection
+- Mention `#tagname` in any content field to automatically tag the page
+- Tag names: start with a letter, alphanumeric/underscore/hyphen, max 50 chars
+- Tags feed into `lc:query` index pages
+
+### Snippet Best Practices (for MCP agents)
+- Use snippets for reusable UI components: callout boxes, CTA sections, disclaimers, badge patterns
+- Snippet variables: `{{.Title}}`, `{{.FullPath}}`, `{{.Slug}}`, `{{.MetaDescription}}`, `{{.PublishedAt}}`
+- Reference snippets in content with `[[include:snippet-name]]` or in template layouts via `lc:query` directives
+
+## Script Policy
+
+Site-wide setting `markdown_script_policy` (configurable via `update_site_config`):
+- `"all"` — default; all roles may use raw HTML including `<script>` in markdown fields
+- `"admin_only"` — editors' content is sanitized; admin content passes through unchanged
+- `"none"` — all content sanitized regardless of author role
+
+The sanitizer (bluemonday) strips: `<script>`, `<iframe>`, `<form>`, `<input>`, event handlers (`onclick=`, etc.), `javascript:` URIs. All other HTML is preserved.
 
 ## Build Commands
 

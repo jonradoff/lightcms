@@ -23,11 +23,13 @@ type EndUserSearchInput struct {
 type SearchReplacePreviewInput struct {
 	Search  string `json:"search" jsonschema:"Text to search for,required"`
 	Replace string `json:"replace" jsonschema:"Text to replace with,required"`
+	Regex   bool   `json:"regex,omitempty" jsonschema:"If true, treat search as a Go regular expression. Use $1, $2 for capture group references in replace."`
 }
 
 type SearchReplaceExecuteInput struct {
 	Search         string `json:"search" jsonschema:"Text to search for,required"`
 	Replace        string `json:"replace" jsonschema:"Text to replace with,required"`
+	Regex          bool   `json:"regex,omitempty" jsonschema:"If true, treat search as a Go regular expression. Use $1, $2 for capture group references in replace."`
 	VersionComment string `json:"version_comment,omitempty" jsonschema:"Comment for version history (defaults to 'Bulk search and replace')"`
 }
 
@@ -73,7 +75,7 @@ For targeted replacements (a folder, template, or category), use scoped_search_r
 			return errorResult(fmt.Errorf("search text is required")), nil, nil
 		}
 
-		result, err := s.client.SearchReplacePreview(ctx, args.Search, args.Replace)
+		result, err := s.client.SearchReplacePreview(ctx, args.Search, args.Replace, args.Regex)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
@@ -105,7 +107,7 @@ For targeted replacements, use scoped_search_replace_execute instead.`,
 			return errorResult(fmt.Errorf("search text is required")), nil, nil
 		}
 
-		result, err := s.client.SearchReplaceExecute(ctx, args.Search, args.Replace, args.VersionComment)
+		result, err := s.client.SearchReplaceExecute(ctx, args.Search, args.Replace, args.VersionComment, args.Regex)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}

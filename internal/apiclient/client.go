@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -129,6 +130,14 @@ func (c *Client) GetContentByPath(ctx context.Context, path string, includeRende
 		return nil, err
 	}
 	return &result, nil
+}
+
+func (c *Client) GetBacklinks(ctx context.Context, path string) ([]Content, error) {
+	var result []Content
+	if err := c.do(ctx, "GET", "/content/backlinks?path="+url.QueryEscape(path), nil, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 func (c *Client) CreateContent(ctx context.Context, req CreateContentRequest) (*Content, error) {
@@ -459,21 +468,23 @@ func (c *Client) SearchContent(ctx context.Context, query, searchType string, in
 	return &result, nil
 }
 
-func (c *Client) SearchReplacePreview(ctx context.Context, search, replace string) (*SearchReplaceResult, error) {
+func (c *Client) SearchReplacePreview(ctx context.Context, search, replace string, regex bool) (*SearchReplaceResult, error) {
 	var result SearchReplaceResult
-	if err := c.do(ctx, "POST", "/search-replace/preview", map[string]string{
+	if err := c.do(ctx, "POST", "/search-replace/preview", map[string]interface{}{
 		"search":  search,
 		"replace": replace,
+		"regex":   regex,
 	}, &result); err != nil {
 		return nil, err
 	}
 	return &result, nil
 }
 
-func (c *Client) SearchReplaceExecute(ctx context.Context, search, replace, comment string) (*SearchReplaceResult, error) {
-	req := map[string]string{
+func (c *Client) SearchReplaceExecute(ctx context.Context, search, replace, comment string, regex bool) (*SearchReplaceResult, error) {
+	req := map[string]interface{}{
 		"search":  search,
 		"replace": replace,
+		"regex":   regex,
 	}
 	if comment != "" {
 		req["version_comment"] = comment
@@ -620,10 +631,11 @@ type ScopedSearchReplaceScope struct {
 }
 
 // ScopedSearchReplacePreview previews a search-and-replace limited to a scope.
-func (c *Client) ScopedSearchReplacePreview(ctx context.Context, search, replace string, scope ScopedSearchReplaceScope) (*SearchReplaceResult, error) {
+func (c *Client) ScopedSearchReplacePreview(ctx context.Context, search, replace string, regex bool, scope ScopedSearchReplaceScope) (*SearchReplaceResult, error) {
 	req := map[string]interface{}{
 		"search":  search,
 		"replace": replace,
+		"regex":   regex,
 		"scope":   scope,
 	}
 	var result SearchReplaceResult
@@ -634,10 +646,11 @@ func (c *Client) ScopedSearchReplacePreview(ctx context.Context, search, replace
 }
 
 // ScopedSearchReplaceExecute runs a scoped search-and-replace.
-func (c *Client) ScopedSearchReplaceExecute(ctx context.Context, search, replace, comment string, scope ScopedSearchReplaceScope) (*SearchReplaceResult, error) {
+func (c *Client) ScopedSearchReplaceExecute(ctx context.Context, search, replace, comment string, regex bool, scope ScopedSearchReplaceScope) (*SearchReplaceResult, error) {
 	req := map[string]interface{}{
 		"search":          search,
 		"replace":         replace,
+		"regex":           regex,
 		"version_comment": comment,
 		"scope":           scope,
 	}
@@ -646,6 +659,73 @@ func (c *Client) ScopedSearchReplaceExecute(ctx context.Context, search, replace
 		return nil, err
 	}
 	return &result, nil
+}
+
+// ListContentOptions provides optional parameters for listing content.
+type ListContentOptions struct {
+	IncludeDeleted bool
+	Category       string
+	FolderID       string
+	IncludeData    bool
+	IncludeFields  []string
+}
+
+// ListContentWithOptions lists content with extended filter options.
+func (c *Client) ListContentWithOptions(ctx context.Context, opts ListContentOptions) ([]Content, error) {
+	params := url.Values{}
+	if opts.IncludeDeleted {
+		params.Set("include_deleted", "true")
+	}
+	if opts.Category != "" {
+		params.Set("category", opts.Category)
+	}
+	if opts.FolderID != "" {
+		params.Set("folder_id", opts.FolderID)
+	}
+	if opts.IncludeData {
+		params.Set("include_data", "true")
+	}
+	if len(opts.IncludeFields) > 0 {
+		params.Set("include_fields", strings.Join(opts.IncludeFields, ","))
+	}
+
+	path := "/content"
+	if len(params) > 0 {
+		path += "?" + params.Encode()
+	}
+
+	var result []Content
+	if err := c.do(ctx, "GET", path, nil, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// BulkUpdateContent updates multiple content items in a single call.
+func (c *Client) BulkUpdateContent(ctx context.Context, req interface{}) (map[string]interface{}, error) {
+	var result map[string]interface{}
+	if err := c.do(ctx, "POST", "/content/bulk-update", req, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// BulkFieldOperation applies a field operation to all matching content.
+func (c *Client) BulkFieldOperation(ctx context.Context, req interface{}) (map[string]interface{}, error) {
+	var result map[string]interface{}
+	if err := c.do(ctx, "POST", "/content/bulk-field-op", req, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// ExportContent exports content items with their field data.
+func (c *Client) ExportContent(ctx context.Context, req interface{}) (map[string]interface{}, error) {
+	var result map[string]interface{}
+	if err := c.do(ctx, "POST", "/content/export", req, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 // ListSnippets returns all snippets.

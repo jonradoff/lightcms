@@ -16,10 +16,28 @@ import (
 	"lightcms/internal/database"
 	"lightcms/internal/models"
 
+	"github.com/microcosm-cc/bluemonday"
+	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/extension"
+	goldmarkhtml "github.com/yuin/goldmark/renderer/html"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
+
+// editorContextKey is the unexported context key for the current editor's email.
+type editorContextKey struct{}
+
+// WithEditorEmail returns a copy of ctx with the editor's email stored for version history.
+func WithEditorEmail(ctx context.Context, email string) context.Context {
+	return context.WithValue(ctx, editorContextKey{}, email)
+}
+
+// EditorEmailFromContext extracts the editor email stored by WithEditorEmail.
+func EditorEmailFromContext(ctx context.Context) string {
+	v, _ := ctx.Value(editorContextKey{}).(string)
+	return v
+}
 
 // ContentService centralizes all content operations with automatic versioning
 type ContentService struct {
@@ -80,6 +98,9 @@ func (s *ContentService) CreateContent(ctx context.Context, content *models.Cont
 		content.FullPath = "/"
 	}
 
+	// Merge inline #tags from data fields into content.Tags
+	mergeInlineTags(content)
+
 	// Extract internal links
 	content.InternalLinks = s.extractInternalLinks(content)
 
@@ -129,6 +150,9 @@ func (s *ContentService) UpdateContent(ctx context.Context, content *models.Cont
 	} else {
 		content.FullPath = "/"
 	}
+
+	// Merge inline #tags from data fields into content.Tags
+	mergeInlineTags(content)
 
 	// Extract internal links
 	content.InternalLinks = s.extractInternalLinks(content)
@@ -185,6 +209,15 @@ func (s *ContentService) UpdateContent(ctx context.Context, content *models.Cont
 
 	// Rebuild search keyword cache when content changes
 	s.triggerKeywordRebuild()
+
+	// Rewrite [[wikilinks]] across all content if title or path changed
+	if original.Title != content.Title || original.FullPath != content.FullPath {
+		go func(oldTitle, newTitle, oldPath, newPath string) {
+			wCtx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+			defer cancel()
+			s.UpdateWikilinksOnRename(wCtx, oldTitle, newTitle, oldPath, newPath)
+		}(original.Title, content.Title, original.FullPath, content.FullPath)
+	}
 
 	// Regenerate index pages that may reference this content via lc:query
 	go func() {
@@ -307,6 +340,24 @@ func (s *ContentService) GetContentByPath(ctx context.Context, path string) (*mo
 		return nil, fmt.Errorf("content not found: %w", err)
 	}
 	return &content, nil
+}
+
+// GetBacklinks finds all published content that links to the given path via internal_links.
+func (s *ContentService) GetBacklinks(ctx context.Context, targetPath string) ([]models.Content, error) {
+	filter := bson.M{
+		"internal_links": targetPath,
+		"deleted":        bson.M{"$ne": true},
+		"published":      true,
+	}
+	cursor, err := s.db.FindMany(ctx, "content", filter, options.Find().SetSort(bson.D{{Key: "title", Value: 1}}))
+	if err != nil {
+		return nil, fmt.Errorf("GetBacklinks: %w", err)
+	}
+	var results []models.Content
+	if err := cursor.All(ctx, &results); err != nil {
+		return nil, fmt.Errorf("GetBacklinks decode: %w", err)
+	}
+	return results, nil
 }
 
 // ListContent lists all content with optional filters
@@ -441,10 +492,12 @@ func (s *ContentService) saveVersion(ctx context.Context, content *models.Conten
 
 	version := int(count) + 1
 
+	modifiedByEmail := EditorEmailFromContext(ctx)
 	contentVersion := models.ContentVersion{
 		ContentID:       content.ID,
 		Version:         version,
 		Comment:         comment,
+		ModifiedByEmail: modifiedByEmail,
 		TemplateID:      content.TemplateID,
 		TemplateName:    content.TemplateName,
 		Title:           content.Title,
@@ -470,12 +523,66 @@ func (s *ContentService) saveVersion(ctx context.Context, content *models.Conten
 	return err
 }
 
+// getAuthorRole looks up the role of a user by ID.
+// Returns "admin" for zero IDs (legacy content), "editor" on any error.
+func (s *ContentService) getAuthorRole(ctx context.Context, userID primitive.ObjectID) string {
+	if userID.IsZero() {
+		return "admin" // legacy content created before multi-user system
+	}
+	var user struct {
+		Role string `bson:"role"`
+	}
+	if err := s.db.Collection("users").FindOne(ctx, bson.M{"_id": userID}).Decode(&user); err != nil || user.Role == "" {
+		return "editor" // default to restrictive on error
+	}
+	return user.Role
+}
+
+// getContentAuthorRole looks up the role of the user who last modified the content
+// by finding the most recent content version with a ModifiedBy field.
+// Returns "admin" for legacy content (no modifier recorded), "editor" on error.
+func (s *ContentService) getContentAuthorRole(ctx context.Context, content *models.Content) string {
+	var latestVersion struct {
+		ModifiedBy *primitive.ObjectID `bson:"modified_by"`
+	}
+	opts := options.FindOne().SetSort(bson.D{{Key: "version", Value: -1}})
+	err := s.db.Collection("content_versions").FindOne(ctx,
+		bson.M{"content_id": content.ID, "modified_by": bson.M{"$exists": true}},
+		opts,
+	).Decode(&latestVersion)
+	if err != nil || latestVersion.ModifiedBy == nil {
+		return "admin" // no modifier recorded — treat as legacy/admin content
+	}
+	return s.getAuthorRole(ctx, *latestVersion.ModifiedBy)
+}
+
 // GenerateStaticPage renders and saves the content as a static HTML file
 func (s *ContentService) GenerateStaticPage(ctx context.Context, content *models.Content) error {
 	// Get template
 	var tmpl models.Template
 	if err := s.db.FindOne(ctx, "templates", bson.M{"_id": content.TemplateID}, &tmpl); err != nil {
 		return fmt.Errorf("template not found: %w", err)
+	}
+
+	// Determine script policy from site config
+	siteConfig, _ := s.db.GetSiteConfig(ctx)
+	policy := "all"
+	if siteConfig != nil && siteConfig.MarkdownScriptPolicy != "" {
+		policy = siteConfig.MarkdownScriptPolicy
+	}
+
+	var allowUnsafeScripts bool
+	switch policy {
+	case "none":
+		allowUnsafeScripts = false
+	case "admin_only":
+		// Look up the role of the content's last modifier via content versions
+		// Since Content doesn't store ModifiedBy directly, we use the most recent version's modifier.
+		// Fall back to checking the content's creator via the versions collection.
+		authorRole := s.getContentAuthorRole(ctx, content)
+		allowUnsafeScripts = (authorRole == "admin")
+	default: // "all" or ""
+		allowUnsafeScripts = true
 	}
 
 	// Process lc:query directives in the raw template layout BEFORE html/template rendering,
@@ -489,10 +596,25 @@ func (s *ContentService) GenerateStaticPage(ctx context.Context, content *models
 		}
 	}
 
-	// Render content (template fields interpolated into the processed layout)
-	html, err := s.renderContentFromLayout(content, layout)
+	// Build processed data map: handle markdown fields, snippet includes, and lc_toc placeholder.
+	processedData := buildProcessedData(ctx, s.db, content, tmpl.Fields, allowUnsafeScripts)
+
+	// Render content using the processed data map.
+	html, err := s.renderContentFromLayoutWithData(processedData, layout)
 	if err != nil {
 		return fmt.Errorf("failed to render content: %w", err)
+	}
+
+	// Inject id= attributes into heading tags that don't already have one.
+	html = injectHeadingIDs(html)
+
+	// Build and inject the table of contents (replaces tocPlaceholder).
+	html = buildAndInjectTOC(html)
+
+	// Resolve [[wikilinks]] in the rendered output
+	if strings.Contains(html, "[[") {
+		idx := s.buildWikilinkIndex(ctx)
+		html = processWikiLinks(idx, html)
 	}
 
 	// Determine file path
@@ -545,6 +667,11 @@ func (s *ContentService) renderContentFromLayout(content *models.Content, layout
 	// Add title
 	data["title"] = content.Title
 
+	return s.renderContentFromLayoutWithData(data, layout)
+}
+
+// renderContentFromLayoutWithData renders a layout using a pre-built data map.
+func (s *ContentService) renderContentFromLayoutWithData(data map[string]interface{}, layout string) (string, error) {
 	// Parse and execute template
 	t, err := template.New("content").Parse(layout)
 	if err != nil {
@@ -651,6 +778,390 @@ func (s *ContentService) QueryContentForDirective(ctx context.Context, filter ma
 
 // lcQueryDirectiveRE matches <!-- lc:query ... --> comment blocks (single-line or across multiple lines).
 var lcQueryDirectiveRE = regexp.MustCompile(`(?s)<!--\s*lc:query\s+(.*?)-->`)
+
+// wikilinkRE matches [[target]] or [[target|display text]] wiki-style internal links.
+var wikilinkRE = regexp.MustCompile(`\[\[([^\]|]+?)(?:\|([^\]]+?))?\]\]`)
+
+// tocPlaceholder is the internal marker replaced by the generated TOC HTML.
+const tocPlaceholder = "__LCTOC__"
+
+// snippetIncludeRE matches [[include:snippet-name]] inline snippet inclusions.
+var snippetIncludeRE = regexp.MustCompile(`\[\[include:([a-zA-Z0-9_-]+)\]\]`)
+
+// inlineTagRE matches #tagname patterns in text fields.
+var inlineTagRE = regexp.MustCompile(`(?:^|[\s,;(])#([a-zA-Z][a-zA-Z0-9_-]{0,49})`)
+
+// headingRE matches HTML heading tags (h1-h6) including content, single-line.
+var headingRE = regexp.MustCompile(`(?is)<(h[1-6])([^>]*)>(.*?)</h[1-6]>`)
+
+// headingWithIDRE matches heading tags that already have an id= attribute.
+var headingWithIDRE = regexp.MustCompile(`(?is)<(h[1-6])[^>]*\sid="([^"]+)"[^>]*>(.*?)</h[1-6]>`)
+
+// tagStripRE strips HTML tags for text extraction.
+var tagStripRE = regexp.MustCompile(`<[^>]+>`)
+
+// slugifyRE replaces non-alphanumeric runs with hyphens.
+var slugifyRE = regexp.MustCompile(`[^a-z0-9]+`)
+
+// editorSafePolicy strips script-execution vectors (script, iframe, event handlers,
+// javascript: URIs) but allows all other HTML including tables, divs, custom classes,
+// inline styles, etc.
+var editorSafePolicy = func() *bluemonday.Policy {
+	p := bluemonday.NewPolicy()
+	// Allow all standard HTML elements except script-execution ones
+	// (script, iframe, object, embed, form, input, base, link, meta, style are blocked by omission)
+	p.AllowElements(
+		"a", "abbr", "acronym", "address", "article", "aside", "audio",
+		"b", "blockquote", "br", "caption", "cite", "code", "col", "colgroup",
+		"dd", "del", "details", "dfn", "div", "dl", "dt",
+		"em", "figcaption", "figure", "footer",
+		"h1", "h2", "h3", "h4", "h5", "h6", "header", "hr",
+		"i", "img", "ins", "kbd", "li", "main", "mark", "nav",
+		"ol", "p", "picture", "pre", "q", "rp", "rt", "ruby",
+		"s", "samp", "section", "small", "source", "span", "strong", "sub", "summary", "sup",
+		"table", "tbody", "td", "tfoot", "th", "thead", "time", "tr", "track",
+		"u", "ul", "var", "video", "wbr",
+	)
+	p.AllowAttrs("href").OnElements("a")
+	p.AllowURLSchemes("http", "https", "mailto", "tel")
+	p.AllowAttrs("target", "rel").OnElements("a")
+	p.AllowAttrs("src", "alt", "width", "height", "loading", "decoding").OnElements("img")
+	p.AllowAttrs("src", "type").OnElements("source", "track")
+	p.AllowAttrs("src", "controls", "autoplay", "loop", "muted", "preload", "width", "height").OnElements("video", "audio")
+	p.AllowAttrs("id", "class", "style", "title", "lang", "dir").Globally()
+	p.AllowAttrs("colspan", "rowspan", "scope", "headers").OnElements("td", "th")
+	p.AllowAttrs("span").OnElements("col", "colgroup")
+	p.AllowAttrs("open").OnElements("details")
+	p.AllowAttrs("datetime").OnElements("del", "ins", "time")
+	p.AllowAttrs("start", "reversed", "type").OnElements("ol")
+	p.AllowAttrs("type", "value").OnElements("li")
+	p.AllowAttrs("cite").OnElements("blockquote", "q", "del", "ins")
+	p.AllowAttrs("srcset", "media", "sizes").OnElements("source", "picture")
+	return p
+}()
+
+// markdownToHTML converts markdown text to HTML using goldmark with GFM extensions.
+// If allowUnsafe is true, raw HTML pass-through is enabled (goldmark WithUnsafe).
+// If allowUnsafe is false, the output is sanitized by editorSafePolicy.
+func markdownToHTML(text string, allowUnsafe bool) string {
+	var opts []goldmark.Option
+	opts = append(opts, goldmark.WithExtensions(extension.GFM))
+	if allowUnsafe {
+		opts = append(opts, goldmark.WithRendererOptions(goldmarkhtml.WithUnsafe()))
+	}
+	md := goldmark.New(opts...)
+	var buf bytes.Buffer
+	if err := md.Convert([]byte(text), &buf); err != nil {
+		return text
+	}
+	result := buf.String()
+	if !allowUnsafe {
+		result = editorSafePolicy.Sanitize(result)
+	}
+	return result
+}
+
+// expandSnippetIncludes replaces [[include:snippet-name]] patterns with the snippet's HTML.
+func expandSnippetIncludes(ctx context.Context, db *database.DB, text string, content *models.Content) string {
+	return expandSnippetIncludesDepth(ctx, db, text, content, 0, map[string]bool{})
+}
+
+func expandSnippetIncludesDepth(ctx context.Context, db *database.DB, text string, content *models.Content, depth int, visited map[string]bool) string {
+	if depth >= 3 {
+		return text // max recursion depth
+	}
+	if !strings.Contains(text, "[[include:") {
+		return text
+	}
+	return snippetIncludeRE.ReplaceAllStringFunc(text, func(match string) string {
+		sub := snippetIncludeRE.FindStringSubmatch(match)
+		if len(sub) < 2 {
+			return match
+		}
+		snippetName := sub[1]
+		if visited[snippetName] {
+			return "" // cycle detected — drop silently
+		}
+		var snip models.Snippet
+		if err := db.FindOne(ctx, "snippets", bson.M{"name": snippetName}, &snip); err != nil {
+			return match // snippet not found, leave in place
+		}
+		rendered, err := renderSnippet(snip.HTML, *content)
+		if err != nil {
+			return match
+		}
+		visited[snippetName] = true
+		rendered = expandSnippetIncludesDepth(ctx, db, rendered, content, depth+1, visited)
+		delete(visited, snippetName) // allow same snippet in different branches
+		return rendered
+	})
+}
+
+// buildProcessedData builds the template data map, pre-processing markdown fields and snippet includes.
+// allowUnsafeScripts controls whether raw HTML/scripts are permitted in markdown and richtext fields.
+func buildProcessedData(ctx context.Context, db *database.DB, content *models.Content, fields []models.TemplateField, allowUnsafeScripts bool) map[string]interface{} {
+	// Build a lookup for field types
+	fieldTypes := make(map[string]string, len(fields))
+	for _, f := range fields {
+		fieldTypes[f.Name] = f.Type
+	}
+
+	data := make(map[string]interface{})
+	for k, v := range content.Data {
+		strVal, ok := v.(string)
+		if !ok {
+			if v != nil {
+				data[k] = v
+			}
+			continue
+		}
+		// Expand snippet includes first
+		strVal = expandSnippetIncludes(ctx, db, strVal, content)
+		// Convert markdown fields
+		if fieldTypes[k] == "markdown" {
+			strVal = markdownToHTML(strVal, allowUnsafeScripts)
+		} else if !allowUnsafeScripts && fieldTypes[k] == "richtext" {
+			// Sanitize richtext fields too when script policy requires it
+			strVal = editorSafePolicy.Sanitize(strVal)
+		}
+		data[k] = template.HTML(strVal)
+	}
+	// Add title
+	data["title"] = content.Title
+	// Add TOC placeholder as unescaped HTML
+	data["lc_toc"] = template.HTML(tocPlaceholder)
+	return data
+}
+
+// headingSlug converts heading text content to a URL-safe ID slug.
+func headingSlug(text string) string {
+	text = tagStripRE.ReplaceAllString(text, "")
+	text = strings.ToLower(strings.TrimSpace(text))
+	text = slugifyRE.ReplaceAllString(text, "-")
+	text = strings.Trim(text, "-")
+	return text
+}
+
+// injectHeadingIDs adds id= attributes to heading tags that don't already have one.
+func injectHeadingIDs(html string) string {
+	return headingRE.ReplaceAllStringFunc(html, func(match string) string {
+		parts := headingRE.FindStringSubmatch(match)
+		if len(parts) < 4 {
+			return match
+		}
+		tag, attrs, content := parts[1], parts[2], parts[3]
+		if strings.Contains(strings.ToLower(attrs), "id=") {
+			return match
+		}
+		id := headingSlug(content)
+		if id == "" {
+			return match
+		}
+		return fmt.Sprintf(`<%s id="%s"%s>%s</%s>`, tag, id, attrs, content, tag)
+	})
+}
+
+// buildAndInjectTOC scans for headings with IDs, builds a nav TOC, and substitutes the tocPlaceholder.
+func buildAndInjectTOC(html string) string {
+	type tocEntry struct {
+		level int
+		id    string
+		text  string
+	}
+
+	var entries []tocEntry
+	headingWithIDRE.ReplaceAllStringFunc(html, func(match string) string {
+		parts := headingWithIDRE.FindStringSubmatch(match)
+		if len(parts) < 4 {
+			return match
+		}
+		tag, id, content := parts[1], parts[2], parts[3]
+		level := int(tag[1] - '0')
+		text := tagStripRE.ReplaceAllString(content, "")
+		entries = append(entries, tocEntry{level, id, strings.TrimSpace(text)})
+		return match
+	})
+
+	if len(entries) == 0 {
+		return strings.ReplaceAll(html, tocPlaceholder, "")
+	}
+
+	var toc strings.Builder
+	toc.WriteString(`<nav class="lc-toc"><ul>`)
+	for _, e := range entries {
+		toc.WriteString(fmt.Sprintf(`<li class="toc-h%d"><a href="#%s">%s</a></li>`, e.level, e.id, template.HTMLEscapeString(e.text)))
+	}
+	toc.WriteString(`</ul></nav>`)
+
+	return strings.ReplaceAll(html, tocPlaceholder, toc.String())
+}
+
+// mergeInlineTags scans content data fields for #tagname patterns and merges found tags into content.Tags.
+func mergeInlineTags(content *models.Content) {
+	found := make(map[string]bool)
+	for _, tag := range content.Tags {
+		found[strings.ToLower(tag)] = true
+	}
+
+	for _, val := range content.Data {
+		strVal, ok := val.(string)
+		if !ok {
+			continue
+		}
+		matches := inlineTagRE.FindAllStringSubmatch(strVal, -1)
+		for _, m := range matches {
+			if len(m) > 1 {
+				tag := strings.ToLower(m[1])
+				if !found[tag] {
+					found[tag] = true
+					content.Tags = append(content.Tags, m[1])
+				}
+			}
+		}
+	}
+}
+
+// wikilinkIndex holds bidirectional lookup maps for wikilink resolution.
+type wikilinkIndex struct {
+	titleToPath map[string]string // lowercase title → full_path
+	pathToTitle map[string]string // full_path → canonical title
+}
+
+// buildWikilinkIndex fetches all published content and builds lookup maps.
+func (s *ContentService) buildWikilinkIndex(ctx context.Context) *wikilinkIndex {
+	idx := &wikilinkIndex{
+		titleToPath: make(map[string]string),
+		pathToTitle: make(map[string]string),
+	}
+	var all []models.Content
+	if err := s.db.FindAll(ctx, "content", bson.M{
+		"published": true,
+		"deleted":   bson.M{"$ne": true},
+	}, &all); err != nil {
+		return idx
+	}
+	for _, c := range all {
+		if c.FullPath != "" {
+			idx.titleToPath[strings.ToLower(c.Title)] = c.FullPath
+			idx.pathToTitle[c.FullPath] = c.Title
+		}
+	}
+	return idx
+}
+
+// processWikiLinks resolves [[wikilink]] and [[wikilink|display]] patterns in html.
+// Resolved links become <a href="...">text</a>.
+// Unresolved links become <span class="broken-link" data-target="...">text</span>.
+func processWikiLinks(idx *wikilinkIndex, html string) string {
+	if !strings.Contains(html, "[[") {
+		return html
+	}
+	return wikilinkRE.ReplaceAllStringFunc(html, func(match string) string {
+		sub := wikilinkRE.FindStringSubmatch(match)
+		if len(sub) < 2 {
+			return match
+		}
+		target := strings.TrimSpace(sub[1])
+		var display string
+		if len(sub) > 2 {
+			display = strings.TrimSpace(sub[2])
+		}
+
+		var href, label string
+		if strings.HasPrefix(target, "/") {
+			// Path-based lookup: [[/full/path]] or [[/full/path|display]]
+			if title, ok := idx.pathToTitle[target]; ok {
+				href = target
+				label = display
+				if label == "" {
+					label = title
+				}
+			}
+		} else {
+			// Title-based lookup (case-insensitive): [[Page Title]] or [[Page Title|display]]
+			if path, ok := idx.titleToPath[strings.ToLower(target)]; ok {
+				href = path
+				label = display
+				if label == "" {
+					label = target
+				}
+			}
+		}
+
+		if href == "" {
+			dispText := display
+			if dispText == "" {
+				dispText = target
+			}
+			return `<span class="broken-link" data-target="` +
+				template.HTMLEscapeString(target) + `">` +
+				template.HTMLEscapeString(dispText) + `</span>`
+		}
+		return `<a href="` + template.HTMLEscapeString(href) + `">` +
+			template.HTMLEscapeString(label) + `</a>`
+	})
+}
+
+// UpdateWikilinksOnRename rewrites [[OldTitle]] → [[NewTitle]] and [[/old/path]] → [[/new/path]]
+// across all content data fields. Safe to call from a goroutine.
+func (s *ContentService) UpdateWikilinksOnRename(ctx context.Context, oldTitle, newTitle, oldPath, newPath string) {
+	if oldTitle == newTitle && oldPath == newPath {
+		return
+	}
+	var all []models.Content
+	if err := s.db.FindAll(ctx, "content", bson.M{"deleted": bson.M{"$ne": true}}, &all); err != nil {
+		log.Printf("Warning: UpdateWikilinksOnRename: load error: %v", err)
+		return
+	}
+	for _, c := range all {
+		updated := false
+		newData := make(map[string]interface{})
+		for k, v := range c.Data {
+			if str, ok := v.(string); ok {
+				rewritten := rewriteWikilinksInText(str, oldTitle, newTitle, oldPath, newPath)
+				newData[k] = rewritten
+				if rewritten != str {
+					updated = true
+				}
+			} else {
+				newData[k] = v
+			}
+		}
+		if updated {
+			if err := s.db.UpdateOne(ctx, "content", bson.M{"_id": c.ID}, bson.M{"$set": bson.M{
+				"data":       newData,
+				"updated_at": time.Now(),
+			}}); err != nil {
+				log.Printf("Warning: UpdateWikilinksOnRename: update error for %s: %v", c.ID.Hex(), err)
+			}
+		}
+	}
+}
+
+// rewriteWikilinksInText rewrites wikilink targets in a single text string.
+func rewriteWikilinksInText(text, oldTitle, newTitle, oldPath, newPath string) string {
+	if !strings.Contains(text, "[[") {
+		return text
+	}
+	return wikilinkRE.ReplaceAllStringFunc(text, func(match string) string {
+		sub := wikilinkRE.FindStringSubmatch(match)
+		if len(sub) < 2 {
+			return match
+		}
+		target := strings.TrimSpace(sub[1])
+		var displayPart string
+		if len(sub) > 2 && strings.TrimSpace(sub[2]) != "" {
+			displayPart = "|" + sub[2]
+		}
+		if oldTitle != "" && newTitle != "" && oldTitle != newTitle && strings.EqualFold(target, oldTitle) {
+			return "[[" + newTitle + displayPart + "]]"
+		}
+		if oldPath != "" && newPath != "" && oldPath != newPath && target == oldPath {
+			return "[[" + newPath + displayPart + "]]"
+		}
+		return match
+	})
+}
 
 // parseDirectiveAttrs parses key="value" pairs from a directive attribute string.
 func parseDirectiveAttrs(s string) map[string]string {

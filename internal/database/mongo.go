@@ -563,8 +563,9 @@ func (db *DB) SaveAdminSettings(ctx context.Context, settings *AdminSettings) er
 // SiteConfig stores site-wide configuration settings
 type SiteConfig struct {
 	ID                   primitive.ObjectID `bson:"_id,omitempty"`
-	TitleTemplate        string             `bson:"title_template"`         // Template when page has title, e.g. "{{title}} | {{site_name}}"
+	TitleTemplate        string             `bson:"title_template"`          // Template when page has title, e.g. "{{title}} | {{site_name}}"
 	TitleTemplateNoTitle string             `bson:"title_template_no_title"` // Template when page has no title, e.g. "{{site_name}}"
+	MarkdownScriptPolicy string             `bson:"markdown_script_policy" json:"markdown_script_policy"` // Values: "all" (default), "admin_only", "none"
 	UpdatedAt            time.Time          `bson:"updated_at"`
 }
 
@@ -577,6 +578,7 @@ func (db *DB) GetSiteConfig(ctx context.Context) (*SiteConfig, error) {
 		return &SiteConfig{
 			TitleTemplate:        "{{title}} - {{site_name}}",
 			TitleTemplateNoTitle: "{{site_name}}",
+			MarkdownScriptPolicy: "all",
 		}, nil
 	}
 	return &config, err

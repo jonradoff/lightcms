@@ -218,6 +218,7 @@ func (a *APIHandler) APIUpdateSiteConfig(w http.ResponseWriter, r *http.Request)
 	var req struct {
 		TitleTemplate        *string `json:"title_template"`
 		TitleTemplateNoTitle *string `json:"title_template_no_title"`
+		MarkdownScriptPolicy *string `json:"markdown_script_policy"`
 	}
 	if err := a.decodeJSON(r, &req); err != nil {
 		a.jsonError(w, http.StatusBadRequest, "invalid request body")
@@ -235,6 +236,15 @@ func (a *APIHandler) APIUpdateSiteConfig(w http.ResponseWriter, r *http.Request)
 	}
 	if req.TitleTemplateNoTitle != nil {
 		config.TitleTemplateNoTitle = *req.TitleTemplateNoTitle
+	}
+	if req.MarkdownScriptPolicy != nil {
+		switch *req.MarkdownScriptPolicy {
+		case "", "all", "admin_only", "none":
+			config.MarkdownScriptPolicy = *req.MarkdownScriptPolicy
+		default:
+			a.jsonError(w, http.StatusBadRequest, "markdown_script_policy must be 'all', 'admin_only', or 'none'")
+			return
+		}
 	}
 
 	if err := a.settingsService.UpdateSiteConfig(r.Context(), config); err != nil {

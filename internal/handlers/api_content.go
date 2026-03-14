@@ -22,6 +22,8 @@ import (
 func (a *APIHandler) APIListContent(w http.ResponseWriter, r *http.Request) {
 	includeDeleted, _ := strconv.ParseBool(r.URL.Query().Get("include_deleted"))
 	category := r.URL.Query().Get("category")
+	includeData, _ := strconv.ParseBool(r.URL.Query().Get("include_data"))
+	includeFieldsParam := r.URL.Query().Get("include_fields") // comma-separated field names
 
 	var folderID *primitive.ObjectID
 	if fid := r.URL.Query().Get("folder_id"); fid != "" {
@@ -39,7 +41,72 @@ func (a *APIHandler) APIListContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	a.jsonResponse(w, http.StatusOK, contents)
+	// If no data requested, return as-is (existing behavior)
+	if !includeData && includeFieldsParam == "" {
+		a.jsonResponse(w, http.StatusOK, contents)
+		return
+	}
+
+	// Build optional field filter
+	var includeFields map[string]bool
+	if includeFieldsParam != "" {
+		includeFields = make(map[string]bool)
+		for _, f := range strings.Split(includeFieldsParam, ",") {
+			f = strings.TrimSpace(f)
+			if f != "" {
+				includeFields[f] = true
+			}
+		}
+	}
+
+	type ContentWithData struct {
+		ID              string                 `json:"id"`
+		Title           string                 `json:"title"`
+		Slug            string                 `json:"slug"`
+		FullPath        string                 `json:"full_path"`
+		Category        string                 `json:"category"`
+		Tags            []string               `json:"tags,omitempty"`
+		Published       bool                   `json:"published"`
+		Deleted         bool                   `json:"deleted"`
+		UpdatedAt       string                 `json:"updated_at"`
+		MetaDescription string                 `json:"meta_description,omitempty"`
+		TemplateID      string                 `json:"template_id,omitempty"`
+		TemplateName    string                 `json:"template_name,omitempty"`
+		Data            map[string]interface{} `json:"data,omitempty"`
+	}
+
+	result := make([]ContentWithData, len(contents))
+	for i, c := range contents {
+		item := ContentWithData{
+			ID:              c.ID.Hex(),
+			Title:           c.Title,
+			Slug:            c.Slug,
+			FullPath:        c.FullPath,
+			Category:        c.Category,
+			Tags:            c.Tags,
+			Published:       c.Published,
+			Deleted:         c.Deleted,
+			UpdatedAt:       c.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+			MetaDescription: c.MetaDescription,
+			TemplateID:      c.TemplateID.Hex(),
+			TemplateName:    c.TemplateName,
+		}
+		if includeFields != nil {
+			// Only include specific fields
+			item.Data = make(map[string]interface{})
+			for k, v := range c.Data {
+				if includeFields[k] {
+					item.Data[k] = v
+				}
+			}
+		} else {
+			// Include all data fields
+			item.Data = c.Data
+		}
+		result[i] = item
+	}
+
+	a.jsonResponse(w, http.StatusOK, result)
 }
 
 func (a *APIHandler) APIGetContent(w http.ResponseWriter, r *http.Request) {
@@ -83,6 +150,22 @@ func (a *APIHandler) APIGetContentByPath(w http.ResponseWriter, r *http.Request)
 	}
 
 	a.jsonResponse(w, http.StatusOK, content)
+}
+
+func (a *APIHandler) APIGetBacklinks(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		a.jsonError(w, http.StatusBadRequest, "path parameter is required")
+		return
+	}
+
+	backlinks, err := a.contentService.GetBacklinks(r.Context(), path)
+	if err != nil {
+		a.jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	a.jsonResponse(w, http.StatusOK, backlinks)
 }
 
 func (a *APIHandler) APICreateContent(w http.ResponseWriter, r *http.Request) {
@@ -245,6 +328,17 @@ func (a *APIHandler) APIUpdateContent(w http.ResponseWriter, r *http.Request) {
 	}
 	if v, ok := raw["data"]; ok {
 		json.Unmarshal(v, &content.Data)
+	}
+	if v, ok := raw["clear_fields"]; ok {
+		var clearFields []string
+		if err := json.Unmarshal(v, &clearFields); err == nil {
+			if content.Data == nil {
+				content.Data = make(map[string]interface{})
+			}
+			for _, field := range clearFields {
+				content.Data[field] = ""
+			}
+		}
 	}
 	if v, ok := raw["published"]; ok {
 		json.Unmarshal(v, &content.Published)
@@ -507,6 +601,49 @@ func (a *APIHandler) APISearchContent(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ─── Search/replace helper ─────────────────────────────────────────────────────
+
+// searchReplaceHelper holds compiled search pattern for reuse.
+type searchReplaceHelper struct {
+	search  string
+	replace string
+	isRegex bool
+	re      *regexp.Regexp
+}
+
+func newSearchReplaceHelper(search, replace string, isRegex bool) (*searchReplaceHelper, error) {
+	h := &searchReplaceHelper{search: search, replace: replace, isRegex: isRegex}
+	if isRegex {
+		re, err := regexp.Compile(search)
+		if err != nil {
+			return nil, fmt.Errorf("invalid regex: %w", err)
+		}
+		h.re = re
+	}
+	return h, nil
+}
+
+func (h *searchReplaceHelper) count(s string) int {
+	if h.isRegex {
+		return len(h.re.FindAllString(s, -1))
+	}
+	return strings.Count(s, h.search)
+}
+
+func (h *searchReplaceHelper) replaceIn(s string) string {
+	if h.isRegex {
+		return h.re.ReplaceAllString(s, h.replace)
+	}
+	return strings.ReplaceAll(s, h.search, h.replace)
+}
+
+func (h *searchReplaceHelper) contains(s string) bool {
+	if h.isRegex {
+		return h.re.MatchString(s)
+	}
+	return strings.Contains(s, h.search)
+}
+
 // APISearchReplacePreview previews search and replace
 func (a *APIHandler) APISearchReplacePreview(w http.ResponseWriter, r *http.Request) {
 	if !a.requirePermission(w, r, auth.PermSearchReplace) {
@@ -516,6 +653,7 @@ func (a *APIHandler) APISearchReplacePreview(w http.ResponseWriter, r *http.Requ
 	var req struct {
 		Search  string `json:"search"`
 		Replace string `json:"replace"`
+		Regex   bool   `json:"regex"`
 	}
 	if err := a.decodeJSON(r, &req); err != nil {
 		a.jsonError(w, http.StatusBadRequest, "invalid request body")
@@ -523,6 +661,12 @@ func (a *APIHandler) APISearchReplacePreview(w http.ResponseWriter, r *http.Requ
 	}
 	if req.Search == "" {
 		a.jsonError(w, http.StatusBadRequest, "search text is required")
+		return
+	}
+
+	srh, err := newSearchReplaceHelper(req.Search, req.Replace, req.Regex)
+	if err != nil {
+		a.jsonError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -550,7 +694,7 @@ func (a *APIHandler) APISearchReplacePreview(w http.ResponseWriter, r *http.Requ
 
 		for fieldName, value := range content.Data {
 			if strVal, ok := value.(string); ok {
-				count := strings.Count(strVal, req.Search)
+				count := srh.count(strVal)
 				if count > 0 {
 					matchCount += count
 					fieldMatches[fieldName] = count
@@ -558,8 +702,8 @@ func (a *APIHandler) APISearchReplacePreview(w http.ResponseWriter, r *http.Requ
 			}
 		}
 
-		if strings.Contains(content.Title, req.Search) {
-			titleCount := strings.Count(content.Title, req.Search)
+		if srh.contains(content.Title) {
+			titleCount := srh.count(content.Title)
 			matchCount += titleCount
 			fieldMatches["title"] = titleCount
 		}
@@ -578,11 +722,11 @@ func (a *APIHandler) APISearchReplacePreview(w http.ResponseWriter, r *http.Requ
 	}
 
 	a.jsonResponse(w, http.StatusOK, map[string]interface{}{
-		"search":          req.Search,
-		"replace":         req.Replace,
-		"total_matches":   totalMatchCount,
-		"affected_pages":  len(matches),
-		"matches":         matches,
+		"search":         req.Search,
+		"replace":        req.Replace,
+		"total_matches":  totalMatchCount,
+		"affected_pages": len(matches),
+		"matches":        matches,
 	})
 }
 
@@ -595,6 +739,7 @@ func (a *APIHandler) APISearchReplaceExecute(w http.ResponseWriter, r *http.Requ
 	var req struct {
 		Search         string `json:"search"`
 		Replace        string `json:"replace"`
+		Regex          bool   `json:"regex"`
 		VersionComment string `json:"version_comment"`
 	}
 	if err := a.decodeJSON(r, &req); err != nil {
@@ -603,6 +748,12 @@ func (a *APIHandler) APISearchReplaceExecute(w http.ResponseWriter, r *http.Requ
 	}
 	if req.Search == "" {
 		a.jsonError(w, http.StatusBadRequest, "search text is required")
+		return
+	}
+
+	srh, err := newSearchReplaceHelper(req.Search, req.Replace, req.Regex)
+	if err != nil {
+		a.jsonError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -640,10 +791,10 @@ func (a *APIHandler) APISearchReplaceExecute(w http.ResponseWriter, r *http.Requ
 
 		for fieldName, value := range content.Data {
 			if strVal, ok := value.(string); ok {
-				if strings.Contains(strVal, req.Search) {
-					count := strings.Count(strVal, req.Search)
+				if srh.contains(strVal) {
+					count := srh.count(strVal)
 					matchCount += count
-					newData[fieldName] = strings.ReplaceAll(strVal, req.Search, req.Replace)
+					newData[fieldName] = srh.replaceIn(strVal)
 					needsUpdate = true
 					fieldsUpdated = append(fieldsUpdated, fieldName)
 				}
@@ -651,10 +802,10 @@ func (a *APIHandler) APISearchReplaceExecute(w http.ResponseWriter, r *http.Requ
 		}
 
 		newTitle := content.Title
-		if strings.Contains(content.Title, req.Search) {
-			count := strings.Count(content.Title, req.Search)
+		if srh.contains(content.Title) {
+			count := srh.count(content.Title)
 			matchCount += count
-			newTitle = strings.ReplaceAll(content.Title, req.Search, req.Replace)
+			newTitle = srh.replaceIn(content.Title)
 			needsUpdate = true
 			fieldsUpdated = append(fieldsUpdated, "title")
 		}
@@ -977,6 +1128,7 @@ func (a *APIHandler) APIScopedSearchReplacePreview(w http.ResponseWriter, r *htt
 	var req struct {
 		Search  string      `json:"search"`
 		Replace string      `json:"replace"`
+		Regex   bool        `json:"regex"`
 		Scope   scopeFilter `json:"scope"`
 	}
 	if err := a.decodeJSON(r, &req); err != nil {
@@ -985,6 +1137,12 @@ func (a *APIHandler) APIScopedSearchReplacePreview(w http.ResponseWriter, r *htt
 	}
 	if req.Search == "" {
 		a.jsonError(w, http.StatusBadRequest, "search text is required")
+		return
+	}
+
+	srh, err := newSearchReplaceHelper(req.Search, req.Replace, req.Regex)
+	if err != nil {
+		a.jsonError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -1014,15 +1172,15 @@ func (a *APIHandler) APIScopedSearchReplacePreview(w http.ResponseWriter, r *htt
 		fieldMatches := make(map[string]int)
 		for fieldName, value := range content.Data {
 			if strVal, ok := value.(string); ok {
-				count := strings.Count(strVal, req.Search)
+				count := srh.count(strVal)
 				if count > 0 {
 					matchCount += count
 					fieldMatches[fieldName] = count
 				}
 			}
 		}
-		if strings.Contains(content.Title, req.Search) {
-			n := strings.Count(content.Title, req.Search)
+		if srh.contains(content.Title) {
+			n := srh.count(content.Title)
 			matchCount += n
 			fieldMatches["title"] = n
 		}
@@ -1055,6 +1213,7 @@ func (a *APIHandler) APIScopedSearchReplaceExecute(w http.ResponseWriter, r *htt
 	var req struct {
 		Search         string      `json:"search"`
 		Replace        string      `json:"replace"`
+		Regex          bool        `json:"regex"`
 		VersionComment string      `json:"version_comment"`
 		Scope          scopeFilter `json:"scope"`
 	}
@@ -1064,6 +1223,12 @@ func (a *APIHandler) APIScopedSearchReplaceExecute(w http.ResponseWriter, r *htt
 	}
 	if req.Search == "" {
 		a.jsonError(w, http.StatusBadRequest, "search text is required")
+		return
+	}
+
+	srh, err := newSearchReplaceHelper(req.Search, req.Replace, req.Regex)
+	if err != nil {
+		a.jsonError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -1101,19 +1266,19 @@ func (a *APIHandler) APIScopedSearchReplaceExecute(w http.ResponseWriter, r *htt
 			newData[k] = v
 		}
 		for fieldName, value := range content.Data {
-			if strVal, ok := value.(string); ok && strings.Contains(strVal, req.Search) {
-				count := strings.Count(strVal, req.Search)
+			if strVal, ok := value.(string); ok && srh.contains(strVal) {
+				count := srh.count(strVal)
 				matchCount += count
-				newData[fieldName] = strings.ReplaceAll(strVal, req.Search, req.Replace)
+				newData[fieldName] = srh.replaceIn(strVal)
 				needsUpdate = true
 				fieldsUpdated = append(fieldsUpdated, fieldName)
 			}
 		}
 		newTitle := content.Title
-		if strings.Contains(content.Title, req.Search) {
-			n := strings.Count(content.Title, req.Search)
+		if srh.contains(content.Title) {
+			n := srh.count(content.Title)
 			matchCount += n
-			newTitle = strings.ReplaceAll(content.Title, req.Search, req.Replace)
+			newTitle = srh.replaceIn(content.Title)
 			needsUpdate = true
 			fieldsUpdated = append(fieldsUpdated, "title")
 		}
@@ -1143,5 +1308,330 @@ func (a *APIHandler) APIScopedSearchReplaceExecute(w http.ResponseWriter, r *htt
 		"total_replacements": totalReplacements,
 		"pages_updated":      len(updatedPages),
 		"updated_pages":      updatedPages,
+	})
+}
+
+// ─── Bulk operations ──────────────────────────────────────────────────────────
+
+// APIBulkUpdateContent updates multiple content items in a single call.
+func (a *APIHandler) APIBulkUpdateContent(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermContentEdit) {
+		return
+	}
+
+	var req struct {
+		Updates []struct {
+			ID              string                 `json:"id"`
+			Title           string                 `json:"title,omitempty"`
+			Tags            []string               `json:"tags,omitempty"`
+			Data            map[string]interface{} `json:"data,omitempty"`
+			ClearFields     []string               `json:"clear_fields,omitempty"`
+			MetaDescription string                 `json:"meta_description,omitempty"`
+		} `json:"updates"`
+		VersionComment string `json:"version_comment"`
+		DryRun         bool   `json:"dry_run"`
+	}
+	if err := a.decodeJSON(r, &req); err != nil {
+		a.jsonError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	if len(req.Updates) == 0 {
+		a.jsonError(w, http.StatusBadRequest, "updates array is required and must not be empty")
+		return
+	}
+	if len(req.Updates) > 100 {
+		a.jsonError(w, http.StatusBadRequest, "maximum 100 updates per call")
+		return
+	}
+
+	versionComment := req.VersionComment
+	if versionComment == "" {
+		versionComment = "Bulk update"
+	}
+
+	type UpdateResult struct {
+		ID      string `json:"id"`
+		Success bool   `json:"success"`
+		Error   string `json:"error,omitempty"`
+	}
+
+	results := make([]UpdateResult, 0, len(req.Updates))
+	succeeded := 0
+	failed := 0
+
+	for _, upd := range req.Updates {
+		id, err := primitive.ObjectIDFromHex(upd.ID)
+		if err != nil {
+			results = append(results, UpdateResult{ID: upd.ID, Success: false, Error: "invalid ID"})
+			failed++
+			continue
+		}
+
+		if req.DryRun {
+			_, err := a.contentService.GetContent(r.Context(), id)
+			if err != nil {
+				results = append(results, UpdateResult{ID: upd.ID, Success: false, Error: err.Error()})
+				failed++
+			} else {
+				results = append(results, UpdateResult{ID: upd.ID, Success: true})
+				succeeded++
+			}
+			continue
+		}
+
+		content, err := a.contentService.GetContent(r.Context(), id)
+		if err != nil {
+			results = append(results, UpdateResult{ID: upd.ID, Success: false, Error: err.Error()})
+			failed++
+			continue
+		}
+
+		if upd.Title != "" {
+			content.Title = upd.Title
+		}
+		if upd.Tags != nil {
+			content.Tags = upd.Tags
+		}
+		if upd.MetaDescription != "" {
+			content.MetaDescription = upd.MetaDescription
+		}
+		if upd.Data != nil {
+			if content.Data == nil {
+				content.Data = make(map[string]interface{})
+			}
+			for k, v := range upd.Data {
+				content.Data[k] = v
+			}
+		}
+		for _, field := range upd.ClearFields {
+			if content.Data == nil {
+				content.Data = make(map[string]interface{})
+			}
+			content.Data[field] = ""
+		}
+
+		if err := a.contentService.UpdateContent(r.Context(), content, versionComment); err != nil {
+			results = append(results, UpdateResult{ID: upd.ID, Success: false, Error: err.Error()})
+			failed++
+		} else {
+			results = append(results, UpdateResult{ID: upd.ID, Success: true})
+			succeeded++
+		}
+	}
+
+	a.auditLog(r, "content.bulk_update", "content", "", map[string]interface{}{
+		"total": len(req.Updates), "succeeded": succeeded, "failed": failed, "dry_run": req.DryRun,
+	})
+	a.jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"dry_run":   req.DryRun,
+		"total":     len(req.Updates),
+		"succeeded": succeeded,
+		"failed":    failed,
+		"results":   results,
+	})
+}
+
+// APIBulkFieldOperation applies a field operation to all matching content.
+func (a *APIHandler) APIBulkFieldOperation(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermContentEdit) {
+		return
+	}
+
+	var req struct {
+		Operation      string      `json:"operation"` // "clear", "set", "prepend", "append", "wrap"
+		Field          string      `json:"field"`
+		Value          string      `json:"value,omitempty"`
+		Before         string      `json:"before,omitempty"` // for "wrap"
+		After          string      `json:"after,omitempty"`  // for "wrap"
+		VersionComment string      `json:"version_comment"`
+		DryRun         bool        `json:"dry_run"`
+		Scope          scopeFilter `json:"scope"`
+	}
+	if err := a.decodeJSON(r, &req); err != nil {
+		a.jsonError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	validOps := map[string]bool{"clear": true, "set": true, "prepend": true, "append": true, "wrap": true}
+	if !validOps[req.Operation] {
+		a.jsonError(w, http.StatusBadRequest, "operation must be one of: clear, set, prepend, append, wrap")
+		return
+	}
+	if req.Field == "" {
+		a.jsonError(w, http.StatusBadRequest, "field is required")
+		return
+	}
+
+	contents, err := a.contentService.ListContent(r.Context(), false, "", nil)
+	if err != nil {
+		a.jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	versionComment := req.VersionComment
+	if versionComment == "" {
+		versionComment = fmt.Sprintf("Bulk field %s: %s", req.Operation, req.Field)
+	}
+
+	type ItemResult struct {
+		ID       string `json:"id"`
+		Title    string `json:"title"`
+		FullPath string `json:"full_path"`
+		Success  bool   `json:"success"`
+		Error    string `json:"error,omitempty"`
+	}
+
+	var results []ItemResult
+	succeeded, failed := 0, 0
+
+	for _, content := range contents {
+		if !req.Scope.matches(content) {
+			continue
+		}
+
+		if content.Data == nil {
+			content.Data = make(map[string]interface{})
+		}
+
+		existing := ""
+		if v, ok := content.Data[req.Field]; ok {
+			existing, _ = v.(string)
+		}
+
+		var newVal string
+		switch req.Operation {
+		case "clear":
+			newVal = ""
+		case "set":
+			newVal = req.Value
+		case "prepend":
+			newVal = req.Value + existing
+		case "append":
+			newVal = existing + req.Value
+		case "wrap":
+			newVal = req.Before + existing + req.After
+		}
+
+		if req.DryRun {
+			results = append(results, ItemResult{
+				ID: content.ID.Hex(), Title: content.Title,
+				FullPath: content.FullPath, Success: true,
+			})
+			succeeded++
+			continue
+		}
+
+		content.Data[req.Field] = newVal
+		if err := a.contentService.UpdateContent(r.Context(), &content, versionComment); err != nil {
+			results = append(results, ItemResult{
+				ID: content.ID.Hex(), Title: content.Title,
+				FullPath: content.FullPath, Success: false, Error: err.Error(),
+			})
+			failed++
+		} else {
+			results = append(results, ItemResult{
+				ID: content.ID.Hex(), Title: content.Title,
+				FullPath: content.FullPath, Success: true,
+			})
+			succeeded++
+		}
+	}
+
+	a.auditLog(r, "content.bulk_field_op", "content", "", map[string]interface{}{
+		"operation": req.Operation, "field": req.Field, "dry_run": req.DryRun,
+		"total": len(results), "succeeded": succeeded, "failed": failed,
+	})
+	a.jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"dry_run":   req.DryRun,
+		"operation": req.Operation,
+		"field":     req.Field,
+		"total":     len(results),
+		"succeeded": succeeded,
+		"failed":    failed,
+		"results":   results,
+	})
+}
+
+// APIExportContent exports content items with their field data.
+func (a *APIHandler) APIExportContent(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		TemplateName string   `json:"template_name,omitempty"`
+		Category     string   `json:"category,omitempty"`
+		FolderPath   string   `json:"folder_path,omitempty"`
+		ContentIDs   []string `json:"content_ids,omitempty"`
+		Fields       []string `json:"fields,omitempty"` // only these fields; empty = all
+	}
+	if r.Method == "POST" {
+		if err := a.decodeJSON(r, &req); err != nil {
+			a.jsonError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+	}
+
+	contents, err := a.contentService.ListContent(r.Context(), false, req.Category, nil)
+	if err != nil {
+		a.jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	scope := scopeFilter{
+		ContentIDs:   req.ContentIDs,
+		FolderPath:   req.FolderPath,
+		TemplateName: req.TemplateName,
+		Category:     req.Category,
+	}
+
+	fieldFilter := make(map[string]bool)
+	for _, f := range req.Fields {
+		fieldFilter[f] = true
+	}
+
+	type ExportItem struct {
+		ID           string                 `json:"id"`
+		Title        string                 `json:"title"`
+		Slug         string                 `json:"slug"`
+		FullPath     string                 `json:"full_path"`
+		TemplateName string                 `json:"template_name"`
+		Category     string                 `json:"category"`
+		Tags         []string               `json:"tags,omitempty"`
+		Published    bool                   `json:"published"`
+		UpdatedAt    string                 `json:"updated_at"`
+		Data         map[string]interface{} `json:"data"`
+	}
+
+	var items []ExportItem
+	for _, c := range contents {
+		if !scope.matches(c) {
+			continue
+		}
+		data := c.Data
+		if len(fieldFilter) > 0 {
+			data = make(map[string]interface{})
+			for k, v := range c.Data {
+				if fieldFilter[k] {
+					data[k] = v
+				}
+			}
+		}
+		items = append(items, ExportItem{
+			ID:           c.ID.Hex(),
+			Title:        c.Title,
+			Slug:         c.Slug,
+			FullPath:     c.FullPath,
+			TemplateName: c.TemplateName,
+			Category:     c.Category,
+			Tags:         c.Tags,
+			Published:    c.Published,
+			UpdatedAt:    c.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+			Data:         data,
+		})
+	}
+
+	if items == nil {
+		items = []ExportItem{}
+	}
+	a.jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"total": len(items),
+		"items": items,
 	})
 }

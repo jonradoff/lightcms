@@ -200,6 +200,7 @@ type ThemeVersion struct {
 type SiteConfig struct {
 	TitleTemplate        string `json:"title_template"`
 	TitleTemplateNoTitle string `json:"title_template_no_title"`
+	MarkdownScriptPolicy string `json:"markdown_script_policy"`
 }
 
 // Redirect

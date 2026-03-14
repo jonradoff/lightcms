@@ -249,6 +249,7 @@ var adminTemplates = map[string]string{
                             <option value="text" {{if eq .Type "text"}}selected{{end}}>Text</option>
                             <option value="textarea" {{if eq .Type "textarea"}}selected{{end}}>Textarea</option>
                             <option value="richtext" {{if eq .Type "richtext"}}selected{{end}}>Rich Text</option>
+                            <option value="markdown" {{if eq .Type "markdown"}}selected{{end}}>Markdown</option>
                             <option value="rawhtml" {{if eq .Type "rawhtml"}}selected{{end}}>Raw HTML</option>
                             <option value="date" {{if eq .Type "date"}}selected{{end}}>Date</option>
                             <option value="image" {{if eq .Type "image"}}selected{{end}}>Image</option>
@@ -288,6 +289,7 @@ var adminTemplates = map[string]string{
                     <option value="text">Text</option>
                     <option value="textarea">Textarea</option>
                     <option value="richtext">Rich Text</option>
+                    <option value="markdown">Markdown</option>
                     <option value="rawhtml">Raw HTML</option>
                     <option value="date">Date</option>
                     <option value="image">Image</option>
@@ -1568,6 +1570,7 @@ var adminTemplates = map[string]string{
                             <th>Version</th>
                             <th>Title</th>
                             <th>Comment</th>
+                            <th>By</th>
                             <th>Saved</th>
                             <th>Actions</th>
                         </tr>
@@ -1578,6 +1581,7 @@ var adminTemplates = map[string]string{
                             <td>v{{.Version}}</td>
                             <td>{{.Title}}</td>
                             <td style="color: var(--muted); font-size: 0.9rem; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{.Comment}}">{{if .Comment}}{{.Comment}}{{else}}-{{end}}</td>
+                            <td style="color: var(--muted); font-size: 0.9rem;">{{if .ModifiedByEmail}}{{.ModifiedByEmail}}{{else}}-{{end}}</td>
                             <td>{{.CreatedAt.Format "Jan 2, 2006 3:04 PM"}}</td>
                             <td class="actions">
                                 <a href="/cm/content/{{.ContentID.Hex}}/versions/{{.Version}}/diff" class="btn btn-sm btn-outline">Diff</a>

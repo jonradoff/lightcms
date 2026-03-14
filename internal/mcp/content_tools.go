@@ -11,9 +11,11 @@ import (
 
 // Content tool input types
 type ListContentInput struct {
-	IncludeDeleted bool   `json:"include_deleted,omitempty" jsonschema:"Include soft-deleted content in results"`
-	Category       string `json:"category,omitempty" jsonschema:"Filter by content category"`
-	FolderID       string `json:"folder_id,omitempty" jsonschema:"Filter by folder ID (MongoDB ObjectID)"`
+	IncludeDeleted bool     `json:"include_deleted,omitempty" jsonschema:"Include soft-deleted content in results"`
+	Category       string   `json:"category,omitempty" jsonschema:"Filter by content category"`
+	FolderID       string   `json:"folder_id,omitempty" jsonschema:"Filter by folder ID (MongoDB ObjectID)"`
+	IncludeData    bool     `json:"include_data,omitempty" jsonschema:"If true, include all template field data in results (avoids per-item get_content calls)"`
+	IncludeFields  []string `json:"include_fields,omitempty" jsonschema:"Include only these specific field names from the data object (more efficient than include_data for large content)"`
 }
 
 type GetContentInput struct {
@@ -59,6 +61,8 @@ type UpdateContentInput struct {
 	SetUseFooter    bool                   `json:"set_use_footer,omitempty" jsonschema:"Set to true to explicitly update use_footer (needed to set it to false)"`
 	SetUseTheme     bool                   `json:"set_use_theme,omitempty" jsonschema:"Set to true to explicitly update use_theme (needed to set it to false)"`
 	SetRawMode      bool                   `json:"set_raw_mode,omitempty" jsonschema:"Set to true to explicitly update raw_mode (needed to set it to false)"`
+	ClearFields     []string               `json:"clear_fields,omitempty" jsonschema:"Field names to clear to empty string (removes ambiguity about how to delete field content)"`
+	DryRun          bool                   `json:"dry_run,omitempty" jsonschema:"If true, validate the update without saving"`
 	VersionComment  string                 `json:"version_comment,omitempty" jsonschema:"Optional comment describing this version change"`
 }
 
@@ -104,9 +108,51 @@ type UpdateContentByPathInput struct {
 	VersionComment  string                 `json:"version_comment,omitempty" jsonschema:"Version comment"`
 }
 
+type GetBacklinksInput struct {
+	Path string `json:"path" jsonschema:"URL path to find backlinks for (e.g. /about),required"`
+}
+
+type BulkUpdateItem struct {
+	ID              string                 `json:"id" jsonschema:"Content ID (MongoDB ObjectID),required"`
+	Title           string                 `json:"title,omitempty" jsonschema:"New title (optional)"`
+	Tags            []string               `json:"tags,omitempty" jsonschema:"Replace tags (optional)"`
+	Data            map[string]interface{} `json:"data,omitempty" jsonschema:"Fields to update (merge semantics)"`
+	ClearFields     []string               `json:"clear_fields,omitempty" jsonschema:"Field names to clear to empty string"`
+	MetaDescription string                 `json:"meta_description,omitempty" jsonschema:"SEO meta description"`
+}
+
+type BulkUpdateContentInput struct {
+	Updates        []BulkUpdateItem `json:"updates" jsonschema:"Array of content updates (max 100),required"`
+	VersionComment string           `json:"version_comment,omitempty" jsonschema:"Version comment applied to all updates"`
+	DryRun         bool             `json:"dry_run,omitempty" jsonschema:"If true, validate all IDs exist without saving"`
+}
+
+type BulkFieldOperationInput struct {
+	Operation      string   `json:"operation" jsonschema:"Operation: clear, set, prepend, append, or wrap,required"`
+	Field          string   `json:"field" jsonschema:"Field name to operate on,required"`
+	Value          string   `json:"value,omitempty" jsonschema:"Value for set/prepend/append operations"`
+	Before         string   `json:"before,omitempty" jsonschema:"Prefix string for wrap operation"`
+	After          string   `json:"after,omitempty" jsonschema:"Suffix string for wrap operation"`
+	VersionComment string   `json:"version_comment,omitempty" jsonschema:"Version comment"`
+	DryRun         bool     `json:"dry_run,omitempty" jsonschema:"Preview affected pages without saving"`
+	ContentIDs     []string `json:"content_ids,omitempty" jsonschema:"Limit to specific content IDs"`
+	FolderPath     string   `json:"folder_path,omitempty" jsonschema:"Limit to pages under this path"`
+	TemplateName   string   `json:"template_name,omitempty" jsonschema:"Limit to pages using this template"`
+	Category       string   `json:"category,omitempty" jsonschema:"Limit to pages in this category"`
+}
+
+type ExportContentInput struct {
+	TemplateName string   `json:"template_name,omitempty" jsonschema:"Filter by template name"`
+	Category     string   `json:"category,omitempty" jsonschema:"Filter by category"`
+	FolderPath   string   `json:"folder_path,omitempty" jsonschema:"Filter by folder path prefix"`
+	ContentIDs   []string `json:"content_ids,omitempty" jsonschema:"Export only these specific IDs"`
+	Fields       []string `json:"fields,omitempty" jsonschema:"Only include these field names (empty = all fields)"`
+}
+
 type ScopedSearchReplaceInput struct {
 	Search         string `json:"search" jsonschema:"Text to search for,required"`
 	Replace        string `json:"replace" jsonschema:"Replacement text (empty string to delete)"`
+	Regex          bool   `json:"regex,omitempty" jsonschema:"If true, treat search as a Go regular expression. Use $1, $2 for capture group references in replace."`
 	VersionComment string `json:"version_comment,omitempty" jsonschema:"Version comment for updated pages"`
 	// Scope filters — leave all empty to match everything (same as global S&R)
 	ContentIDs   []string `json:"content_ids,omitempty" jsonschema:"Limit to specific content IDs"`
@@ -118,16 +164,26 @@ type ScopedSearchReplaceInput struct {
 func (s *Server) registerContentTools() {
 	// List content
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name:        "list_content",
-		Title:       "List Content",
-		Description: "List all content items with optional filters. Returns content metadata including title, path, publish status, and timestamps.",
+		Name:  "list_content",
+		Title: "List Content",
+		Description: `List all content items with optional filters. Returns content metadata including title, path, publish status, and timestamps.
+
+Add include_data: true to get full field data for all items in one call, or include_fields: ["field1", "field2"] to fetch only specific fields — both avoid per-item get_content calls for bulk workflows.
+
+Up to 20 concurrent update_content calls are safe. For larger batches, prefer bulk_update_content (up to 100 items per call).`,
 		Annotations: &mcp.ToolAnnotations{
 			Title:         "List Content",
 			ReadOnlyHint:  true,
 			OpenWorldHint: boolPtr(false),
 		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args ListContentInput) (*mcp.CallToolResult, any, error) {
-		contents, err := s.client.ListContent(ctx, args.IncludeDeleted, args.Category, args.FolderID)
+		contents, err := s.client.ListContentWithOptions(ctx, apiclient.ListContentOptions{
+			IncludeDeleted: args.IncludeDeleted,
+			Category:       args.Category,
+			FolderID:       args.FolderID,
+			IncludeData:    args.IncludeData,
+			IncludeFields:  args.IncludeFields,
+		})
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
@@ -243,7 +299,14 @@ Workflow:
 3. Call publish_content to make it live (or set published=true here to do both in one step).
 
 Set use_header=true, use_footer=true, use_theme=true for pages that should use the site layout.
-Always include version_comment to make history readable.`,
+Always include version_comment to make history readable.
+
+Content data fields support rich markup features:
+- [[Wikilinks]] and [[Page Title|display text]] — link to other pages by title or path; auto-update when paths change
+- [[include:snippet-name]] — embed a named snippet inline (reusable callouts, CTAs, disclaimers)
+- #hashtags — mention #tagname anywhere to automatically tag the page
+- Markdown fields (type "markdown") — GitHub Flavored Markdown converted to HTML at publish time
+Templates can use {{.lc_toc}} in their HTML layout to inject an auto-generated table of contents.`,
 		Annotations: &mcp.ToolAnnotations{
 			Title:           "Create Content",
 			ReadOnlyHint:    false,
@@ -290,10 +353,21 @@ Always include version_comment to make history readable.`,
 		Description: `Update an existing content item by ID. Creates a new version automatically. Only send fields you want to change.
 
 For partial data updates, only the keys you include in "data" are changed — existing keys are preserved (merge semantics).
+Use clear_fields: ["field1", "field2"] to explicitly set fields to empty string.
+Set dry_run: true to validate the update without saving.
 To update by URL path instead of ID, use update_content_by_path.
 Always include version_comment so the version history is useful.
 
-Example: {"id": "abc123", "data": {"body": "<p>Updated text</p>"}, "version_comment": "Revised intro paragraph"}`,
+Up to 20 concurrent update_content calls are safe. For larger batches (>20 items), prefer bulk_update_content instead.
+
+Example: {"id": "abc123", "data": {"body": "<p>Updated text</p>"}, "version_comment": "Revised intro paragraph"}
+
+Content data fields support rich markup features:
+- [[Wikilinks]] and [[Page Title|display text]] — link to other pages by title or path; auto-update when paths change
+- [[include:snippet-name]] — embed a named snippet inline (reusable callouts, CTAs, disclaimers)
+- #hashtags — mention #tagname anywhere to automatically tag the page
+- Markdown fields (type "markdown") — GitHub Flavored Markdown converted to HTML at publish time
+Templates can use {{.lc_toc}} in their HTML layout to inject an auto-generated table of contents.`,
 		Annotations: &mcp.ToolAnnotations{
 			Title:           "Update Content",
 			ReadOnlyHint:    false,
@@ -345,7 +419,7 @@ Example: {"id": "abc123", "data": {"body": "<p>Updated text</p>"}, "version_comm
 		}
 
 		// For data fields, merge with existing content data
-		if args.Data != nil {
+		if args.Data != nil || len(args.ClearFields) > 0 {
 			existing, err := s.client.GetContent(ctx, args.ID, false)
 			if err != nil {
 				return errorResult(err), nil, nil
@@ -357,7 +431,26 @@ Example: {"id": "abc123", "data": {"body": "<p>Updated text</p>"}, "version_comm
 			for k, v := range args.Data {
 				mergedData[k] = v
 			}
+			for _, field := range args.ClearFields {
+				mergedData[field] = ""
+			}
 			updates["data"] = mergedData
+		}
+
+		if args.DryRun {
+			fieldsChanged := make([]string, 0, len(updates))
+			for k := range updates {
+				if k != "version_comment" {
+					fieldsChanged = append(fieldsChanged, k)
+				}
+			}
+			return jsonResult(map[string]interface{}{
+				"dry_run":        true,
+				"valid":          true,
+				"id":             args.ID,
+				"fields_changed": fieldsChanged,
+				"warnings":       []string{},
+			}), nil, nil
 		}
 
 		content, err := s.client.UpdateContent(ctx, args.ID, updates)
@@ -677,11 +770,54 @@ Always run preview before execute.`,
 			TemplateName: args.TemplateName,
 			Category:     args.Category,
 		}
-		result, err := s.client.ScopedSearchReplacePreview(ctx, args.Search, args.Replace, scope)
+		result, err := s.client.ScopedSearchReplacePreview(ctx, args.Search, args.Replace, args.Regex, scope)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
 		return jsonResult(result), nil, nil
+	})
+
+	// Get backlinks
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:  "get_backlinks",
+		Title: "Get Backlinks",
+		Description: `Find all published pages that link to the given URL path. Links are tracked automatically whenever a page is published — both [[Wikilinks]] and ordinary <a href="..."> links in content fields are indexed.
+
+Use this to discover which pages reference a given page (wiki-style backlink graph), assess the impact of deleting or renaming a page, or find orphaned pages with no inbound links.
+
+Example: {"path": "/about"} returns every published page whose content contains a link to /about.`,
+		Annotations: &mcp.ToolAnnotations{
+			Title:         "Get Backlinks",
+			ReadOnlyHint:  true,
+			OpenWorldHint: boolPtr(false),
+		},
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args GetBacklinksInput) (*mcp.CallToolResult, any, error) {
+		if args.Path == "" {
+			return errorResult(fmt.Errorf("path is required")), nil, nil
+		}
+		backlinks, err := s.client.GetBacklinks(ctx, args.Path)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+
+		type BacklinkSummary struct {
+			ID       string `json:"id"`
+			Title    string `json:"title"`
+			FullPath string `json:"full_path"`
+		}
+		summaries := make([]BacklinkSummary, len(backlinks))
+		for i, c := range backlinks {
+			summaries[i] = BacklinkSummary{
+				ID:       c.ID,
+				Title:    c.Title,
+				FullPath: c.FullPath,
+			}
+		}
+		return jsonResult(map[string]interface{}{
+			"target":    args.Path,
+			"count":     len(summaries),
+			"backlinks": summaries,
+		}), nil, nil
 	})
 
 	// Scoped search-and-replace execute
@@ -708,7 +844,107 @@ Example: {"search": "old text", "replace": "new text", "folder_path": "/blog", "
 			TemplateName: args.TemplateName,
 			Category:     args.Category,
 		}
-		result, err := s.client.ScopedSearchReplaceExecute(ctx, args.Search, args.Replace, args.VersionComment, scope)
+		result, err := s.client.ScopedSearchReplaceExecute(ctx, args.Search, args.Replace, args.VersionComment, args.Regex, scope)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		return jsonResult(result), nil, nil
+	})
+
+	// Bulk update content
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:  "bulk_update_content",
+		Title: "Bulk Update Content",
+		Description: `Update up to 100 content items in a single call. Use instead of calling update_content in a loop.
+
+Each update in the array specifies the content ID and only the fields you want to change (merge semantics on data).
+Use clear_fields to explicitly clear field values to empty string.
+Set dry_run: true to validate all IDs exist without committing changes.
+
+Returns: total attempted, succeeded, failed counts, and per-item success/error details.
+
+Tip: call list_content with include_data: true first to get IDs + current field values, transform as needed, then submit here.
+Recommended batch size: up to 50 per call for optimal performance.`,
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Bulk Update Content",
+			ReadOnlyHint:    false,
+			DestructiveHint: boolPtr(true),
+			IdempotentHint:  false,
+			OpenWorldHint:   boolPtr(false),
+		},
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args BulkUpdateContentInput) (*mcp.CallToolResult, any, error) {
+		result, err := s.client.BulkUpdateContent(ctx, args)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		return jsonResult(result), nil, nil
+	})
+
+	// Bulk field operation
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:  "bulk_field_operation",
+		Title: "Bulk Field Operation",
+		Description: `Apply a single field operation to all matching content pages in one call.
+
+Operations:
+- clear: set field to empty string
+- set: replace field value with a fixed string
+- prepend: add text before existing field value
+- append: add text after existing field value
+- wrap: surround existing value with before/after strings
+
+Use scope filters to limit which pages are affected (content_ids, folder_path, template_name, category).
+Set dry_run: true to preview which pages would be changed without saving.
+
+Example: {"operation": "prepend", "field": "disclaimer", "value": "<p>Note: </p>", "template_name": "Blog Post"}`,
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Bulk Field Operation",
+			ReadOnlyHint:    false,
+			DestructiveHint: boolPtr(true),
+			IdempotentHint:  false,
+			OpenWorldHint:   boolPtr(false),
+		},
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args BulkFieldOperationInput) (*mcp.CallToolResult, any, error) {
+		body := map[string]interface{}{
+			"operation":       args.Operation,
+			"field":           args.Field,
+			"value":           args.Value,
+			"before":          args.Before,
+			"after":           args.After,
+			"version_comment": args.VersionComment,
+			"dry_run":         args.DryRun,
+			"scope": map[string]interface{}{
+				"content_ids":   args.ContentIDs,
+				"folder_path":   args.FolderPath,
+				"template_name": args.TemplateName,
+				"category":      args.Category,
+			},
+		}
+		result, err := s.client.BulkFieldOperation(ctx, body)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		return jsonResult(result), nil, nil
+	})
+
+	// Export content
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:  "export_content",
+		Title: "Export Content",
+		Description: `Export content items with their full field data as a structured JSON array.
+
+Use for batch transformations: export → transform externally → re-import via bulk_update_content.
+Scope filters can narrow the export to specific templates, categories, or folders.
+Use fields: ["field1", "field2"] to include only specific data fields.
+
+Returns: total count and array of items with id, title, slug, full_path, template_name, published, and data.`,
+		Annotations: &mcp.ToolAnnotations{
+			Title:         "Export Content",
+			ReadOnlyHint:  true,
+			OpenWorldHint: boolPtr(false),
+		},
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args ExportContentInput) (*mcp.CallToolResult, any, error) {
+		result, err := s.client.ExportContent(ctx, args)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}

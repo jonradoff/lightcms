@@ -4,6 +4,60 @@ All notable changes to LightCMS are documented here, organized by version.
 
 ---
 
+## v3.1.0 — Bulk Operations, Wiki-Like Markup & Security Hardening
+
+This release adds first-class support for bulk content operations (eliminating N×1 API call patterns), a full wiki-like markup system for content authoring, and comprehensive security fixes.
+
+### Bulk Content Operations
+
+- **`bulk_update_content`**: Update up to 100 content items in a single MCP/API call. Each item uses merge semantics — only supplied fields change. Supports `clear_fields`, `dry_run` validation, and returns per-item success/error details.
+- **`bulk_field_operation`**: Apply a single operation (`clear`, `set`, `prepend`, `append`, `wrap`) to a field across all matching pages in one call. Scoped by template, folder, category, or content IDs. Supports `dry_run`.
+- **`export_content`**: Export content items with full field data as a structured JSON array. Designed for the export → transform → `bulk_update_content` pipeline. Scope filters supported.
+- **`list_content` with field data**: New `include_data: true` and `include_fields: ["field1"]` parameters return full template field values in list results, eliminating per-item `get_content` calls for bulk read workflows.
+- **`clear_fields` on `update_content`**: Explicitly set fields to empty string — removes ambiguity about merge semantics.
+- **`dry_run` on `update_content` and `bulk_update_content`**: Validate payloads without committing changes.
+- **Concurrency guidance**: Tool descriptions document that up to 20 concurrent `update_content` calls are safe; larger batches should use `bulk_update_content`.
+
+### Regex Search & Replace
+
+- All four search/replace tools (`search_replace_preview`, `search_replace_execute`, `scoped_search_replace_preview`, `scoped_search_replace_execute`) now support `"regex": true`.
+- When enabled, `search` is treated as a Go RE2 regular expression. Use `$1`, `$2` for capture group references in `replace`.
+- Input validation: patterns capped at 500 characters, max 20 capture groups, 10× expansion guard on replacement.
+
+### Wiki-Like Markup System
+
+- **Wikilinks**: `[[Page Title]]`, `[[Page Title|display text]]`, `[[/path]]`, `[[/path|display text]]` syntax in any content field. Resolves to `<a>` at page generation time; broken links render as `<span class="broken-link">`. Links auto-update when a page's title or path changes.
+- **Snippet includes**: `[[include:snippet-name]]` embeds a named snippet inline in any content field. Recursion depth limit (3) and cycle detection prevent infinite expansion.
+- **Table of contents**: Add `{{.lc_toc}}` anywhere in a template's HTML layout to auto-generate a `<nav class="lc-toc">` from the page's headings.
+- **Heading IDs**: All `<h1>`–`<h6>` tags automatically get `id=` attributes derived from their text content, enabling deep-linking.
+- **Markdown field type**: Template fields can be set to type `markdown`. Field values are converted through goldmark (GitHub Flavored Markdown) at page generation time. Supports tables, strikethrough, task lists, autolinks.
+- **Inline `#tag` detection**: Mentioning `#tagname` in any content field automatically adds that tag to the page's tag list, which feeds into `lc:query` index pages.
+- **`get_backlinks` MCP tool**: Returns all published pages that link to a given path via wikilinks or `<a>` tags. Useful for impact assessment before renaming/deleting pages.
+- **Version history user attribution**: The "By" column in version history now shows the email of the editor who made each change.
+- **Admin search by slug/path**: The admin content search now matches on slug and full URL path in addition to title and content.
+
+### Configurable Script Policy
+
+- New site config setting `markdown_script_policy` controls who may use raw `<script>` tags and unsafe HTML in content fields:
+  - `"all"` (default) — all users may use scripts; backward-compatible with existing content
+  - `"admin_only"` — admin-authored content passes through unchanged; editor-authored content is sanitized via bluemonday (strips `<script>`, `<iframe>`, event handlers, `javascript:` URIs; allows all other HTML)
+  - `"none"` — all content sanitized regardless of author role
+- Configurable via the admin Settings page or via the `update_site_config` MCP tool.
+
+### Security Fixes
+
+- **Export authorization**: `export_content` now requires authentication (previously unauthenticated)
+- **Regex input validation**: Pattern length cap (500 chars), capture group limit (20), and expansion guard prevent regex-based DoS
+- **Snippet recursion guard**: Depth limit of 3 and cycle detection prevent infinite expansion chains
+- **Version history permissions**: `get_content_versions` and `get_content_version` now enforce `PermContentView`
+- **Folder path scope bug**: Scoped search/replace with `folder_path: "/blog"` no longer accidentally matches `/blog-old`, `/blog-archive`, etc.
+- **Bulk field op limit**: `bulk_field_operation` returns 400 if the operation would affect more than 500 pages (prevents unbounded database writes per request)
+- **Wikilink href safety**: Resolved links that don't start with `/` are rendered as broken-link spans rather than potentially-unsafe hrefs
+- **TOC HTML escaping**: Heading IDs in TOC anchor `href` attributes are now properly HTML-escaped
+- **Rate limiter cleanup**: Background goroutine prunes stale entries every 10 minutes to prevent unbounded memory growth
+
+---
+
 ## v3.0.0 — Dynamic Index Pages: Tags, Snippets & `lc:query`
 
 This release adds a first-class system for building dynamic, automatically-updated index pages — the most significant content modelling capability added since v1.0.

@@ -43,6 +43,7 @@ type Handler struct {
 	userService    *services.UserService
 	auditService   *services.AuditService
 	snippetService *services.SnippetService
+	contentService *services.ContentService
 	proxyConfig    *middleware.TrustedProxyConfig
 }
 
@@ -54,6 +55,11 @@ func (h *Handler) SetSearchService(ss *services.SearchService) {
 // SetProxyConfig sets the trusted proxy configuration used for client IP extraction
 func (h *Handler) SetProxyConfig(pc *middleware.TrustedProxyConfig) {
 	h.proxyConfig = pc
+}
+
+// SetContentService sets the content service for lc:query index regeneration
+func (h *Handler) SetContentService(cs *services.ContentService) {
+	h.contentService = cs
 }
 
 func New(db *database.DB, authManager *auth.Manager, baseURL string, env string, userService *services.UserService, auditService *services.AuditService, snippetService *services.SnippetService) *Handler {
@@ -1004,6 +1010,10 @@ func (h *Handler) UpdateContent(w http.ResponseWriter, r *http.Request) {
 	r.ParseMultipartForm(32 << 20)
 
 	ctx := r.Context()
+	// Inject editor identity into context for version history
+	if user, ok := h.auth.GetCurrentUser(r); ok {
+		ctx = services.WithEditorEmail(ctx, user.Email)
+	}
 	var existingContent models.Content
 	if err := h.db.FindOne(ctx, "content", bson.M{"_id": id}, &existingContent); err != nil {
 		http.Error(w, "Content not found", http.StatusNotFound)
@@ -1251,6 +1261,9 @@ func (h *Handler) UpdateContent(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Capture pre-update title for wikilink rename (must be before struct update)
+	oldTitleForWikilinks := existingContent.Title
+
 	// Update content struct with new values for static generation and version saving
 	existingContent.Title = title
 	existingContent.Slug = slug
@@ -1283,6 +1296,24 @@ func (h *Handler) UpdateContent(w http.ResponseWriter, r *http.Request) {
 
 	// Regenerate sitemap after content update
 	go h.RegenerateSitemap(context.Background())
+
+	// Regenerate index pages that may reference this content via lc:query
+	if h.contentService != nil {
+		go func() {
+			rCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancel()
+			h.contentService.RegenerateIndexPages(rCtx)
+		}()
+	}
+
+	// Rewrite [[wikilinks]] across all content if title or path changed
+	if h.contentService != nil && (oldTitleForWikilinks != title || oldFullPath != fullPath) {
+		go func(oldT, newT, oldP, newP string) {
+			wCtx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+			defer cancel()
+			h.contentService.UpdateWikilinksOnRename(wCtx, oldT, newT, oldP, newP)
+		}(oldTitleForWikilinks, title, oldFullPath, fullPath)
+	}
 
 	http.Redirect(w, r, "/cm/content", http.StatusSeeOther)
 }
@@ -1348,6 +1379,15 @@ func (h *Handler) DeleteContent(w http.ResponseWriter, r *http.Request) {
 	// Regenerate sitemap after content deletion
 	go h.RegenerateSitemap(context.Background())
 
+	// Regenerate index pages — the deleted item may have appeared in lc:query results
+	if h.contentService != nil {
+		go func() {
+			rCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancel()
+			h.contentService.RegenerateIndexPages(rCtx)
+		}()
+	}
+
 	http.Redirect(w, r, "/cm/content", http.StatusSeeOther)
 }
 
@@ -1412,6 +1452,15 @@ func (h *Handler) UndeleteContent(w http.ResponseWriter, r *http.Request) {
 	if err := h.db.UpdateOne(ctx, "content", bson.M{"_id": id}, update); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// Regenerate index pages — the restored item may now appear in lc:query results
+	if h.contentService != nil {
+		go func() {
+			rCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancel()
+			h.contentService.RegenerateIndexPages(rCtx)
+		}()
 	}
 
 	http.Redirect(w, r, "/cm/content/"+id.Hex(), http.StatusSeeOther)
@@ -3693,10 +3742,12 @@ func (h *Handler) saveContentVersionWithOriginal(ctx context.Context, content *m
 
 	version := int(count) + 1
 
+	modifiedByEmail := services.EditorEmailFromContext(ctx)
 	contentVersion := models.ContentVersion{
 		ContentID:       content.ID,
 		Version:         version,
 		Comment:         comment,
+		ModifiedByEmail: modifiedByEmail,
 		TemplateID:      content.TemplateID,
 		TemplateName:    content.TemplateName,
 		Title:           content.Title,
@@ -5248,17 +5299,23 @@ func (h *Handler) SearchContent(w http.ResponseWriter, r *http.Request) {
 		// Empty query - return all content
 		filter = bson.M{}
 	} else if searchType == "fulltext" {
-		// Search in title and all data fields using $or and $regex
+		// Search in title, slug, full_path, and all data fields using $or and $regex
 		filter = bson.M{
 			"$or": []bson.M{
 				{"title": bson.M{"$regex": query, "$options": "i"}},
+				{"slug": bson.M{"$regex": query, "$options": "i"}},
+				{"full_path": bson.M{"$regex": query, "$options": "i"}},
 				{"data": bson.M{"$regex": query, "$options": "i"}},
 			},
 		}
 	} else {
-		// Default to name/title search
+		// Default to name/title search — also match slug and full_path
 		filter = bson.M{
-			"title": bson.M{"$regex": query, "$options": "i"},
+			"$or": []bson.M{
+				{"title": bson.M{"$regex": query, "$options": "i"}},
+				{"slug": bson.M{"$regex": query, "$options": "i"}},
+				{"full_path": bson.M{"$regex": query, "$options": "i"}},
+			},
 		}
 	}
 
@@ -5293,8 +5350,10 @@ func (h *Handler) SearchContent(w http.ResponseWriter, r *http.Request) {
 			if err := allCursor.All(ctx, &allContent); err == nil {
 				lowerQuery := strings.ToLower(query)
 				for _, c := range allContent {
-					// Check title
-					if strings.Contains(strings.ToLower(c.Title), lowerQuery) {
+					// Check title, slug, full_path
+					if strings.Contains(strings.ToLower(c.Title), lowerQuery) ||
+						strings.Contains(strings.ToLower(c.Slug), lowerQuery) ||
+						strings.Contains(strings.ToLower(c.FullPath), lowerQuery) {
 						results = append(results, c)
 						continue
 					}

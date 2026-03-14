@@ -126,6 +126,7 @@ func main() {
 
 	// Initialize services for API and change watcher
 	contentService := services.NewContentService(db)
+	h.SetContentService(contentService)
 	templateService := services.NewTemplateService(db, contentService)
 	assetService := services.NewAssetService(db)
 
@@ -343,7 +344,11 @@ func main() {
 	apiv1.HandleFunc("/content", apiHandler.APICreateContent).Methods("POST")
 	apiv1.HandleFunc("/content/by-path", apiHandler.APIGetContentByPath).Methods("GET")
 	apiv1.HandleFunc("/content/by-path", apiHandler.APIUpdateContentByPath).Methods("PUT")
+	apiv1.HandleFunc("/content/backlinks", apiHandler.APIGetBacklinks).Methods("GET")
 	apiv1.HandleFunc("/content/batch-publish", apiHandler.APIBatchPublishContent).Methods("POST")
+	apiv1.HandleFunc("/content/bulk-update", apiHandler.APIBulkUpdateContent).Methods("POST")
+	apiv1.HandleFunc("/content/bulk-field-op", apiHandler.APIBulkFieldOperation).Methods("POST")
+	apiv1.HandleFunc("/content/export", apiHandler.APIExportContent).Methods("POST")
 	apiv1.HandleFunc("/content/{id}", apiHandler.APIGetContent).Methods("GET")
 	apiv1.HandleFunc("/content/{id}", apiHandler.APIUpdateContent).Methods("PUT")
 	apiv1.HandleFunc("/content/{id}", apiHandler.APIDeleteContent).Methods("DELETE")
