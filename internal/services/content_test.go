@@ -1348,3 +1348,226 @@ func TestRegenerateAllContent_WithBadTemplate(t *testing.T) {
 		t.Error("expected good content to be regenerated")
 	}
 }
+
+func TestGetBacklinks(t *testing.T) {
+	svc, cleanup := newTestContentService(t)
+	defer cleanup()
+
+	tmpDir := os.TempDir() + "/lightcms-test-backlinks"
+	os.MkdirAll(tmpDir+"/content/generated", 0755)
+	oldDir, _ := os.Getwd()
+	os.Chdir(tmpDir)
+	defer func() {
+		os.Chdir(oldDir)
+		os.RemoveAll(tmpDir)
+	}()
+
+	ctx := context.Background()
+	tmplID := createTestTemplate(t, svc)
+
+	// Create a target page and a linking page
+	target := &models.Content{
+		TemplateID: tmplID, TemplateName: "Test Template",
+		Title: "Target Page", Slug: "target-page",
+	}
+	if err := svc.CreateContent(ctx, target); err != nil {
+		t.Fatalf("create target: %v", err)
+	}
+	if err := svc.PublishContent(ctx, target.ID); err != nil {
+		t.Fatalf("publish target: %v", err)
+	}
+
+	linker := &models.Content{
+		TemplateID: tmplID, TemplateName: "Test Template",
+		Title: "Linking Page", Slug: "linking-page",
+		Data: map[string]interface{}{"content": `<a href="/target-page">link</a>`},
+	}
+	if err := svc.CreateContent(ctx, linker); err != nil {
+		t.Fatalf("create linker: %v", err)
+	}
+	if err := svc.PublishContent(ctx, linker.ID); err != nil {
+		t.Fatalf("publish linker: %v", err)
+	}
+
+	backlinks, err := svc.GetBacklinks(ctx, "/target-page")
+	if err != nil {
+		t.Fatalf("GetBacklinks: %v", err)
+	}
+	found := false
+	for _, b := range backlinks {
+		if b.FullPath == "/linking-page" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected linking-page in backlinks, got: %+v", backlinks)
+	}
+}
+
+func TestGetBacklinks_Empty(t *testing.T) {
+	svc, cleanup := newTestContentService(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	backlinks, err := svc.GetBacklinks(ctx, "/no-such-page")
+	if err != nil {
+		t.Fatalf("GetBacklinks: %v", err)
+	}
+	if len(backlinks) != 0 {
+		t.Errorf("expected no backlinks, got: %v", backlinks)
+	}
+}
+
+func TestUpdateWikilinksOnRename_Title(t *testing.T) {
+	svc, cleanup := newTestContentService(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	tmplID := createTestTemplate(t, svc)
+
+	// Create a page whose data contains a wikilink to the old title
+	c := &models.Content{
+		TemplateID: tmplID, TemplateName: "Test Template",
+		Title: "Other Page", Slug: "other-page",
+		Data: map[string]interface{}{"content": "See [[Old Title]] for more."},
+	}
+	if err := svc.CreateContent(ctx, c); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	svc.UpdateWikilinksOnRename(ctx, "Old Title", "New Title", "", "")
+
+	// Reload and check
+	updated, err := svc.GetContent(ctx, c.ID)
+	if err != nil {
+		t.Fatalf("GetContent: %v", err)
+	}
+	body, _ := updated.Data["content"].(string)
+	if strings.Contains(body, "[[Old Title]]") {
+		t.Errorf("old title should be rewritten, got: %s", body)
+	}
+	if !strings.Contains(body, "[[New Title]]") {
+		t.Errorf("expected new title in content, got: %s", body)
+	}
+}
+
+func TestUpdateWikilinksOnRename_Path(t *testing.T) {
+	svc, cleanup := newTestContentService(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	tmplID := createTestTemplate(t, svc)
+
+	c := &models.Content{
+		TemplateID: tmplID, TemplateName: "Test Template",
+		Title: "Other Page", Slug: "other-page",
+		Data: map[string]interface{}{"content": "Link to [[/old/path]] here."},
+	}
+	if err := svc.CreateContent(ctx, c); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	svc.UpdateWikilinksOnRename(ctx, "", "", "/old/path", "/new/path")
+
+	updated, err := svc.GetContent(ctx, c.ID)
+	if err != nil {
+		t.Fatalf("GetContent: %v", err)
+	}
+	body, _ := updated.Data["content"].(string)
+	if strings.Contains(body, "[[/old/path]]") {
+		t.Errorf("old path should be rewritten, got: %s", body)
+	}
+	if !strings.Contains(body, "[[/new/path]]") {
+		t.Errorf("expected new path in content, got: %s", body)
+	}
+}
+
+func TestUpdateWikilinksOnRename_NoChange(t *testing.T) {
+	svc, cleanup := newTestContentService(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	tmplID := createTestTemplate(t, svc)
+
+	c := &models.Content{
+		TemplateID: tmplID, TemplateName: "Test Template",
+		Title: "Other Page", Slug: "other-page",
+		Data: map[string]interface{}{"content": "No wikilinks here."},
+	}
+	if err := svc.CreateContent(ctx, c); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+
+	// Same title — should be a no-op
+	svc.UpdateWikilinksOnRename(ctx, "My Page", "My Page", "/same", "/same")
+
+	updated, err := svc.GetContent(ctx, c.ID)
+	if err != nil {
+		t.Fatalf("GetContent: %v", err)
+	}
+	body, _ := updated.Data["content"].(string)
+	if body != "No wikilinks here." {
+		t.Errorf("expected content unchanged, got: %s", body)
+	}
+}
+
+func TestMergeInlineTags_OnCreate(t *testing.T) {
+	svc, cleanup := newTestContentService(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	tmplID := createTestTemplate(t, svc)
+
+	c := &models.Content{
+		TemplateID: tmplID, TemplateName: "Test Template",
+		Title: "Tagged Post", Slug: "tagged-post",
+		Data: map[string]interface{}{"content": "Post about #golang and #webdev."},
+	}
+	if err := svc.CreateContent(ctx, c); err != nil {
+		t.Fatalf("CreateContent: %v", err)
+	}
+
+	loaded, err := svc.GetContent(ctx, c.ID)
+	if err != nil {
+		t.Fatalf("GetContent: %v", err)
+	}
+	if !containsTag(loaded.Tags, "golang") {
+		t.Errorf("expected golang tag auto-detected on create, got: %v", loaded.Tags)
+	}
+	if !containsTag(loaded.Tags, "webdev") {
+		t.Errorf("expected webdev tag auto-detected on create, got: %v", loaded.Tags)
+	}
+}
+
+func TestMergeInlineTags_OnUpdate(t *testing.T) {
+	svc, cleanup := newTestContentService(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	tmplID := createTestTemplate(t, svc)
+
+	c := &models.Content{
+		TemplateID: tmplID, TemplateName: "Test Template",
+		Title: "Update Tags Test", Slug: "update-tags",
+		Data: map[string]interface{}{"content": "Initial content."},
+	}
+	if err := svc.CreateContent(ctx, c); err != nil {
+		t.Fatalf("CreateContent: %v", err)
+	}
+
+	update := &models.Content{
+		ID:   c.ID,
+		Data: map[string]interface{}{"content": "Now about #testing frameworks."},
+	}
+	if err := svc.UpdateContent(ctx, update); err != nil {
+		t.Fatalf("UpdateContent: %v", err)
+	}
+
+	loaded, err := svc.GetContent(ctx, c.ID)
+	if err != nil {
+		t.Fatalf("GetContent: %v", err)
+	}
+	if !containsTag(loaded.Tags, "testing") {
+		t.Errorf("expected testing tag after update, got: %v", loaded.Tags)
+	}
+}
