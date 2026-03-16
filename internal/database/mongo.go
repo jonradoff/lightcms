@@ -86,9 +86,26 @@ func (db *DB) createIndexes(ctx context.Context) error {
 		return err
 	}
 
+	// Content template_name index — used by scoped bulk operations and export
+	_, err = db.database.Collection("content").Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: bson.D{{Key: "template_name", Value: 1}},
+	})
+	if err != nil {
+		return err
+	}
+
 	// Content tags index (multikey — MongoDB automatically handles arrays)
 	_, err = db.database.Collection("content").Indexes().CreateOne(ctx, mongo.IndexModel{
 		Keys: bson.D{{Key: "tags", Value: 1}},
+	})
+	if err != nil {
+		return err
+	}
+
+	// content_versions content_id index — used by saveVersion's Count query on every update.
+	// Without this, every UpdateContent call causes a full collection scan.
+	_, err = db.database.Collection("content_versions").Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: bson.D{{Key: "content_id", Value: 1}},
 	})
 	if err != nil {
 		return err
@@ -337,6 +354,14 @@ func (db *DB) InsertOne(ctx context.Context, collection string, doc interface{})
 		return primitive.NilObjectID, err
 	}
 	return result.InsertedID.(primitive.ObjectID), nil
+}
+
+func (db *DB) InsertMany(ctx context.Context, collection string, docs []interface{}) error {
+	if len(docs) == 0 {
+		return nil
+	}
+	_, err := db.database.Collection(collection).InsertMany(ctx, docs)
+	return err
 }
 
 func (db *DB) FindOne(ctx context.Context, collection string, filter interface{}, result interface{}) error {

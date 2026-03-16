@@ -9,9 +9,11 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 
 	"lightcms/internal/auth"
 	"lightcms/internal/models"
+	"lightcms/internal/services"
 
 	"github.com/gorilla/mux"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -777,59 +779,81 @@ func (a *APIHandler) APISearchReplaceExecute(w http.ResponseWriter, r *http.Requ
 		FieldsUpdated []string `json:"fields_updated"`
 	}
 
-	var updatedPages []UpdatedPage
-	totalReplacements := 0
-
-	for _, content := range contents {
+	// srApplyAndUpdate computes replacements for one content item, applies them,
+	// and returns an UpdatedPage if any changes were made (nil otherwise).
+	srApplyAndUpdate := func(content models.Content) *UpdatedPage {
 		needsUpdate := false
 		matchCount := 0
 		var fieldsUpdated []string
 		wasPublished := content.Published
-
 		newData := make(map[string]interface{})
 		for k, v := range content.Data {
 			newData[k] = v
 		}
-
 		for fieldName, value := range content.Data {
-			if strVal, ok := value.(string); ok {
-				if srh.contains(strVal) {
-					count := srh.count(strVal)
-					matchCount += count
-					newData[fieldName] = srh.replaceIn(strVal)
-					needsUpdate = true
-					fieldsUpdated = append(fieldsUpdated, fieldName)
-				}
+			if strVal, ok := value.(string); ok && srh.contains(strVal) {
+				matchCount += srh.count(strVal)
+				newData[fieldName] = srh.replaceIn(strVal)
+				needsUpdate = true
+				fieldsUpdated = append(fieldsUpdated, fieldName)
 			}
 		}
-
 		newTitle := content.Title
 		if srh.contains(content.Title) {
-			count := srh.count(content.Title)
-			matchCount += count
+			matchCount += srh.count(content.Title)
 			newTitle = srh.replaceIn(content.Title)
 			needsUpdate = true
 			fieldsUpdated = append(fieldsUpdated, "title")
 		}
+		if !needsUpdate {
+			return nil
+		}
+		content.Title = newTitle
+		content.Data = newData
+		if err := a.contentService.UpdateContent(r.Context(), &content, versionComment); err != nil {
+			return nil
+		}
+		if req.AutoRepublish && wasPublished {
+			a.contentService.PublishContent(r.Context(), content.ID)
+		}
+		return &UpdatedPage{
+			ID: content.ID.Hex(), Title: newTitle,
+			FullPath: content.FullPath, MatchCount: matchCount,
+			FieldsUpdated: fieldsUpdated,
+		}
+	}
 
-		if needsUpdate {
-			content.Title = newTitle
-			content.Data = newData
-			if err := a.contentService.UpdateContent(r.Context(), &content, versionComment); err != nil {
-				continue
+	// Process concurrently with a bounded worker pool.
+	type srResult struct{ page *UpdatedPage }
+	resultCh := make(chan srResult, len(contents))
+	jobs := make(chan models.Content, len(contents))
+	var wg sync.WaitGroup
+	workers := bulkConcurrency
+	if len(contents) < workers {
+		workers = len(contents)
+	}
+	for range workers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for c := range jobs {
+				resultCh <- srResult{srApplyAndUpdate(c)}
 			}
-			if req.AutoRepublish && wasPublished {
-				a.contentService.PublishContent(r.Context(), content.ID)
-			}
+		}()
+	}
+	for _, c := range contents {
+		jobs <- c
+	}
+	close(jobs)
+	wg.Wait()
+	close(resultCh)
 
-			updatedPages = append(updatedPages, UpdatedPage{
-				ID:            content.ID.Hex(),
-				Title:         newTitle,
-				FullPath:      content.FullPath,
-				MatchCount:    matchCount,
-				FieldsUpdated: fieldsUpdated,
-			})
-			totalReplacements += matchCount
+	var updatedPages []UpdatedPage
+	totalReplacements := 0
+	for res := range resultCh {
+		if res.page != nil {
+			updatedPages = append(updatedPages, *res.page)
+			totalReplacements += res.page.MatchCount
 		}
 	}
 
@@ -1243,7 +1267,8 @@ func (a *APIHandler) APIScopedSearchReplaceExecute(w http.ResponseWriter, r *htt
 		versionComment = fmt.Sprintf("Scoped search and replace: '%s' → '%s'", req.Search, req.Replace)
 	}
 
-	contents, err := a.contentService.ListContent(r.Context(), false, "", nil)
+	// Push scope filters to MongoDB — avoids full-collection load + app-level filter.
+	contents, err := a.contentService.ListContentScoped(r.Context(), scopeToContentScope(req.Scope))
 	if err != nil {
 		a.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1257,13 +1282,7 @@ func (a *APIHandler) APIScopedSearchReplaceExecute(w http.ResponseWriter, r *htt
 		FieldsUpdated []string `json:"fields_updated"`
 	}
 
-	var updatedPages []UpdatedPage
-	totalReplacements := 0
-
-	for _, content := range contents {
-		if !req.Scope.matches(content) {
-			continue
-		}
+	scopedApplyAndUpdate := func(content models.Content) *UpdatedPage {
 		needsUpdate := false
 		matchCount := 0
 		var fieldsUpdated []string
@@ -1274,8 +1293,7 @@ func (a *APIHandler) APIScopedSearchReplaceExecute(w http.ResponseWriter, r *htt
 		}
 		for fieldName, value := range content.Data {
 			if strVal, ok := value.(string); ok && srh.contains(strVal) {
-				count := srh.count(strVal)
-				matchCount += count
+				matchCount += srh.count(strVal)
 				newData[fieldName] = srh.replaceIn(strVal)
 				needsUpdate = true
 				fieldsUpdated = append(fieldsUpdated, fieldName)
@@ -1283,27 +1301,59 @@ func (a *APIHandler) APIScopedSearchReplaceExecute(w http.ResponseWriter, r *htt
 		}
 		newTitle := content.Title
 		if srh.contains(content.Title) {
-			n := srh.count(content.Title)
-			matchCount += n
+			matchCount += srh.count(content.Title)
 			newTitle = srh.replaceIn(content.Title)
 			needsUpdate = true
 			fieldsUpdated = append(fieldsUpdated, "title")
 		}
-		if needsUpdate {
-			content.Title = newTitle
-			content.Data = newData
-			if err := a.contentService.UpdateContent(r.Context(), &content, versionComment); err != nil {
-				continue
+		if !needsUpdate {
+			return nil
+		}
+		content.Title = newTitle
+		content.Data = newData
+		if err := a.contentService.UpdateContent(r.Context(), &content, versionComment); err != nil {
+			return nil
+		}
+		if req.AutoRepublish && wasPublished {
+			a.contentService.PublishContent(r.Context(), content.ID)
+		}
+		return &UpdatedPage{
+			ID: content.ID.Hex(), Title: newTitle,
+			FullPath: content.FullPath, MatchCount: matchCount,
+			FieldsUpdated: fieldsUpdated,
+		}
+	}
+
+	type scopedSRResult struct{ page *UpdatedPage }
+	resultCh2 := make(chan scopedSRResult, len(contents))
+	jobs2 := make(chan models.Content, len(contents))
+	var wg2 sync.WaitGroup
+	workers2 := bulkConcurrency
+	if len(contents) < workers2 {
+		workers2 = len(contents)
+	}
+	for range workers2 {
+		wg2.Add(1)
+		go func() {
+			defer wg2.Done()
+			for c := range jobs2 {
+				resultCh2 <- scopedSRResult{scopedApplyAndUpdate(c)}
 			}
-			if req.AutoRepublish && wasPublished {
-				a.contentService.PublishContent(r.Context(), content.ID)
-			}
-			updatedPages = append(updatedPages, UpdatedPage{
-				ID: content.ID.Hex(), Title: newTitle,
-				FullPath: content.FullPath, MatchCount: matchCount,
-				FieldsUpdated: fieldsUpdated,
-			})
-			totalReplacements += matchCount
+		}()
+	}
+	for _, c := range contents {
+		jobs2 <- c
+	}
+	close(jobs2)
+	wg2.Wait()
+	close(resultCh2)
+
+	var updatedPages []UpdatedPage
+	totalReplacements := 0
+	for res := range resultCh2 {
+		if res.page != nil {
+			updatedPages = append(updatedPages, *res.page)
+			totalReplacements += res.page.MatchCount
 		}
 	}
 
@@ -1323,23 +1373,28 @@ func (a *APIHandler) APIScopedSearchReplaceExecute(w http.ResponseWriter, r *htt
 
 // ─── Bulk operations ──────────────────────────────────────────────────────────
 
+const bulkConcurrency = 10
+
 // APIBulkUpdateContent updates multiple content items in a single call.
+// Performance: pre-fetches all content in one $in query, then processes
+// updates concurrently with a pool of bulkConcurrency workers.
 func (a *APIHandler) APIBulkUpdateContent(w http.ResponseWriter, r *http.Request) {
 	if !a.requirePermission(w, r, auth.PermContentEdit) {
 		return
 	}
 
+	type updateSpec struct {
+		ID              string                 `json:"id"`
+		Title           string                 `json:"title,omitempty"`
+		Tags            []string               `json:"tags,omitempty"`
+		Data            map[string]interface{} `json:"data,omitempty"`
+		ClearFields     []string               `json:"clear_fields,omitempty"`
+		MetaDescription string                 `json:"meta_description,omitempty"`
+	}
 	var req struct {
-		Updates []struct {
-			ID              string                 `json:"id"`
-			Title           string                 `json:"title,omitempty"`
-			Tags            []string               `json:"tags,omitempty"`
-			Data            map[string]interface{} `json:"data,omitempty"`
-			ClearFields     []string               `json:"clear_fields,omitempty"`
-			MetaDescription string                 `json:"meta_description,omitempty"`
-		} `json:"updates"`
-		VersionComment string `json:"version_comment"`
-		DryRun         bool   `json:"dry_run"`
+		Updates        []updateSpec `json:"updates"`
+		VersionComment string       `json:"version_comment"`
+		DryRun         bool         `json:"dry_run"`
 	}
 	if err := a.decodeJSON(r, &req); err != nil {
 		a.jsonError(w, http.StatusBadRequest, "invalid request body")
@@ -1365,70 +1420,140 @@ func (a *APIHandler) APIBulkUpdateContent(w http.ResponseWriter, r *http.Request
 		Error   string `json:"error,omitempty"`
 	}
 
-	results := make([]UpdateResult, 0, len(req.Updates))
-	succeeded := 0
-	failed := 0
-
-	for _, upd := range req.Updates {
+	// Parse all IDs up front so we can batch-fetch content in one query.
+	type indexedUpdate struct {
+		idx int
+		id  primitive.ObjectID
+		upd updateSpec
+	}
+	valid := make([]indexedUpdate, 0, len(req.Updates))
+	results := make([]UpdateResult, len(req.Updates))
+	for i, upd := range req.Updates {
 		id, err := primitive.ObjectIDFromHex(upd.ID)
 		if err != nil {
-			results = append(results, UpdateResult{ID: upd.ID, Success: false, Error: "invalid ID"})
-			failed++
+			results[i] = UpdateResult{ID: upd.ID, Success: false, Error: "invalid ID"}
 			continue
 		}
-
-		if req.DryRun {
-			_, err := a.contentService.GetContent(r.Context(), id)
-			if err != nil {
-				results = append(results, UpdateResult{ID: upd.ID, Success: false, Error: err.Error()})
-				failed++
-			} else {
-				results = append(results, UpdateResult{ID: upd.ID, Success: true})
-				succeeded++
-			}
-			continue
-		}
-
-		content, err := a.contentService.GetContent(r.Context(), id)
-		if err != nil {
-			results = append(results, UpdateResult{ID: upd.ID, Success: false, Error: err.Error()})
-			failed++
-			continue
-		}
-
-		if upd.Title != "" {
-			content.Title = upd.Title
-		}
-		if upd.Tags != nil {
-			content.Tags = upd.Tags
-		}
-		if upd.MetaDescription != "" {
-			content.MetaDescription = upd.MetaDescription
-		}
-		if upd.Data != nil {
-			if content.Data == nil {
-				content.Data = make(map[string]interface{})
-			}
-			for k, v := range upd.Data {
-				content.Data[k] = v
-			}
-		}
-		for _, field := range upd.ClearFields {
-			if content.Data == nil {
-				content.Data = make(map[string]interface{})
-			}
-			content.Data[field] = ""
-		}
-
-		if err := a.contentService.UpdateContent(r.Context(), content, versionComment); err != nil {
-			results = append(results, UpdateResult{ID: upd.ID, Success: false, Error: err.Error()})
-			failed++
-		} else {
-			results = append(results, UpdateResult{ID: upd.ID, Success: true})
-			succeeded++
-		}
+		valid = append(valid, indexedUpdate{i, id, upd})
 	}
 
+	if len(valid) == 0 {
+		goto respond
+	}
+
+	if req.DryRun {
+		// Batch-fetch all requested IDs in one query for dry-run existence check.
+		ids := make([]primitive.ObjectID, len(valid))
+		for i, v := range valid {
+			ids[i] = v.id
+		}
+		contentMap, err := a.contentService.GetContentByIDs(r.Context(), ids)
+		if err != nil {
+			a.jsonError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		for _, v := range valid {
+			if _, ok := contentMap[v.id]; ok {
+				results[v.idx] = UpdateResult{ID: v.upd.ID, Success: true}
+			} else {
+				results[v.idx] = UpdateResult{ID: v.upd.ID, Success: false, Error: "not found"}
+			}
+		}
+		goto respond
+	}
+
+	{
+		// Batch-fetch all content in one $in query.
+		ids := make([]primitive.ObjectID, len(valid))
+		for i, v := range valid {
+			ids[i] = v.id
+		}
+		contentMap, err := a.contentService.GetContentByIDs(r.Context(), ids)
+		if err != nil {
+			a.jsonError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		// Process updates concurrently with a bounded worker pool.
+		type work struct {
+			idx     int
+			id      primitive.ObjectID
+			upd     updateSpec
+			content *models.Content
+		}
+		jobs := make(chan work, len(valid))
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+
+		workers := bulkConcurrency
+		if len(valid) < workers {
+			workers = len(valid)
+		}
+		for range workers {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for job := range jobs {
+					c := job.content
+					if job.upd.Title != "" {
+						c.Title = job.upd.Title
+					}
+					if job.upd.Tags != nil {
+						c.Tags = job.upd.Tags
+					}
+					if job.upd.MetaDescription != "" {
+						c.MetaDescription = job.upd.MetaDescription
+					}
+					if job.upd.Data != nil {
+						if c.Data == nil {
+							c.Data = make(map[string]interface{})
+						}
+						for k, v := range job.upd.Data {
+							c.Data[k] = v
+						}
+					}
+					for _, field := range job.upd.ClearFields {
+						if c.Data == nil {
+							c.Data = make(map[string]interface{})
+						}
+						c.Data[field] = ""
+					}
+					var res UpdateResult
+					if err := a.contentService.UpdateContent(r.Context(), c, versionComment); err != nil {
+						res = UpdateResult{ID: job.upd.ID, Success: false, Error: err.Error()}
+					} else {
+						res = UpdateResult{ID: job.upd.ID, Success: true}
+					}
+					mu.Lock()
+					results[job.idx] = res
+					mu.Unlock()
+				}
+			}()
+		}
+
+		for _, v := range valid {
+			c, ok := contentMap[v.id]
+			if !ok {
+				mu.Lock()
+				results[v.idx] = UpdateResult{ID: v.upd.ID, Success: false, Error: "not found"}
+				mu.Unlock()
+				continue
+			}
+			jobs <- work{v.idx, v.id, v.upd, c}
+		}
+		close(jobs)
+		wg.Wait()
+	}
+
+respond:
+	succeeded, failed := 0, 0
+	for _, r := range results {
+		if r.Success {
+			succeeded++
+		} else if r.ID != "" {
+			failed++
+		}
+	}
 	a.auditLog(r, "content.bulk_update", "content", "", map[string]interface{}{
 		"total": len(req.Updates), "succeeded": succeeded, "failed": failed, "dry_run": req.DryRun,
 	})
@@ -1442,6 +1567,26 @@ func (a *APIHandler) APIBulkUpdateContent(w http.ResponseWriter, r *http.Request
 }
 
 // APIBulkFieldOperation applies a field operation to all matching content.
+// scopeToContentScope converts a scopeFilter (handler-layer) to services.ContentScope.
+// ContentIDs strings are parsed to ObjectIDs; unparseable ones are silently dropped.
+func scopeToContentScope(f scopeFilter) services.ContentScope {
+	var ids []primitive.ObjectID
+	for _, s := range f.ContentIDs {
+		if id, err := primitive.ObjectIDFromHex(s); err == nil {
+			ids = append(ids, id)
+		}
+	}
+	return services.ContentScope{
+		TemplateName: f.TemplateName,
+		Category:     f.Category,
+		FolderPath:   f.FolderPath,
+		ContentIDs:   ids,
+	}
+}
+
+// APIBulkFieldOperation applies a field operation to all matching content.
+// Performance: pushes scope filters to MongoDB via ListContentScoped, then
+// processes updates concurrently with a pool of bulkConcurrency workers.
 func (a *APIHandler) APIBulkFieldOperation(w http.ResponseWriter, r *http.Request) {
 	if !a.requirePermission(w, r, auth.PermContentEdit) {
 		return
@@ -1472,7 +1617,8 @@ func (a *APIHandler) APIBulkFieldOperation(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	contents, err := a.contentService.ListContent(r.Context(), false, "", nil)
+	// Push scope filters to MongoDB — avoids full-collection load.
+	contents, err := a.contentService.ListContentScoped(r.Context(), scopeToContentScope(req.Scope))
 	if err != nil {
 		a.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1492,63 +1638,90 @@ func (a *APIHandler) APIBulkFieldOperation(w http.ResponseWriter, r *http.Reques
 		Error    string `json:"error,omitempty"`
 	}
 
-	var results []ItemResult
-	succeeded, failed := 0, 0
+	results := make([]ItemResult, len(contents))
 
-	for _, content := range contents {
-		if !req.Scope.matches(content) {
-			continue
+	if req.DryRun {
+		for i, c := range contents {
+			existing := ""
+			if v, ok := c.Data[req.Field]; ok {
+				existing, _ = v.(string)
+			}
+			results[i] = ItemResult{
+				ID: c.ID.Hex(), Title: c.Title,
+				FullPath: c.FullPath, Success: true, HasValue: existing != "",
+			}
 		}
-
-		if content.Data == nil {
-			content.Data = make(map[string]interface{})
-		}
-
-		existing := ""
-		if v, ok := content.Data[req.Field]; ok {
-			existing, _ = v.(string)
-		}
-
-		var newVal string
-		switch req.Operation {
-		case "clear":
-			newVal = ""
-		case "set":
-			newVal = req.Value
-		case "prepend":
-			newVal = req.Value + existing
-		case "append":
-			newVal = existing + req.Value
-		case "wrap":
-			newVal = req.Before + existing + req.After
-		}
-
-		if req.DryRun {
-			results = append(results, ItemResult{
-				ID: content.ID.Hex(), Title: content.Title,
-				FullPath: content.FullPath, Success: true,
-				HasValue: existing != "",
-			})
-			succeeded++
-			continue
-		}
-
-		content.Data[req.Field] = newVal
-		if err := a.contentService.UpdateContent(r.Context(), &content, versionComment); err != nil {
-			results = append(results, ItemResult{
-				ID: content.ID.Hex(), Title: content.Title,
-				FullPath: content.FullPath, Success: false, Error: err.Error(),
-			})
-			failed++
-		} else {
-			results = append(results, ItemResult{
-				ID: content.ID.Hex(), Title: content.Title,
-				FullPath: content.FullPath, Success: true,
-			})
-			succeeded++
-		}
+		goto respond
 	}
 
+	{
+		type work struct {
+			idx     int
+			content models.Content
+		}
+		jobs := make(chan work, len(contents))
+		var wg sync.WaitGroup
+		var mu sync.Mutex
+
+		workers := bulkConcurrency
+		if len(contents) < workers {
+			workers = len(contents)
+		}
+		for range workers {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for job := range jobs {
+					c := job.content
+					if c.Data == nil {
+						c.Data = make(map[string]interface{})
+					}
+					existing := ""
+					if v, ok := c.Data[req.Field]; ok {
+						existing, _ = v.(string)
+					}
+					var newVal string
+					switch req.Operation {
+					case "clear":
+						newVal = ""
+					case "set":
+						newVal = req.Value
+					case "prepend":
+						newVal = req.Value + existing
+					case "append":
+						newVal = existing + req.Value
+					case "wrap":
+						newVal = req.Before + existing + req.After
+					}
+					c.Data[req.Field] = newVal
+					var res ItemResult
+					if err := a.contentService.UpdateContent(r.Context(), &c, versionComment); err != nil {
+						res = ItemResult{ID: c.ID.Hex(), Title: c.Title, FullPath: c.FullPath, Success: false, Error: err.Error()}
+					} else {
+						res = ItemResult{ID: c.ID.Hex(), Title: c.Title, FullPath: c.FullPath, Success: true}
+					}
+					mu.Lock()
+					results[job.idx] = res
+					mu.Unlock()
+				}
+			}()
+		}
+		for i, c := range contents {
+			jobs <- work{i, c}
+		}
+		close(jobs)
+		wg.Wait()
+	}
+
+respond:
+	succeeded, failed := 0, 0
+	for _, res := range results {
+		if res.Success {
+			succeeded++
+		} else {
+			failed++
+		}
+	}
 	a.auditLog(r, "content.bulk_field_op", "content", "", map[string]interface{}{
 		"operation": req.Operation, "field": req.Field, "dry_run": req.DryRun,
 		"total": len(results), "succeeded": succeeded, "failed": failed,

@@ -360,6 +360,69 @@ func (s *ContentService) GetBacklinks(ctx context.Context, targetPath string) ([
 	return results, nil
 }
 
+// ContentScope describes optional MongoDB-level filters for bulk operations.
+// All fields are optional; unset fields are ignored.
+type ContentScope struct {
+	TemplateName   string
+	Category       string
+	FolderPath     string   // prefix match: full_path starts with FolderPath+"/"
+	ContentIDs     []primitive.ObjectID
+	IncludeDeleted bool
+}
+
+// ListContentScoped fetches content with all filters pushed down to MongoDB,
+// avoiding the full-collection-load + application-level filter pattern.
+func (s *ContentService) ListContentScoped(ctx context.Context, scope ContentScope) ([]models.Content, error) {
+	filter := bson.M{}
+	if !scope.IncludeDeleted {
+		filter["deleted"] = bson.M{"$ne": true}
+	}
+	if scope.TemplateName != "" {
+		filter["template_name"] = scope.TemplateName
+	}
+	if scope.Category != "" {
+		filter["category"] = scope.Category
+	}
+	if scope.FolderPath != "" {
+		// Match pages whose full_path starts with the given folder path
+		filter["full_path"] = bson.M{"$regex": "^" + regexp.QuoteMeta(scope.FolderPath) + "(/|$)"}
+	}
+	if len(scope.ContentIDs) > 0 {
+		filter["_id"] = bson.M{"$in": scope.ContentIDs}
+	}
+
+	cursor, err := s.db.FindMany(ctx, "content", filter, options.Find().SetSort(bson.D{{Key: "updated_at", Value: -1}}))
+	if err != nil {
+		return nil, fmt.Errorf("failed to list content (scoped): %w", err)
+	}
+	var contents []models.Content
+	if err := cursor.All(ctx, &contents); err != nil {
+		return nil, fmt.Errorf("failed to decode content: %w", err)
+	}
+	return contents, nil
+}
+
+// GetContentByIDs fetches multiple content items in a single query.
+// Returns a map keyed by ObjectID for O(1) lookup.
+func (s *ContentService) GetContentByIDs(ctx context.Context, ids []primitive.ObjectID) (map[primitive.ObjectID]*models.Content, error) {
+	if len(ids) == 0 {
+		return map[primitive.ObjectID]*models.Content{}, nil
+	}
+	cursor, err := s.db.FindMany(ctx, "content", bson.M{"_id": bson.M{"$in": ids}})
+	if err != nil {
+		return nil, fmt.Errorf("failed to batch fetch content: %w", err)
+	}
+	var items []models.Content
+	if err := cursor.All(ctx, &items); err != nil {
+		return nil, fmt.Errorf("failed to decode content: %w", err)
+	}
+	m := make(map[primitive.ObjectID]*models.Content, len(items))
+	for i := range items {
+		m[items[i].ID] = &items[i]
+	}
+	return m, nil
+}
+
 // ListContent lists all content with optional filters
 func (s *ContentService) ListContent(ctx context.Context, includeDeleted bool, category string, folderID *primitive.ObjectID) ([]models.Content, error) {
 	filter := bson.M{}

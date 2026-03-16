@@ -4,6 +4,26 @@ All notable changes to LightCMS are documented here, organized by version.
 
 ---
 
+## v3.3.0 — Bulk Operation Performance
+
+This release significantly improves the performance of all bulk and batch operations, with particular gains at scale (hundreds of content items).
+
+### Performance improvements
+
+- **Scope filters pushed to MongoDB** — `bulk_field_operation`, `scoped_search_replace_execute`, and `export_content` now push `template_name`, `category`, `folder_path`, and `content_ids` filters down to MongoDB instead of loading all content and filtering in Go. For a 600-item site running a scoped operation on 100 pages, this eliminates ~500 unnecessary document transfers.
+- **Goroutine worker pool (10 concurrent)** — All four bulk/search-replace execute handlers now process items concurrently with a pool of 10 workers instead of sequentially. On a 100-item batch this yields up to 8–10× faster wall time.
+- **Batch content fetch in `bulk_update_content`** — Per-item `GetContent` calls replaced with a single `$in` query that fetches all requested IDs at once. 100-item bulk update: 100 DB round-trips → 1 for the initial fetch.
+- **`content_versions` index on `content_id`** — Previously missing; every `UpdateContent` call triggered a full collection scan on `content_versions` for the version count. This index makes versioning O(log n) per item.
+- **`template_name` index on `content`** — Enables the new MongoDB-level template scope filter to use an index scan instead of a full collection scan.
+- **`InsertMany` helper** — Added `db.InsertMany` for future bulk version insert use.
+
+### New service methods
+
+- `ContentService.ListContentScoped(ctx, ContentScope)` — MongoDB-native scoped list with support for template_name, category, folder_path, and content_ids filters.
+- `ContentService.GetContentByIDs(ctx, []ObjectID)` — Batch fetch multiple content items in one `$in` query, returning a map keyed by ID.
+
+---
+
 ## v3.2.0 — Healthz Endpoint & DAU/MAU Analytics
 
 This release adds a structured health check endpoint following the vibectl VibeCtl Health Check Protocol, plus user activity tracking for DAU/MAU metrics surfaced in both the health endpoint and the admin dashboard.
