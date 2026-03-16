@@ -86,7 +86,7 @@ func main() {
 
 	// Migrate to multi-user system (creates first admin user from legacy password if needed)
 	if err := authManager.MigrateToMultiUser(context.Background()); err != nil {
-		log.Printf("Warning: Failed to migrate to multi-user: %%v", err)
+		log.Printf("Warning: Failed to migrate to multi-user: %v", err)
 	}
 
 	// Initialize snippet service (needed by both handlers and API handler)

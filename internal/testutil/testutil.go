@@ -98,7 +98,8 @@ func CleanupCollections(t *testing.T, db *database.DB) {
 	collections := []string{
 		"content", "content_versions", "templates", "folders", "collections",
 		"custom_pages", "settings", "theme_versions", "contact_messages",
-		"login_attempts", "assets", "api_keys", "redirects",
+		"login_attempts", "assets", "api_keys", "redirects", "snippets",
+		"users", "audit_logs",
 		"oauth_clients", "oauth_auth_codes", "oauth_access_tokens", "oauth_refresh_tokens",
 	}
 	for _, name := range collections {

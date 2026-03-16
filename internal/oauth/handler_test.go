@@ -461,6 +461,7 @@ func TestAuthorizeSubmit_LoginSuccess(t *testing.T) {
 		"code_challenge":       {"challenge123"},
 		"code_challenge_method": {"S256"},
 		"action":               {"login"},
+		"email":                {"admin@localhost"},
 		"password":             {"admin123"},
 	}
 
@@ -497,6 +498,7 @@ func TestAuthorizeSubmit_LoginWrongPassword(t *testing.T) {
 		"code_challenge":       {"challenge"},
 		"code_challenge_method": {"S256"},
 		"action":               {"login"},
+		"email":                {"admin@localhost"},
 		"password":             {"wrongpassword"},
 	}
 
@@ -511,8 +513,8 @@ func TestAuthorizeSubmit_LoginWrongPassword(t *testing.T) {
 	}
 
 	body := rr.Body.String()
-	if !strings.Contains(body, "Invalid password") {
-		t.Error("expected 'Invalid password' error in response")
+	if !strings.Contains(body, "Invalid email or password") {
+		t.Error("expected 'Invalid email or password' error in response")
 	}
 }
 

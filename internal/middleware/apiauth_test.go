@@ -10,8 +10,8 @@ import (
 )
 
 func TestAPIAuth_MissingAuthorizationHeader(t *testing.T) {
-	m := NewAPIAuth(func(ctx context.Context, rawKey string) error {
-		return nil
+	m := NewAPIAuth(func(ctx context.Context, rawKey string) (interface{}, error) {
+		return nil, nil
 	})
 	handler := m.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -33,8 +33,8 @@ func TestAPIAuth_MissingAuthorizationHeader(t *testing.T) {
 }
 
 func TestAPIAuth_MalformedAuthorizationHeader(t *testing.T) {
-	m := NewAPIAuth(func(ctx context.Context, rawKey string) error {
-		return nil
+	m := NewAPIAuth(func(ctx context.Context, rawKey string) (interface{}, error) {
+		return nil, nil
 	})
 	handler := m.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -65,12 +65,12 @@ func TestAPIAuth_MalformedAuthorizationHeader(t *testing.T) {
 
 func TestAPIAuth_ValidAPIKey(t *testing.T) {
 	called := false
-	m := NewAPIAuth(func(ctx context.Context, rawKey string) error {
+	m := NewAPIAuth(func(ctx context.Context, rawKey string) (interface{}, error) {
 		if rawKey != "lc_testkey123" {
-			return fmt.Errorf("invalid key")
+			return nil, fmt.Errorf("invalid key")
 		}
 		called = true
-		return nil
+		return nil, nil
 	})
 	handler := m.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -91,8 +91,8 @@ func TestAPIAuth_ValidAPIKey(t *testing.T) {
 }
 
 func TestAPIAuth_InvalidAPIKey(t *testing.T) {
-	m := NewAPIAuth(func(ctx context.Context, rawKey string) error {
-		return fmt.Errorf("invalid key")
+	m := NewAPIAuth(func(ctx context.Context, rawKey string) (interface{}, error) {
+		return nil, fmt.Errorf("invalid key")
 	})
 	handler := m.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -110,14 +110,14 @@ func TestAPIAuth_InvalidAPIKey(t *testing.T) {
 
 func TestAPIAuth_ValidOAuthToken(t *testing.T) {
 	systemKey := "lc_system_key_12345678901234567890"
-	m := NewAPIAuth(func(ctx context.Context, rawKey string) error {
-		return fmt.Errorf("not an API key")
+	m := NewAPIAuth(func(ctx context.Context, rawKey string) (interface{}, error) {
+		return nil, fmt.Errorf("not an API key")
 	})
-	m.SetOAuth(func(ctx context.Context, rawToken string) error {
+	m.SetOAuth(func(ctx context.Context, rawToken string) (interface{}, error) {
 		if rawToken != "oauth_access_token_123" {
-			return fmt.Errorf("invalid token")
+			return nil, fmt.Errorf("invalid token")
 		}
-		return nil
+		return nil, nil
 	}, systemKey, "https://example.com/.well-known/oauth-protected-resource")
 
 	var capturedAuth string
@@ -143,11 +143,11 @@ func TestAPIAuth_ValidOAuthToken(t *testing.T) {
 }
 
 func TestAPIAuth_InvalidOAuthToken(t *testing.T) {
-	m := NewAPIAuth(func(ctx context.Context, rawKey string) error {
-		return fmt.Errorf("not an API key")
+	m := NewAPIAuth(func(ctx context.Context, rawKey string) (interface{}, error) {
+		return nil, fmt.Errorf("not an API key")
 	})
-	m.SetOAuth(func(ctx context.Context, rawToken string) error {
-		return fmt.Errorf("invalid token")
+	m.SetOAuth(func(ctx context.Context, rawToken string) (interface{}, error) {
+		return nil, fmt.Errorf("invalid token")
 	}, "lc_system", "https://example.com/.well-known/oauth-protected-resource")
 
 	handler := m.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -165,8 +165,8 @@ func TestAPIAuth_InvalidOAuthToken(t *testing.T) {
 }
 
 func TestAPIAuth_OAuthNotConfigured_NonLCToken(t *testing.T) {
-	m := NewAPIAuth(func(ctx context.Context, rawKey string) error {
-		return fmt.Errorf("invalid key")
+	m := NewAPIAuth(func(ctx context.Context, rawKey string) (interface{}, error) {
+		return nil, fmt.Errorf("invalid key")
 	})
 	// OAuth NOT configured
 
@@ -186,11 +186,11 @@ func TestAPIAuth_OAuthNotConfigured_NonLCToken(t *testing.T) {
 
 func TestAPIAuth_WWWAuthenticateHeader(t *testing.T) {
 	resourceURL := "https://example.com/.well-known/oauth-protected-resource"
-	m := NewAPIAuth(func(ctx context.Context, rawKey string) error {
-		return fmt.Errorf("invalid")
+	m := NewAPIAuth(func(ctx context.Context, rawKey string) (interface{}, error) {
+		return nil, fmt.Errorf("invalid")
 	})
-	m.SetOAuth(func(ctx context.Context, rawToken string) error {
-		return fmt.Errorf("invalid")
+	m.SetOAuth(func(ctx context.Context, rawToken string) (interface{}, error) {
+		return nil, fmt.Errorf("invalid")
 	}, "lc_system", resourceURL)
 
 	handler := m.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -212,8 +212,8 @@ func TestAPIAuth_WWWAuthenticateHeader(t *testing.T) {
 }
 
 func TestAPIAuth_NoWWWAuthenticateWithoutResourceMetadata(t *testing.T) {
-	m := NewAPIAuth(func(ctx context.Context, rawKey string) error {
-		return fmt.Errorf("invalid")
+	m := NewAPIAuth(func(ctx context.Context, rawKey string) (interface{}, error) {
+		return nil, fmt.Errorf("invalid")
 	})
 	// No OAuth configured, no resource metadata URL
 
@@ -232,8 +232,8 @@ func TestAPIAuth_NoWWWAuthenticateWithoutResourceMetadata(t *testing.T) {
 }
 
 func TestAPIAuth_CaseInsensitiveBearer(t *testing.T) {
-	m := NewAPIAuth(func(ctx context.Context, rawKey string) error {
-		return nil
+	m := NewAPIAuth(func(ctx context.Context, rawKey string) (interface{}, error) {
+		return nil, nil
 	})
 	handler := m.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
