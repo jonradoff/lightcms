@@ -154,6 +154,7 @@ type ScopedSearchReplaceInput struct {
 	Replace        string `json:"replace" jsonschema:"Replacement text (empty string to delete)"`
 	Regex          bool   `json:"regex,omitempty" jsonschema:"If true, treat search as a Go regular expression. Use $1, $2 for capture group references in replace."`
 	VersionComment string `json:"version_comment,omitempty" jsonschema:"Version comment for updated pages"`
+	AutoRepublish  bool   `json:"auto_republish,omitempty" jsonschema:"If true (execute only), re-publish all previously-published pages immediately after updating them (saves a separate publish_multiple call)"`
 	// Scope filters — leave all empty to match everything (same as global S&R)
 	ContentIDs   []string `json:"content_ids,omitempty" jsonschema:"Limit to specific content IDs"`
 	FolderPath   string   `json:"folder_path,omitempty" jsonschema:"Limit to pages whose URL starts with this path (e.g. /blog)"`
@@ -190,17 +191,19 @@ Up to 20 concurrent update_content calls are safe. For larger batches, prefer bu
 
 		// Return summary for each content
 		type ContentSummary struct {
-			ID          string `json:"id"`
-			Title       string `json:"title"`
-			Slug        string `json:"slug"`
-			FullPath    string `json:"full_path"`
-			Category    string `json:"category"`
-			Published   bool   `json:"published"`
-			Deleted     bool   `json:"deleted"`
-			UpdatedAt   string `json:"updated_at"`
-			PublishedAt string `json:"published_at,omitempty"`
+			ID          string                 `json:"id"`
+			Title       string                 `json:"title"`
+			Slug        string                 `json:"slug"`
+			FullPath    string                 `json:"full_path"`
+			Category    string                 `json:"category"`
+			Published   bool                   `json:"published"`
+			Deleted     bool                   `json:"deleted"`
+			UpdatedAt   string                 `json:"updated_at"`
+			PublishedAt string                 `json:"published_at,omitempty"`
+			Data        map[string]interface{} `json:"data,omitempty"`
 		}
 
+		wantData := args.IncludeData || len(args.IncludeFields) > 0
 		summaries := make([]ContentSummary, len(contents))
 		publishedCount := 0
 		deletedCount := 0
@@ -218,6 +221,9 @@ Up to 20 concurrent update_content calls are safe. For larger batches, prefer bu
 			}
 			if c.PublishedAt != nil {
 				summary.PublishedAt = c.PublishedAt.Format("2006-01-02 15:04:05")
+			}
+			if wantData {
+				summary.Data = c.Data
 			}
 			summaries[i] = summary
 
@@ -829,7 +835,9 @@ Example: {"path": "/about"} returns every published page whose content contains 
 Scope options (all optional):
 - content_ids, folder_path, template_name, category
 
-Example: {"search": "old text", "replace": "new text", "folder_path": "/blog", "version_comment": "Updated old references"}`,
+Set auto_republish: true to immediately re-publish all previously-published pages after updating them, collapsing the execute + publish_multiple flow into one call.
+
+Example: {"search": "old text", "replace": "new text", "folder_path": "/blog", "auto_republish": true, "version_comment": "Updated old references"}`,
 		Annotations: &mcp.ToolAnnotations{
 			Title:           "Scoped Search Replace Execute",
 			ReadOnlyHint:    false,
@@ -844,7 +852,7 @@ Example: {"search": "old text", "replace": "new text", "folder_path": "/blog", "
 			TemplateName: args.TemplateName,
 			Category:     args.Category,
 		}
-		result, err := s.client.ScopedSearchReplaceExecute(ctx, args.Search, args.Replace, args.VersionComment, args.Regex, scope)
+		result, err := s.client.ScopedSearchReplaceExecute(ctx, args.Search, args.Replace, args.VersionComment, args.Regex, args.AutoRepublish, scope)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
@@ -934,8 +942,12 @@ Example: {"operation": "prepend", "field": "disclaimer", "value": "<p>Note: </p>
 		Description: `Export content items with their full field data as a structured JSON array.
 
 Use for batch transformations: export → transform externally → re-import via bulk_update_content.
-Scope filters can narrow the export to specific templates, categories, or folders.
-Use fields: ["field1", "field2"] to include only specific data fields.
+
+Scope filters (all optional):
+- template_name: most useful for bulk workflows, e.g. "Concept Page" or "Blog Post"
+- category, folder_path, content_ids: narrower scoping options
+
+Use fields: ["field1", "field2"] to include only specific data fields instead of all fields.
 
 Returns: total count and array of items with id, title, slug, full_path, template_name, published, and data.`,
 		Annotations: &mcp.ToolAnnotations{

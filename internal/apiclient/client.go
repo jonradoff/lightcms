@@ -480,11 +480,12 @@ func (c *Client) SearchReplacePreview(ctx context.Context, search, replace strin
 	return &result, nil
 }
 
-func (c *Client) SearchReplaceExecute(ctx context.Context, search, replace, comment string, regex bool) (*SearchReplaceResult, error) {
+func (c *Client) SearchReplaceExecute(ctx context.Context, search, replace, comment string, regex, autoRepublish bool) (*SearchReplaceResult, error) {
 	req := map[string]interface{}{
-		"search":  search,
-		"replace": replace,
-		"regex":   regex,
+		"search":         search,
+		"replace":        replace,
+		"regex":          regex,
+		"auto_republish": autoRepublish,
 	}
 	if comment != "" {
 		req["version_comment"] = comment
@@ -646,12 +647,13 @@ func (c *Client) ScopedSearchReplacePreview(ctx context.Context, search, replace
 }
 
 // ScopedSearchReplaceExecute runs a scoped search-and-replace.
-func (c *Client) ScopedSearchReplaceExecute(ctx context.Context, search, replace, comment string, regex bool, scope ScopedSearchReplaceScope) (*SearchReplaceResult, error) {
+func (c *Client) ScopedSearchReplaceExecute(ctx context.Context, search, replace, comment string, regex, autoRepublish bool, scope ScopedSearchReplaceScope) (*SearchReplaceResult, error) {
 	req := map[string]interface{}{
 		"search":          search,
 		"replace":         replace,
 		"regex":           regex,
 		"version_comment": comment,
+		"auto_republish":  autoRepublish,
 		"scope":           scope,
 	}
 	var result SearchReplaceResult

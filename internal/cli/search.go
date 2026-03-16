@@ -100,7 +100,7 @@ func (a *App) runSearchReplace(args []string) error {
 			return fmt.Errorf("--search and --replace required")
 		}
 
-		result, err := a.client.SearchReplaceExecute(ctx, *search, *replace, *comment, false)
+		result, err := a.client.SearchReplaceExecute(ctx, *search, *replace, *comment, false, false)
 		if err != nil {
 			return err
 		}

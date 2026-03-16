@@ -27,10 +27,11 @@ type SearchReplacePreviewInput struct {
 }
 
 type SearchReplaceExecuteInput struct {
-	Search         string `json:"search" jsonschema:"Text to search for,required"`
-	Replace        string `json:"replace" jsonschema:"Text to replace with,required"`
-	Regex          bool   `json:"regex,omitempty" jsonschema:"If true, treat search as a Go regular expression. Use $1, $2 for capture group references in replace."`
-	VersionComment string `json:"version_comment,omitempty" jsonschema:"Comment for version history (defaults to 'Bulk search and replace')"`
+	Search          string `json:"search" jsonschema:"Text to search for,required"`
+	Replace         string `json:"replace" jsonschema:"Text to replace with,required"`
+	Regex           bool   `json:"regex,omitempty" jsonschema:"If true, treat search as a Go regular expression. Use $1, $2 for capture group references in replace."`
+	VersionComment  string `json:"version_comment,omitempty" jsonschema:"Comment for version history (defaults to 'Bulk search and replace')"`
+	AutoRepublish   bool   `json:"auto_republish,omitempty" jsonschema:"If true, re-publish all previously-published pages immediately after updating them (saves a separate publish_multiple call)"`
 }
 
 func (s *Server) registerSearchTools() {
@@ -94,6 +95,8 @@ MANDATORY workflow:
 2. Get explicit user confirmation before executing.
 3. Run search_replace_execute with a clear version_comment.
 
+Set auto_republish: true to immediately re-publish all previously-published pages after updating them, collapsing the execute + publish_multiple flow into one call.
+
 For targeted replacements, use scoped_search_replace_execute instead.`,
 		Annotations: &mcp.ToolAnnotations{
 			Title:           "Search Replace Execute",
@@ -107,7 +110,7 @@ For targeted replacements, use scoped_search_replace_execute instead.`,
 			return errorResult(fmt.Errorf("search text is required")), nil, nil
 		}
 
-		result, err := s.client.SearchReplaceExecute(ctx, args.Search, args.Replace, args.VersionComment, args.Regex)
+		result, err := s.client.SearchReplaceExecute(ctx, args.Search, args.Replace, args.VersionComment, args.Regex, args.AutoRepublish)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}

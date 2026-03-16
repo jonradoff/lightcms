@@ -45,6 +45,17 @@ This wrapper script sets up the required environment variables (LIGHTCMS_CONFIG_
 - Modifying database schemas or indexes
 - Security improvements
 
+### ⚠️ IMPORTANT: Rebuild MCP binary after adding tools
+
+The Claude Desktop MCP integration uses a **local binary** (`bin/lightcms-mcp`) that connects to the remote server. The binary encodes all tool definitions — if you add or remove MCP tools without rebuilding it, Claude Desktop will see stale/missing tools.
+
+**After any change to `cmd/mcp/` or `internal/mcp/`:**
+```bash
+go build -o bin/lightcms-mcp ./cmd/mcp
+```
+
+Then **restart Claude Desktop** to reload the MCP server. Until it's restarted, Cowork will still use the old binary.
+
 ### Setting Up MCP with Claude Code
 
 Run the setup script from the lightcms directory:

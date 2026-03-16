@@ -737,10 +737,11 @@ func (a *APIHandler) APISearchReplaceExecute(w http.ResponseWriter, r *http.Requ
 	}
 
 	var req struct {
-		Search         string `json:"search"`
-		Replace        string `json:"replace"`
-		Regex          bool   `json:"regex"`
-		VersionComment string `json:"version_comment"`
+		Search          string `json:"search"`
+		Replace         string `json:"replace"`
+		Regex           bool   `json:"regex"`
+		VersionComment  string `json:"version_comment"`
+		AutoRepublish   bool   `json:"auto_republish"`
 	}
 	if err := a.decodeJSON(r, &req); err != nil {
 		a.jsonError(w, http.StatusBadRequest, "invalid request body")
@@ -783,6 +784,7 @@ func (a *APIHandler) APISearchReplaceExecute(w http.ResponseWriter, r *http.Requ
 		needsUpdate := false
 		matchCount := 0
 		var fieldsUpdated []string
+		wasPublished := content.Published
 
 		newData := make(map[string]interface{})
 		for k, v := range content.Data {
@@ -815,6 +817,9 @@ func (a *APIHandler) APISearchReplaceExecute(w http.ResponseWriter, r *http.Requ
 			content.Data = newData
 			if err := a.contentService.UpdateContent(r.Context(), &content, versionComment); err != nil {
 				continue
+			}
+			if req.AutoRepublish && wasPublished {
+				a.contentService.PublishContent(r.Context(), content.ID)
 			}
 
 			updatedPages = append(updatedPages, UpdatedPage{
@@ -1215,6 +1220,7 @@ func (a *APIHandler) APIScopedSearchReplaceExecute(w http.ResponseWriter, r *htt
 		Replace        string      `json:"replace"`
 		Regex          bool        `json:"regex"`
 		VersionComment string      `json:"version_comment"`
+		AutoRepublish  bool        `json:"auto_republish"`
 		Scope          scopeFilter `json:"scope"`
 	}
 	if err := a.decodeJSON(r, &req); err != nil {
@@ -1261,6 +1267,7 @@ func (a *APIHandler) APIScopedSearchReplaceExecute(w http.ResponseWriter, r *htt
 		needsUpdate := false
 		matchCount := 0
 		var fieldsUpdated []string
+		wasPublished := content.Published
 		newData := make(map[string]interface{})
 		for k, v := range content.Data {
 			newData[k] = v
@@ -1287,6 +1294,9 @@ func (a *APIHandler) APIScopedSearchReplaceExecute(w http.ResponseWriter, r *htt
 			content.Data = newData
 			if err := a.contentService.UpdateContent(r.Context(), &content, versionComment); err != nil {
 				continue
+			}
+			if req.AutoRepublish && wasPublished {
+				a.contentService.PublishContent(r.Context(), content.ID)
 			}
 			updatedPages = append(updatedPages, UpdatedPage{
 				ID: content.ID.Hex(), Title: newTitle,
@@ -1478,6 +1488,7 @@ func (a *APIHandler) APIBulkFieldOperation(w http.ResponseWriter, r *http.Reques
 		Title    string `json:"title"`
 		FullPath string `json:"full_path"`
 		Success  bool   `json:"success"`
+		HasValue bool   `json:"has_value,omitempty"` // dry_run only: whether the field currently has a non-empty value
 		Error    string `json:"error,omitempty"`
 	}
 
@@ -1516,6 +1527,7 @@ func (a *APIHandler) APIBulkFieldOperation(w http.ResponseWriter, r *http.Reques
 			results = append(results, ItemResult{
 				ID: content.ID.Hex(), Title: content.Title,
 				FullPath: content.FullPath, Success: true,
+				HasValue: existing != "",
 			})
 			succeeded++
 			continue
