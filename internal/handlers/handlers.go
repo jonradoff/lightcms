@@ -3299,6 +3299,12 @@ func (h *Handler) ServePage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Record visitor activity for DAU/MAU metrics
+	if h.analyticsService != nil {
+		visitorID := middleware.GetClientIP(r, h.proxyConfig)
+		go h.analyticsService.RecordActivity(context.Background(), visitorID)
+	}
+
 	// For blank pages with raw mode and no theme, serve raw HTML directly
 	if !content.UseTheme && content.TemplateName == "Blank Page" {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
