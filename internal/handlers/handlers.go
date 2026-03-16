@@ -33,18 +33,19 @@ import (
 )
 
 type Handler struct {
-	db             *database.DB
-	auth           *auth.Manager
-	baseURL        string
-	env            string
-	errors         *errors.Handler
-	apiKeyService  *services.APIKeyService
-	searchService  *services.SearchService
-	userService    *services.UserService
-	auditService   *services.AuditService
-	snippetService *services.SnippetService
-	contentService *services.ContentService
-	proxyConfig    *middleware.TrustedProxyConfig
+	db               *database.DB
+	auth             *auth.Manager
+	baseURL          string
+	env              string
+	errors           *errors.Handler
+	apiKeyService    *services.APIKeyService
+	searchService    *services.SearchService
+	userService      *services.UserService
+	auditService     *services.AuditService
+	snippetService   *services.SnippetService
+	contentService   *services.ContentService
+	analyticsService *services.AnalyticsService
+	proxyConfig      *middleware.TrustedProxyConfig
 }
 
 // SetSearchService sets the search service for end-user search features
@@ -331,6 +332,11 @@ func (h *Handler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 
+		// Record activity for DAU/MAU
+		if h.analyticsService != nil {
+			go h.analyticsService.RecordActivity(context.Background(), user.ID.Hex())
+		}
+
 		// Force password change if needed
 		if user.IsDefaultPassword {
 			http.Redirect(w, r, "/cm/change-password", http.StatusSeeOther)
@@ -380,6 +386,12 @@ func (h *Handler) AdminDashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check if the user must change their password
+	if h.auth.MustChangePassword(r) {
+		http.Redirect(w, r, "/cm/change-password", http.StatusSeeOther)
+		return
+	}
+
 	ctx := r.Context()
 	contentCount, _ := h.db.Count(ctx, "content", bson.M{})
 	templateCount, _ := h.db.Count(ctx, "templates", bson.M{})
@@ -392,18 +404,22 @@ func (h *Handler) AdminDashboard(w http.ResponseWriter, r *http.Request) {
 		cursor.All(ctx, &recentContent)
 	}
 
-	// Check if the user must change their password
-	mustChangePassword := h.auth.MustChangePassword(r)
-	if mustChangePassword {
-		http.Redirect(w, r, "/cm/change-password", http.StatusSeeOther)
-		return
+	// Analytics KPIs
+	var dau, mau, contentToday int64
+	if h.analyticsService != nil {
+		dau = h.analyticsService.GetDAU(ctx)
+		mau = h.analyticsService.GetMAU(ctx)
+		contentToday = h.analyticsService.GetContentCreatedToday(ctx)
 	}
 
 	h.renderAdmin(w, r, "dashboard", map[string]interface{}{
-		"ContentCount":    contentCount,
-		"TemplateCount":   templateCount,
-		"CollectionCount": collectionCount,
-		"RecentContent":   recentContent,
+		"ContentCount":         contentCount,
+		"TemplateCount":        templateCount,
+		"CollectionCount":      collectionCount,
+		"RecentContent":        recentContent,
+		"DAU":                  dau,
+		"MAU":                  mau,
+		"ContentCreatedToday":  contentToday,
 	})
 }
 

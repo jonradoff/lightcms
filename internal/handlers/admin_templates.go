@@ -142,6 +142,27 @@ var adminTemplates = map[string]string{
                         <span class="stat-label">Collections</span>
                     </div>
                 </div>
+                <div class="stat-card">
+                    <div class="stat-icon">👤</div>
+                    <div class="stat-info">
+                        <span class="stat-value">{{.DAU}}</span>
+                        <span class="stat-label">Daily Active Users</span>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">👥</div>
+                    <div class="stat-info">
+                        <span class="stat-value">{{.MAU}}</span>
+                        <span class="stat-label">Monthly Active Users</span>
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-icon">✏️</div>
+                    <div class="stat-info">
+                        <span class="stat-value">{{.ContentCreatedToday}}</span>
+                        <span class="stat-label">Pages Created Today</span>
+                    </div>
+                </div>
             </div>
 
             <div class="quick-actions">

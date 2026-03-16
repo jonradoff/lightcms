@@ -92,8 +92,12 @@ func main() {
 	// Initialize snippet service (needed by both handlers and API handler)
 	snippetService := services.NewSnippetService(db)
 
+	// Initialize analytics service (DAU/MAU tracking)
+	analyticsService := services.NewAnalyticsService(context.Background(), db)
+
 	// Initialize handlers with config
 	h := handlers.New(db, authManager, cfg.BaseURL, cfg.Env, userService, auditService, snippetService)
+	h.SetAnalyticsService(analyticsService)
 
 	// Initialize trusted proxy config for rate limiting
 	proxyConfig := middleware.DefaultCloudConfig()
@@ -302,6 +306,7 @@ func main() {
 		if apiKey.UserID != nil {
 			user, err := userService.GetByID(ctx, *apiKey.UserID)
 			if err == nil && user != nil {
+				go analyticsService.RecordActivity(context.Background(), user.ID.Hex())
 				return &auth.SessionUser{
 					ID:    user.ID.Hex(),
 					Email: user.Email,
@@ -469,11 +474,14 @@ func main() {
 	// Public asset serving
 	r.PathPrefix("/assets/").HandlerFunc(h.ServeAsset).Methods("GET")
 
-	// Health check for Fly.io
+	// Simple health check for Fly.io TCP probes
 	r.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
 	}).Methods("GET")
+
+	// Structured healthz endpoint (vibectl VibeCtl Health Check Protocol)
+	r.HandleFunc("/healthz", h.Healthz).Methods("GET")
 
 	// OAuth well-known metadata endpoints (RFC 9728 + RFC 8414)
 	r.HandleFunc("/.well-known/oauth-protected-resource", oauth.ProtectedResourceMetadataHandler(cfg.BaseURL)).Methods("GET", "OPTIONS")
