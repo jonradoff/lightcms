@@ -4,6 +4,37 @@ All notable changes to LightCMS are documented here, organized by version.
 
 ---
 
+## v3.2.0 — Healthz Endpoint & DAU/MAU Analytics
+
+This release adds a structured health check endpoint following the vibectl VibeCtl Health Check Protocol, plus user activity tracking for DAU/MAU metrics surfaced in both the health endpoint and the admin dashboard.
+
+### `/healthz` Endpoint
+
+- New `GET /healthz` endpoint — unauthenticated, returns JSON following the [vibectl VibeCtl Health Check Protocol](https://github.com/jonradoff/vibectl):
+  - `status`: `healthy` / `degraded` / `unhealthy` derived from dependency checks
+  - `name`: `"LightCMS"` — software identifier
+  - `version`: current build version (e.g. `"3.2.0"`)
+  - `uptime`: seconds since process start
+  - `dependencies`: live MongoDB ping check
+  - `kpis`: DAU, MAU, and content pages created today
+- Returns HTTP 503 when status is `unhealthy`
+- The existing `/health` endpoint (plain-text `OK` for Fly.io TCP probes) is unchanged
+
+### Analytics & KPIs
+
+- New `AnalyticsService` backed by `user_activity` MongoDB collection
+- Activity recorded automatically on admin login and API key authentication (fire-and-forget goroutine, no request latency impact)
+- Storage: upsert on `{user_id, date}` — at most one document per user per calendar day, O(1) writes
+- **DAU** (Daily Active Users): distinct users active today (UTC)
+- **MAU** (Monthly Active Users): distinct users active in the last 30 calendar days (aggregation pipeline)
+- **Content created today**: content items with `created_at ≥ midnight UTC` (no additional tracking needed — uses existing field)
+
+### Admin Dashboard
+
+- Three new stat cards added to the dashboard: Daily Active Users, Monthly Active Users, Pages Created Today
+
+---
+
 ## v3.1.0 — Bulk Operations, Wiki-Like Markup & Security Hardening
 
 This release adds first-class support for bulk content operations (eliminating N×1 API call patterns), a full wiki-like markup system for content authoring, and comprehensive security fixes.
