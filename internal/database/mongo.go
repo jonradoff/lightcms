@@ -16,9 +16,10 @@ type DB struct {
 	database *mongo.Database
 }
 
-func Connect(ctx context.Context, uri, dbName string) (*DB, error) {
-	clientOptions := options.Client().ApplyURI(uri)
-	client, err := mongo.Connect(ctx, clientOptions)
+func Connect(ctx context.Context, uri, dbName string, extraOpts ...*options.ClientOptions) (*DB, error) {
+	base := options.Client().ApplyURI(uri)
+	all := append([]*options.ClientOptions{base}, extraOpts...)
+	client, err := mongo.Connect(ctx, options.MergeClientOptions(all...))
 	if err != nil {
 		return nil, err
 	}

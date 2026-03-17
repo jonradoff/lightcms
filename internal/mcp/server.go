@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 
 	"lightcms/internal/apiclient"
 
@@ -137,5 +138,6 @@ func jsonResult(data interface{}) *mcp.CallToolResult {
 	if err != nil {
 		return errorResult(err)
 	}
+	log.Printf("[mcp] response size: %d bytes", len(jsonBytes))
 	return textResult(string(jsonBytes))
 }

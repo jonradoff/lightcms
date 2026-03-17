@@ -16,6 +16,8 @@ import (
 	"lightcms/internal/database"
 
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/mongo/writeconcern"
 )
 
 const testDBName = "lightcms-test"
@@ -90,7 +92,9 @@ func MustConnectTestDB(t *testing.T) (*database.DB, func()) {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		db, err := database.Connect(ctx, uri, dbName)
+		wc := writeconcern.New(writeconcern.WMajority())
+		wcOpts := options.Client().SetWriteConcern(wc)
+		db, err := database.Connect(ctx, uri, dbName, wcOpts)
 		if err != nil {
 			sharedErr = fmt.Errorf("failed to connect to test database: %w", err)
 			return
@@ -120,7 +124,7 @@ func MustConnectTestDB(t *testing.T) (*database.DB, func()) {
 // Drop + recreate requires createIndexes to do real round-trips on every test.
 func CleanupCollections(t *testing.T, db *database.DB) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	collections := []string{

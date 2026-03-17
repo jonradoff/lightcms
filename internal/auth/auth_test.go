@@ -11,6 +11,7 @@ import (
 	"lightcms/internal/testutil"
 
 	"github.com/gorilla/sessions"
+	"golang.org/x/crypto/bcrypt"
 )
 
 func newTestManager(t *testing.T) (*Manager, func()) {
@@ -115,31 +116,37 @@ func TestValidateCredentials(t *testing.T) {
 }
 
 func TestChangePassword_MultiUser(t *testing.T) {
-	mgr, cleanup := newTestManager(t)
+	db, cleanup := testutil.MustConnectTestDB(t)
 	defer cleanup()
 
 	ctx := context.Background()
-	mgr.MigrateToMultiUser(ctx)
+	userSvc := services.NewUserService(db)
+	store := sessions.NewCookieStore([]byte("test-secret-32-bytes-long-enough"))
+	mgr := NewManager(store, db, userSvc)
 
-	user, _ := mgr.ValidateCredentials(ctx, "admin@localhost", "admin123")
-	if user == nil {
-		t.Fatal("expected user")
+	// Create user directly with bcrypt cost 4 to avoid slow hashing in tests.
+	hash, err := bcrypt.GenerateFromPassword([]byte("OldPass1"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatalf("bcrypt: %v", err)
+	}
+	user, err := userSvc.CreateUserWithHash(ctx, "changepw@example.com", "Test User", "admin", string(hash), false)
+	if err != nil {
+		t.Fatalf("CreateUserWithHash: %v", err)
 	}
 
 	// Change password
-	err := mgr.ChangePassword(ctx, user.ID, "admin123", "NewSecure1")
-	if err != nil {
+	if err := mgr.ChangePassword(ctx, user.ID, "OldPass1", "NewSecure1"); err != nil {
 		t.Fatalf("ChangePassword failed: %v", err)
 	}
 
 	// Old password should not work
-	u2, _ := mgr.ValidateCredentials(ctx, "admin@localhost", "admin123")
+	u2, _ := mgr.ValidateCredentials(ctx, "changepw@example.com", "OldPass1")
 	if u2 != nil {
 		t.Error("old password should be invalid after change")
 	}
 
 	// New password should work
-	u3, _ := mgr.ValidateCredentials(ctx, "admin@localhost", "NewSecure1")
+	u3, _ := mgr.ValidateCredentials(ctx, "changepw@example.com", "NewSecure1")
 	if u3 == nil {
 		t.Error("new password should be valid")
 	}

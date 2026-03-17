@@ -451,7 +451,10 @@ func TestAuthorizeSubmit_LoginSuccess(t *testing.T) {
 	handler, oauthSvc, cleanup := newTestHandler(t)
 	defer cleanup()
 
-	client, _, _ := oauthSvc.RegisterClient(context.Background(), "Test App", []string{"http://localhost/cb"})
+	client, _, err := oauthSvc.RegisterClient(context.Background(), "Test App", []string{"http://localhost/cb"})
+	if err != nil {
+		t.Fatalf("RegisterClient: %v", err)
+	}
 
 	form := url.Values{
 		"client_id":             {client.ClientID},
@@ -522,7 +525,10 @@ func TestAuthorizeSubmit_Approve(t *testing.T) {
 	handler, oauthSvc, cleanup := newTestHandler(t)
 	defer cleanup()
 
-	client, _, _ := oauthSvc.RegisterClient(context.Background(), "Test App", []string{"http://localhost/cb"})
+	client, _, err := oauthSvc.RegisterClient(context.Background(), "Test App", []string{"http://localhost/cb"})
+	if err != nil {
+		t.Fatalf("RegisterClient: %v", err)
+	}
 
 	// Generate a valid login proof
 	ts := strconv.FormatInt(time.Now().Unix(), 10)
