@@ -3317,10 +3317,12 @@ func (h *Handler) ServePage(w http.ResponseWriter, r *http.Request) {
 	// Try to serve from static file first
 	staticPath := h.getStaticFilePath(fullPath)
 
+	ogImage := inferOGImage(&content)
+
 	if _, err := os.Stat(staticPath); err == nil {
 		staticContent, _ := os.ReadFile(staticPath)
 		h.renderPublicWithSEO(w, r, theme, string(staticContent), content.UseHeader, content.UseFooter,
-			content.Title, content.MetaDescription, content.OGImage, fullPath)
+			content.Title, content.MetaDescription, ogImage, fullPath)
 		return
 	}
 
@@ -3333,7 +3335,7 @@ func (h *Handler) ServePage(w http.ResponseWriter, r *http.Request) {
 
 	rendered := h.renderContent(&content, &tmpl)
 	h.renderPublicWithSEO(w, r, theme, rendered, content.UseHeader, content.UseFooter,
-		content.Title, content.MetaDescription, content.OGImage, fullPath)
+		content.Title, content.MetaDescription, ogImage, fullPath)
 }
 
 func (h *Handler) serveCollection(w http.ResponseWriter, r *http.Request, collection *models.Collection, theme *database.ThemeSettings) {
@@ -3552,6 +3554,28 @@ func (h *Handler) renderPublicWithSEO(w http.ResponseWriter, r *http.Request, th
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	tmpl.Execute(w, data)
+}
+
+// inferOGImage returns the best OG image for a content item.
+// Explicit og_image always wins. If unset, falls back to the first image-type
+// field value found in the content data (e.g. featured_image, hero_image).
+func inferOGImage(content *models.Content) string {
+	if content.OGImage != "" {
+		return content.OGImage
+	}
+	for _, v := range content.Data {
+		s, ok := v.(string)
+		if !ok || s == "" {
+			continue
+		}
+		lower := strings.ToLower(s)
+		for _, ext := range []string{".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif", ".svg"} {
+			if strings.HasSuffix(lower, ext) {
+				return s
+			}
+		}
+	}
+	return ""
 }
 
 // applyTitleTemplate applies the configured title template
