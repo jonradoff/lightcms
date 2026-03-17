@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func TestAPIAuth_MissingAuthorizationHeader(t *testing.T) {
@@ -246,5 +247,112 @@ func TestAPIAuth_CaseInsensitiveBearer(t *testing.T) {
 
 	if rr.Code != http.StatusOK {
 		t.Errorf("expected 200 for lowercase bearer, got %d", rr.Code)
+	}
+}
+
+func TestAPIUserFromContext_Empty(t *testing.T) {
+	user, ok := APIUserFromContext(context.Background())
+	if ok {
+		t.Error("expected ok=false for empty context")
+	}
+	if user != nil {
+		t.Error("expected nil user for empty context")
+	}
+}
+
+func TestAPIUserFromContext_WithUser(t *testing.T) {
+	type fakeUser struct{ Email string }
+
+	// Store a user via the middleware path
+	stored := &fakeUser{Email: "api@example.com"}
+	m := NewAPIAuth(func(ctx context.Context, rawKey string) (interface{}, error) {
+		return stored, nil
+	})
+
+	var ctxUser interface{}
+	handler := m.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctxUser, _ = APIUserFromContext(r.Context())
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "Bearer lc_somekey")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if ctxUser == nil {
+		t.Fatal("expected user in context")
+	}
+	fu, ok := ctxUser.(*fakeUser)
+	if !ok || fu.Email != "api@example.com" {
+		t.Errorf("unexpected user: %+v", ctxUser)
+	}
+}
+
+func TestAPIRateLimit_PassThrough(t *testing.T) {
+	called := false
+	handler := APIRateLimit(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/test", nil)
+	req.Header.Set("Authorization", "Bearer lc_ratelimitpasstest")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if !called {
+		t.Error("expected handler to be called")
+	}
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", rr.Code)
+	}
+}
+
+func TestAPIRateLimit_NoToken(t *testing.T) {
+	// No auth header: should pass through (auth middleware handles rejection)
+	called := false
+	handler := APIRateLimit(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/test", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if !called {
+		t.Error("expected handler to be called with no auth header")
+	}
+}
+
+func TestAPIRateLimit_Exceeded(t *testing.T) {
+	// Use a unique token so we don't pollute other tests
+	token := "lc_ratelimit_exceeded_testonly_unique"
+
+	handler := APIRateLimit(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	// Manually pre-fill the rate limiter to the limit
+	apiKeyRateLimiter.Lock()
+	now := time.Now()
+	times := make([]time.Time, apiRateLimit)
+	for i := range times {
+		times[i] = now
+	}
+	apiKeyRateLimiter.tokens[token] = times
+	apiKeyRateLimiter.Unlock()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/test", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusTooManyRequests {
+		t.Errorf("expected 429, got %d", rr.Code)
+	}
+	if rr.Header().Get("Retry-After") != "60" {
+		t.Errorf("expected Retry-After: 60, got %q", rr.Header().Get("Retry-After"))
 	}
 }

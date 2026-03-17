@@ -304,6 +304,68 @@ func TestGetClientIP_UntrustedRemote(t *testing.T) {
 	}
 }
 
+func TestDefaultCloudConfig(t *testing.T) {
+	cfg := DefaultCloudConfig()
+	if cfg == nil {
+		t.Fatal("expected non-nil config")
+	}
+	if !cfg.TrustAllProxies {
+		t.Error("expected TrustAllProxies=true for cloud config")
+	}
+}
+
+func TestExtractIP_NoPort(t *testing.T) {
+	// extractIP should return the string as-is when there is no port
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "192.168.1.1" // no port
+	ip := GetClientIP(req, nil)
+	if ip != "192.168.1.1" {
+		t.Errorf("expected 192.168.1.1, got %q", ip)
+	}
+}
+
+func TestGetClientIP_InvalidXFF(t *testing.T) {
+	// XFF with only invalid IPs should fall back to remoteIP
+	config := &TrustedProxyConfig{TrustAllProxies: true}
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "10.0.0.1:12345"
+	req.Header.Set("X-Forwarded-For", "not-an-ip")
+
+	ip := GetClientIP(req, config)
+	if ip != "10.0.0.1" {
+		t.Errorf("expected fallback to RemoteAddr, got %q", ip)
+	}
+}
+
+func TestGetClientIP_InvalidCIDR(t *testing.T) {
+	// An invalid CIDR in TrustedProxies is skipped (no panic)
+	config := &TrustedProxyConfig{
+		TrustedProxies: []string{"bad-cidr/xyz", "10.0.0.1"},
+	}
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "10.0.0.1:12345"
+	req.Header.Set("X-Forwarded-For", "203.0.113.5")
+
+	ip := GetClientIP(req, config)
+	// RemoteAddr matches the single-IP entry "10.0.0.1", so XFF is trusted
+	if ip != "203.0.113.5" {
+		t.Errorf("expected XFF IP, got %q", ip)
+	}
+}
+
+func TestGetClientIP_EmptyConfig(t *testing.T) {
+	// Config with no proxies and TrustAllProxies=false should use RemoteAddr
+	config := &TrustedProxyConfig{}
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "1.2.3.4:5678"
+	req.Header.Set("X-Forwarded-For", "9.9.9.9")
+
+	ip := GetClientIP(req, config)
+	if ip != "1.2.3.4" {
+		t.Errorf("expected RemoteAddr for empty config, got %q", ip)
+	}
+}
+
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
 }

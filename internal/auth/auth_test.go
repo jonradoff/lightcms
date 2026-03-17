@@ -358,6 +358,64 @@ func TestGetClientIP(t *testing.T) {
 	}
 }
 
+func TestMustChangePassword(t *testing.T) {
+	mgr, cleanup := newTestManager(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	mgr.MigrateToMultiUser(ctx)
+
+	// admin123 sets is_default_password=true → force_password_change=true in session
+	user, _ := mgr.ValidateCredentials(ctx, "admin@localhost", "admin123")
+	if user == nil {
+		t.Fatal("expected user")
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rr := httptest.NewRecorder()
+	mgr.LoginUser(rr, req, user)
+
+	req2 := httptest.NewRequest(http.MethodGet, "/", nil)
+	for _, c := range rr.Result().Cookies() {
+		req2.AddCookie(c)
+	}
+
+	if !mgr.MustChangePassword(req2) {
+		t.Error("expected MustChangePassword=true for default-password user")
+	}
+
+	// After clearing, should be false
+	rr2 := httptest.NewRecorder()
+	if err := mgr.ClearForcePasswordChange(rr2, req2); err != nil {
+		t.Fatalf("ClearForcePasswordChange: %v", err)
+	}
+
+	req3 := httptest.NewRequest(http.MethodGet, "/", nil)
+	for _, c := range rr2.Result().Cookies() {
+		req3.AddCookie(c)
+	}
+	if mgr.MustChangePassword(req3) {
+		t.Error("expected MustChangePassword=false after clearing")
+	}
+}
+
+func TestMustChangePassword_NoSession(t *testing.T) {
+	mgr, cleanup := newTestManager(t)
+	defer cleanup()
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	if mgr.MustChangePassword(req) {
+		t.Error("expected false with no session")
+	}
+}
+
+func TestUserFromAPIContext_Empty(t *testing.T) {
+	_, ok := UserFromAPIContext(context.Background())
+	if ok {
+		t.Error("expected ok=false for empty context")
+	}
+}
+
 func TestHasPermission(t *testing.T) {
 	// Admin should have all permissions
 	if !HasPermission("admin", PermContentCreate) {
