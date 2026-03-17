@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"lightcms/internal/database"
+
+	"go.mongodb.org/mongo-driver/bson"
 )
 
 const testDBName = "lightcms-test"
@@ -89,7 +91,10 @@ func MustConnectTestDB(t *testing.T) (*database.DB, func()) {
 	return db, cleanup
 }
 
-// CleanupCollections drops all test collections for isolation between tests.
+// CleanupCollections removes all documents from test collections for isolation
+// between tests. Uses DeleteMany instead of Drop so that indexes are preserved —
+// Drop + recreate requires createIndexes to do real round-trips on every test,
+// which was causing the services package to exceed the 900s test timeout.
 func CleanupCollections(t *testing.T, db *database.DB) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -99,11 +104,12 @@ func CleanupCollections(t *testing.T, db *database.DB) {
 		"content", "content_versions", "templates", "folders", "collections",
 		"custom_pages", "settings", "theme_versions", "contact_messages",
 		"login_attempts", "assets", "api_keys", "redirects", "snippets",
-		"users", "audit_logs",
+		"users", "audit_logs", "user_activity",
 		"oauth_clients", "oauth_auth_codes", "oauth_access_tokens", "oauth_refresh_tokens",
 	}
+	empty := bson.M{}
 	for _, name := range collections {
-		db.Collection(name).Drop(ctx)
+		db.Collection(name).DeleteMany(ctx, empty)
 	}
 }
 
