@@ -3314,22 +3314,22 @@ func (h *Handler) ServePage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Load template — needed for both rendering and OG image inference.
+	var tmpl models.Template
+	if err := h.db.FindOne(ctx, "templates", bson.M{"_id": content.TemplateID}, &tmpl); err != nil {
+		http.Error(w, "Template not found", http.StatusInternalServerError)
+		return
+	}
+
+	ogImage := inferOGImage(&content, &tmpl)
+
 	// Try to serve from static file first
 	staticPath := h.getStaticFilePath(fullPath)
-
-	ogImage := inferOGImage(&content)
 
 	if _, err := os.Stat(staticPath); err == nil {
 		staticContent, _ := os.ReadFile(staticPath)
 		h.renderPublicWithSEO(w, r, theme, string(staticContent), content.UseHeader, content.UseFooter,
 			content.Title, content.MetaDescription, ogImage, fullPath)
-		return
-	}
-
-	// Fall back to rendering from database
-	var tmpl models.Template
-	if err := h.db.FindOne(ctx, "templates", bson.M{"_id": content.TemplateID}, &tmpl); err != nil {
-		http.Error(w, "Template not found", http.StatusInternalServerError)
 		return
 	}
 
@@ -3557,20 +3557,24 @@ func (h *Handler) renderPublicWithSEO(w http.ResponseWriter, r *http.Request, th
 }
 
 // inferOGImage returns the best OG image for a content item.
-// Explicit og_image always wins. If unset, falls back to the first image-type
-// field value found in the content data (e.g. featured_image, hero_image).
-func inferOGImage(content *models.Content) string {
+// Explicit og_image always wins. If unset, walks the template's field
+// definitions in order and returns the first non-empty image-type field value.
+// Using the template's field order (a slice, not a map) guarantees we always
+// pick the designer-intended primary image (e.g. featured_image before any
+// secondary images) rather than random map iteration order.
+func inferOGImage(content *models.Content, tmpl *models.Template) string {
 	if content.OGImage != "" {
 		return content.OGImage
 	}
-	for _, v := range content.Data {
-		s, ok := v.(string)
-		if !ok || s == "" {
+	if tmpl == nil {
+		return ""
+	}
+	for _, field := range tmpl.Fields {
+		if field.Type != "image" {
 			continue
 		}
-		lower := strings.ToLower(s)
-		for _, ext := range []string{".jpg", ".jpeg", ".png", ".gif", ".webp", ".avif", ".svg"} {
-			if strings.HasSuffix(lower, ext) {
+		if v, ok := content.Data[field.Name]; ok {
+			if s, ok := v.(string); ok && s != "" {
 				return s
 			}
 		}
