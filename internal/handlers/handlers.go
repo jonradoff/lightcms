@@ -3539,6 +3539,20 @@ func (h *Handler) renderPublicWithSEO(w http.ResponseWriter, r *http.Request, th
 	// Apply title template
 	pageTitle := h.applyTitleTemplate(config, title, theme.SiteName)
 
+	// OG image must be an absolute URL for social media scrapers.
+	// Relative paths (e.g. /assets/img.jpg) are resolved against the site base URL.
+	if ogImage != "" && strings.HasPrefix(ogImage, "/") {
+		base := h.baseURL
+		if base == "" {
+			scheme := "https"
+			if r.TLS == nil && r.Header.Get("X-Forwarded-Proto") != "https" {
+				scheme = "http"
+			}
+			base = scheme + "://" + r.Host
+		}
+		ogImage = strings.TrimRight(base, "/") + ogImage
+	}
+
 	data := map[string]interface{}{
 		"Theme":           theme,
 		"Content":         template.HTML(content),
