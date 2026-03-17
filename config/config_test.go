@@ -218,6 +218,39 @@ func TestLoadFromFile_NoConfigFound(t *testing.T) {
 	}
 }
 
+func TestLoadFromEnv_SecureCookies_Default(t *testing.T) {
+	// Not setting SECURE_COOKIES → should stay true (prod default)
+	os.Setenv("MONGO_URI", "mongodb://localhost/test")
+	os.Setenv("SESSION_SECRET", "secret-long-enough")
+	os.Unsetenv("SECURE_COOKIES")
+	defer func() {
+		os.Unsetenv("MONGO_URI")
+		os.Unsetenv("SESSION_SECRET")
+	}()
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() failed: %v", err)
+	}
+	if !cfg.SecureCookies {
+		t.Error("expected SecureCookies=true when SECURE_COOKIES env not set")
+	}
+}
+
+func TestLoadFromFile_InvalidJSON(t *testing.T) {
+	os.Unsetenv("MONGO_URI")
+
+	tmpDir := t.TempDir()
+	os.WriteFile(filepath.Join(tmpDir, "config.dev.json"), []byte(`not valid json`), 0644)
+	os.Setenv("LIGHTCMS_CONFIG_DIR", tmpDir)
+	defer os.Unsetenv("LIGHTCMS_CONFIG_DIR")
+
+	_, err := Load()
+	if err == nil {
+		t.Error("expected error for invalid JSON config")
+	}
+}
+
 func TestSave(t *testing.T) {
 	tmpDir := t.TempDir()
 	path := filepath.Join(tmpDir, "subdir", "config.json")
