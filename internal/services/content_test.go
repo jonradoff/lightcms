@@ -1571,3 +1571,90 @@ func TestMergeInlineTags_OnUpdate(t *testing.T) {
 		t.Errorf("expected testing tag after update, got: %v", loaded.Tags)
 	}
 }
+
+func TestListContentScoped_Empty(t *testing.T) {
+	svc, cleanup := newTestContentService(t)
+	defer cleanup()
+
+	results, err := svc.ListContentScoped(context.Background(), ContentScope{})
+	if err != nil {
+		t.Fatalf("ListContentScoped: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("expected 0 results, got %d", len(results))
+	}
+}
+
+func TestListContentScoped_WithTemplate(t *testing.T) {
+	svc, cleanup := newTestContentService(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	tmplID := createTestTemplate(t, svc)
+
+	content := &models.Content{
+		TemplateID:   tmplID,
+		TemplateName: "Test Template",
+		Title:        "Scoped Test",
+		Slug:         "scoped-test",
+		FullPath:     "/scoped-test",
+	}
+	svc.CreateContent(ctx, content)
+
+	results, err := svc.ListContentScoped(ctx, ContentScope{TemplateName: "Test Template"})
+	if err != nil {
+		t.Fatalf("ListContentScoped: %v", err)
+	}
+	if len(results) != 1 {
+		t.Errorf("expected 1 result, got %d", len(results))
+	}
+}
+
+func TestGetContentByIDs_Empty(t *testing.T) {
+	svc, cleanup := newTestContentService(t)
+	defer cleanup()
+
+	result, err := svc.GetContentByIDs(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("GetContentByIDs: %v", err)
+	}
+	if len(result) != 0 {
+		t.Errorf("expected empty map, got %d entries", len(result))
+	}
+}
+
+func TestGetContentByIDs_Found(t *testing.T) {
+	svc, cleanup := newTestContentService(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	tmplID := createTestTemplate(t, svc)
+
+	c1 := &models.Content{TemplateID: tmplID, Title: "A", Slug: "a", FullPath: "/a"}
+	c2 := &models.Content{TemplateID: tmplID, Title: "B", Slug: "b", FullPath: "/b"}
+	svc.CreateContent(ctx, c1)
+	svc.CreateContent(ctx, c2)
+
+	result, err := svc.GetContentByIDs(ctx, []primitive.ObjectID{c1.ID, c2.ID})
+	if err != nil {
+		t.Fatalf("GetContentByIDs: %v", err)
+	}
+	if len(result) != 2 {
+		t.Errorf("expected 2, got %d", len(result))
+	}
+}
+
+func TestWithEditorEmail(t *testing.T) {
+	ctx := WithEditorEmail(context.Background(), "editor@test.com")
+	if ctx == nil {
+		t.Fatal("expected non-nil context")
+	}
+}
+
+func TestSetSearchService(t *testing.T) {
+	svc, cleanup := newTestContentService(t)
+	defer cleanup()
+
+	// Should not panic
+	svc.SetSearchService(nil)
+}

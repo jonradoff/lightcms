@@ -112,9 +112,11 @@ func MustConnectTestDB(t *testing.T) (*database.DB, func()) {
 	// Wipe all collections before the test runs.
 	CleanupCollections(t, sharedDB)
 
-	cleanup := func() {
-		CleanupCollections(t, sharedDB)
-	}
+	// Return a no-op cleanup — the next test's MustConnectTestDB call will
+	// wipe collections before it runs. Cleaning at both start and end doubled
+	// the number of Atlas round-trips and caused the services package (118+
+	// tests × 20 collections × 2) to exceed the CI timeout.
+	cleanup := func() {}
 
 	return sharedDB, cleanup
 }
