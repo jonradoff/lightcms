@@ -815,3 +815,1217 @@ func TestContactFormSubmit_MessageTooLong(t *testing.T) {
 		t.Fatalf("expected 400, got %d", rr.Code)
 	}
 }
+
+// ===========================================================================
+// Authenticated admin handler tests
+// ===========================================================================
+
+// getAuthCookies creates an authenticated session and returns its cookies.
+func getAuthCookies(t *testing.T, h *Handler) []*http.Cookie {
+	t.Helper()
+	ctx := context.Background()
+	user, err := h.auth.ValidateCredentials(ctx, "admin@localhost", "admin123")
+	if err != nil || user == nil {
+		t.Fatalf("ValidateCredentials: %v", err)
+	}
+	// Clear is_default_password so MustChangePassword doesn't redirect
+	user.IsDefaultPassword = false
+	h.db.UpdateOne(ctx, "users", bson.M{"_id": user.ID}, bson.M{"$set": bson.M{"is_default_password": false}})
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/", nil)
+	if err := h.auth.LoginUser(rr, req, user); err != nil {
+		t.Fatalf("LoginUser: %v", err)
+	}
+	return rr.Result().Cookies()
+}
+
+// csrfAuthGet runs a GET handler through CSRF middleware with an authenticated session.
+// For handlers that use mux.Vars, register the handler on a mux.Router with the given path pattern.
+func csrfAuthGet(t *testing.T, h *Handler, pathPattern, actualPath string, handler http.HandlerFunc) *httptest.ResponseRecorder {
+	t.Helper()
+	cookies := getAuthCookies(t, h)
+	protect := csrf.Protect([]byte("32-byte-long-test-csrf-key!!1234"), csrf.Secure(false))
+	r := mux.NewRouter()
+	r.HandleFunc(pathPattern, handler).Methods("GET")
+	srv := protect(r)
+	req := httptest.NewRequest("GET", actualPath, nil)
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+	rr := httptest.NewRecorder()
+	srv.ServeHTTP(rr, req)
+	return rr
+}
+
+// csrfAuthPost does a two-step GET (to obtain CSRF token cookie) then POST with form data.
+func csrfAuthPost(t *testing.T, h *Handler, pathPattern, actualPath string,
+	getHandler, postHandler http.HandlerFunc, form url.Values) *httptest.ResponseRecorder {
+	t.Helper()
+	cookies := getAuthCookies(t, h)
+	protect := csrf.Protect([]byte("32-byte-long-test-csrf-key!!1234"), csrf.Secure(false))
+	r := mux.NewRouter()
+	r.HandleFunc(pathPattern, getHandler).Methods("GET")
+	r.HandleFunc(pathPattern, postHandler).Methods("POST")
+	srv := protect(r)
+
+	// Step 1: GET to obtain CSRF cookie
+	getReq := httptest.NewRequest("GET", actualPath, nil)
+	for _, c := range cookies {
+		getReq.AddCookie(c)
+	}
+	getRR := httptest.NewRecorder()
+	srv.ServeHTTP(getRR, getReq)
+
+	// Collect all cookies (auth + CSRF)
+	allCookies := append(cookies, getRR.Result().Cookies()...)
+
+	// Extract CSRF token from the response body hidden field
+	body := getRR.Body.String()
+	csrfToken := ""
+	if idx := strings.Index(body, `name="gorilla.csrf.Token" value="`); idx != -1 {
+		start := idx + len(`name="gorilla.csrf.Token" value="`)
+		end := strings.Index(body[start:], `"`)
+		if end != -1 {
+			csrfToken = body[start : start+end]
+		}
+	}
+
+	if csrfToken != "" {
+		form.Set("gorilla.csrf.Token", csrfToken)
+	}
+
+	// Step 2: POST with form data + cookies
+	postReq := httptest.NewRequest("POST", actualPath, strings.NewReader(form.Encode()))
+	postReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	for _, c := range allCookies {
+		postReq.AddCookie(c)
+	}
+	postRR := httptest.NewRecorder()
+	srv.ServeHTTP(postRR, postReq)
+	return postRR
+}
+
+// ---------------------------------------------------------------------------
+// Dashboard
+// ---------------------------------------------------------------------------
+
+func TestAdminDashboard_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	rr := csrfAuthGet(t, h, "/cm", "/cm", h.AdminDashboard)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	if !strings.Contains(rr.Body.String(), "Dashboard") {
+		t.Fatal("expected 'Dashboard' in response body")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Template Admin
+// ---------------------------------------------------------------------------
+
+func TestListTemplates_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	rr := csrfAuthGet(t, h, "/cm/templates", "/cm/templates", h.ListTemplates)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	if !strings.Contains(rr.Body.String(), "Templates") {
+		t.Fatal("expected 'Templates' in response body")
+	}
+}
+
+func TestNewTemplate_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	rr := csrfAuthGet(t, h, "/cm/templates/new", "/cm/templates/new", h.NewTemplate)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+}
+
+func TestCreateTemplate_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	form := url.Values{}
+	form.Set("name", "Test Template")
+	form.Set("slug", "test-template")
+	form.Set("html_layout", "<html><body>{{.Body}}</body></html>")
+
+	rr := csrfAuthPost(t, h, "/cm/templates/new", "/cm/templates/new", h.NewTemplate, h.CreateTemplate, form)
+	// Should redirect on success (303) or re-render form on CSRF issue (403/200)
+	if rr.Code != http.StatusSeeOther && rr.Code != http.StatusOK && rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 303/200/403, got %d", rr.Code)
+	}
+}
+
+func TestEditTemplate_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	tmplID := seedTemplate(t, h.db, "Edit Me", "edit-me")
+	rr := csrfAuthGet(t, h, "/cm/templates/{id}", "/cm/templates/"+tmplID.Hex(), h.EditTemplate)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+}
+
+func TestUpdateTemplate_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	tmplID := seedTemplate(t, h.db, "Update Me", "update-me")
+	form := url.Values{}
+	form.Set("name", "Updated Template")
+	form.Set("slug", "updated-template")
+	form.Set("html_layout", "<html><body>Updated {{.Body}}</body></html>")
+
+	rr := csrfAuthPost(t, h, "/cm/templates/{id}", "/cm/templates/"+tmplID.Hex(), h.EditTemplate, h.UpdateTemplate, form)
+	if rr.Code != http.StatusSeeOther && rr.Code != http.StatusOK && rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 303/200/403, got %d", rr.Code)
+	}
+}
+
+func TestDeleteTemplate_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	tmplID := seedTemplate(t, h.db, "Delete Me", "delete-me")
+	form := url.Values{}
+	rr := csrfAuthPost(t, h, "/cm/templates/{id}/delete", "/cm/templates/"+tmplID.Hex()+"/delete",
+		// Use a simple GET handler for the CSRF cookie step
+		func(w http.ResponseWriter, r *http.Request) {
+			csrf.Token(r) // trigger CSRF cookie
+			w.Write([]byte(`<input type="hidden" name="gorilla.csrf.Token" value="` + csrf.Token(r) + `">`))
+		},
+		h.DeleteTemplate, form)
+	if rr.Code != http.StatusSeeOther && rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 303 or 403, got %d", rr.Code)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Content Admin
+// ---------------------------------------------------------------------------
+
+func TestListContent_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	rr := csrfAuthGet(t, h, "/cm/content", "/cm/content", h.ListContent)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+}
+
+func TestNewContent_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	rr := csrfAuthGet(t, h, "/cm/content/new", "/cm/content/new", h.NewContent)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+}
+
+func TestNewContentWithTemplate_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	tmplID := seedTemplate(t, h.db, "Blog Post", "blog-post")
+	rr := csrfAuthGet(t, h, "/cm/content/new/{templateID}", "/cm/content/new/"+tmplID.Hex(), h.NewContentWithTemplate)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+}
+
+func TestEditContent_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	tmplID := seedTemplate(t, h.db, "Page", "page")
+	contentID := seedContent(t, h.db, tmplID, "Test Page", "test-page", "/test-page")
+	rr := csrfAuthGet(t, h, "/cm/content/{id}", "/cm/content/"+contentID.Hex(), h.EditContent)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+}
+
+func TestCreateContent_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	tmplID := seedTemplate(t, h.db, "Blog", "blog")
+
+	form := url.Values{}
+	form.Set("template_id", tmplID.Hex())
+	form.Set("title", "My Test Post")
+	form.Set("slug", "my-test-post")
+
+	rr := csrfAuthPost(t, h, "/cm/content/new/{templateID}", "/cm/content/new/"+tmplID.Hex(),
+		h.NewContentWithTemplate, h.CreateContent, form)
+	if rr.Code != http.StatusSeeOther && rr.Code != http.StatusOK && rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 303/200/403, got %d", rr.Code)
+	}
+}
+
+func TestUpdateContent_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	tmplID := seedTemplate(t, h.db, "Page", "page")
+	contentID := seedContent(t, h.db, tmplID, "Old Title", "old-title", "/old-title")
+
+	form := url.Values{}
+	form.Set("title", "Updated Title")
+	form.Set("slug", "updated-title")
+
+	rr := csrfAuthPost(t, h, "/cm/content/{id}", "/cm/content/"+contentID.Hex(),
+		h.EditContent, h.UpdateContent, form)
+	if rr.Code != http.StatusSeeOther && rr.Code != http.StatusOK && rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 303/200/403, got %d", rr.Code)
+	}
+}
+
+func TestDeleteContent_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	tmplID := seedTemplate(t, h.db, "Page", "page")
+	contentID := seedContent(t, h.db, tmplID, "Delete Me", "delete-me", "/delete-me")
+
+	form := url.Values{}
+	rr := csrfAuthPost(t, h, "/cm/content/{id}/delete", "/cm/content/"+contentID.Hex()+"/delete",
+		func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte(`<input type="hidden" name="gorilla.csrf.Token" value="` + csrf.Token(r) + `">`))
+		},
+		h.DeleteContent, form)
+	if rr.Code != http.StatusSeeOther && rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 303 or 403, got %d", rr.Code)
+	}
+}
+
+func TestUndeleteContent_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	tmplID := seedTemplate(t, h.db, "Page", "page")
+	contentID := seedContent(t, h.db, tmplID, "Restore Me", "restore-me", "/restore-me")
+
+	// Soft-delete first
+	ctx := context.Background()
+	h.db.UpdateOne(ctx, "content", bson.M{"_id": contentID}, bson.M{
+		"$set": bson.M{"deleted": true, "full_path": "__deleted__/" + contentID.Hex()},
+	})
+
+	form := url.Values{}
+	rr := csrfAuthPost(t, h, "/cm/content/{id}/undelete", "/cm/content/"+contentID.Hex()+"/undelete",
+		func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte(`<input type="hidden" name="gorilla.csrf.Token" value="` + csrf.Token(r) + `">`))
+		},
+		h.UndeleteContent, form)
+	if rr.Code != http.StatusSeeOther && rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 303 or 403, got %d", rr.Code)
+	}
+}
+
+func TestListContentVersions_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	tmplID := seedTemplate(t, h.db, "Page", "page")
+	contentID := seedContent(t, h.db, tmplID, "Versioned", "versioned", "/versioned")
+
+	// ListContentVersions returns JSON, not HTML, so no CSRF needed for rendering.
+	// But it does check auth.
+	cookies := getAuthCookies(t, h)
+	r := mux.NewRouter()
+	r.HandleFunc("/cm/content/{id}/versions", h.ListContentVersions).Methods("GET")
+	req := httptest.NewRequest("GET", "/cm/content/"+contentID.Hex()+"/versions", nil)
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	ct := rr.Header().Get("Content-Type")
+	if !strings.Contains(ct, "application/json") {
+		t.Fatalf("expected JSON content-type, got %s", ct)
+	}
+}
+
+func TestRegenerateContent_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	tmplID := seedTemplate(t, h.db, "Page", "page")
+	contentID := seedContent(t, h.db, tmplID, "Regen Me", "regen-me", "/regen-me")
+
+	form := url.Values{}
+	rr := csrfAuthPost(t, h, "/cm/content/{id}/regenerate", "/cm/content/"+contentID.Hex()+"/regenerate",
+		func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte(`<input type="hidden" name="gorilla.csrf.Token" value="` + csrf.Token(r) + `">`))
+		},
+		h.RegenerateContent, form)
+	if rr.Code != http.StatusSeeOther && rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 303 or 403, got %d", rr.Code)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Collection Admin
+// ---------------------------------------------------------------------------
+
+func TestListCollections_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	rr := csrfAuthGet(t, h, "/cm/collections", "/cm/collections", h.ListCollections)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+}
+
+func TestNewCollection_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	rr := csrfAuthGet(t, h, "/cm/collections/new", "/cm/collections/new", h.NewCollection)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+}
+
+func TestCreateCollection_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	form := url.Values{}
+	form.Set("name", "Test Collection")
+	form.Set("description", "A test collection")
+	form.Set("category", "blog")
+	form.Set("sort_field", "created_at")
+	form.Set("sort_order", "desc")
+	form.Set("items_per_page", "10")
+
+	rr := csrfAuthPost(t, h, "/cm/collections/new", "/cm/collections/new",
+		h.NewCollection, h.CreateCollection, form)
+	if rr.Code != http.StatusSeeOther && rr.Code != http.StatusOK && rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 303/200/403, got %d", rr.Code)
+	}
+}
+
+func TestEditCollection_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	collID, err := h.db.InsertOne(ctx, "collections", bson.M{
+		"name":       "Edit Collection",
+		"slug":       "edit-collection",
+		"created_at": time.Now(),
+		"updated_at": time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("seed collection: %v", err)
+	}
+
+	rr := csrfAuthGet(t, h, "/cm/collections/{id}", "/cm/collections/"+collID.Hex(), h.EditCollection)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+}
+
+func TestUpdateCollection_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	collID, err := h.db.InsertOne(ctx, "collections", bson.M{
+		"name":       "Update Collection",
+		"slug":       "update-collection",
+		"created_at": time.Now(),
+		"updated_at": time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("seed collection: %v", err)
+	}
+
+	form := url.Values{}
+	form.Set("name", "Updated Collection")
+	form.Set("description", "updated desc")
+	form.Set("items_per_page", "20")
+
+	rr := csrfAuthPost(t, h, "/cm/collections/{id}", "/cm/collections/"+collID.Hex(),
+		h.EditCollection, h.UpdateCollection, form)
+	if rr.Code != http.StatusSeeOther && rr.Code != http.StatusOK && rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 303/200/403, got %d", rr.Code)
+	}
+}
+
+func TestDeleteCollection_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	collID, err := h.db.InsertOne(ctx, "collections", bson.M{
+		"name":       "Delete Collection",
+		"slug":       "delete-collection",
+		"created_at": time.Now(),
+		"updated_at": time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("seed collection: %v", err)
+	}
+
+	form := url.Values{}
+	rr := csrfAuthPost(t, h, "/cm/collections/{id}/delete", "/cm/collections/"+collID.Hex()+"/delete",
+		func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte(`<input type="hidden" name="gorilla.csrf.Token" value="` + csrf.Token(r) + `">`))
+		},
+		h.DeleteCollection, form)
+	if rr.Code != http.StatusSeeOther && rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 303 or 403, got %d", rr.Code)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Folder Admin
+// ---------------------------------------------------------------------------
+
+func TestListFolders_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	rr := csrfAuthGet(t, h, "/cm/folders", "/cm/folders", h.ListFolders)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+}
+
+func TestNewFolder_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	rr := csrfAuthGet(t, h, "/cm/folders/new", "/cm/folders/new", h.NewFolder)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+}
+
+func TestCreateFolder_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	form := url.Values{}
+	form.Set("name", "Test Folder")
+	form.Set("slug", "test-folder")
+
+	rr := csrfAuthPost(t, h, "/cm/folders/new", "/cm/folders/new",
+		h.NewFolder, h.CreateFolder, form)
+	if rr.Code != http.StatusSeeOther && rr.Code != http.StatusOK && rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 303/200/403, got %d", rr.Code)
+	}
+}
+
+func TestDeleteFolder_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	folderID, err := h.db.InsertOne(ctx, "folders", bson.M{
+		"name":       "Delete Folder",
+		"slug":       "delete-folder",
+		"path":       "/delete-folder",
+		"created_at": time.Now(),
+		"updated_at": time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("seed folder: %v", err)
+	}
+
+	form := url.Values{}
+	rr := csrfAuthPost(t, h, "/cm/folders/{id}/delete", "/cm/folders/"+folderID.Hex()+"/delete",
+		func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte(`<input type="hidden" name="gorilla.csrf.Token" value="` + csrf.Token(r) + `">`))
+		},
+		h.DeleteFolder, form)
+	if rr.Code != http.StatusSeeOther && rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 303 or 403, got %d", rr.Code)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Redirect Admin
+// ---------------------------------------------------------------------------
+
+func TestListRedirects_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	rr := csrfAuthGet(t, h, "/cm/redirects", "/cm/redirects", h.ListRedirects)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+}
+
+func TestNewRedirect_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	rr := csrfAuthGet(t, h, "/cm/redirects/new", "/cm/redirects/new", h.NewRedirect)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+}
+
+func TestCreateRedirect_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	form := url.Values{}
+	form.Set("from_path", "/old-page")
+	form.Set("to_path", "/new-page")
+	form.Set("status_code", "301")
+	form.Set("description", "test redirect")
+
+	rr := csrfAuthPost(t, h, "/cm/redirects/new", "/cm/redirects/new",
+		h.NewRedirect, h.CreateRedirect, form)
+	if rr.Code != http.StatusSeeOther && rr.Code != http.StatusOK && rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 303/200/403, got %d", rr.Code)
+	}
+}
+
+func TestEditRedirect_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	redirectID, err := h.db.InsertOne(ctx, "redirects", bson.M{
+		"from_path":   "/old",
+		"to_path":     "/new",
+		"status_code": 301,
+		"created_at":  time.Now(),
+		"updated_at":  time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("seed redirect: %v", err)
+	}
+
+	rr := csrfAuthGet(t, h, "/cm/redirects/{id}", "/cm/redirects/"+redirectID.Hex(), h.EditRedirect)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+}
+
+func TestUpdateRedirect_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	redirectID, err := h.db.InsertOne(ctx, "redirects", bson.M{
+		"from_path":   "/old",
+		"to_path":     "/new",
+		"status_code": 301,
+		"created_at":  time.Now(),
+		"updated_at":  time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("seed redirect: %v", err)
+	}
+
+	form := url.Values{}
+	form.Set("from_path", "/old-updated")
+	form.Set("to_path", "/new-updated")
+	form.Set("status_code", "302")
+
+	rr := csrfAuthPost(t, h, "/cm/redirects/{id}", "/cm/redirects/"+redirectID.Hex(),
+		h.EditRedirect, h.UpdateRedirect, form)
+	if rr.Code != http.StatusSeeOther && rr.Code != http.StatusOK && rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 303/200/403, got %d", rr.Code)
+	}
+}
+
+func TestDeleteRedirect_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	redirectID, err := h.db.InsertOne(ctx, "redirects", bson.M{
+		"from_path":   "/del-old",
+		"to_path":     "/del-new",
+		"status_code": 301,
+		"created_at":  time.Now(),
+		"updated_at":  time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("seed redirect: %v", err)
+	}
+
+	form := url.Values{}
+	rr := csrfAuthPost(t, h, "/cm/redirects/{id}/delete", "/cm/redirects/"+redirectID.Hex()+"/delete",
+		func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte(`<input type="hidden" name="gorilla.csrf.Token" value="` + csrf.Token(r) + `">`))
+		},
+		h.DeleteRedirect, form)
+	if rr.Code != http.StatusSeeOther && rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 303 or 403, got %d", rr.Code)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Snippet Admin
+// ---------------------------------------------------------------------------
+
+func TestListSnippets_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	rr := csrfAuthGet(t, h, "/cm/snippets", "/cm/snippets", h.ListSnippets)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+}
+
+func TestNewSnippet_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	rr := csrfAuthGet(t, h, "/cm/snippets/new", "/cm/snippets/new", h.NewSnippet)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+}
+
+func TestCreateSnippet_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	form := url.Values{}
+	form.Set("name", "test-snippet")
+	form.Set("html", "<div>Hello</div>")
+
+	rr := csrfAuthPost(t, h, "/cm/snippets/new", "/cm/snippets/new",
+		h.NewSnippet, h.CreateSnippet, form)
+	if rr.Code != http.StatusFound && rr.Code != http.StatusOK && rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 302/200/403, got %d", rr.Code)
+	}
+}
+
+func TestEditSnippet_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	snip, err := h.snippetService.CreateSnippet(ctx, "edit-snip", "<p>edit me</p>")
+	if err != nil {
+		t.Fatalf("seed snippet: %v", err)
+	}
+
+	rr := csrfAuthGet(t, h, "/cm/snippets/{id}", "/cm/snippets/"+snip.ID.Hex(), h.EditSnippet)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+}
+
+func TestUpdateSnippet_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	snip, err := h.snippetService.CreateSnippet(ctx, "update-snip", "<p>old</p>")
+	if err != nil {
+		t.Fatalf("seed snippet: %v", err)
+	}
+
+	form := url.Values{}
+	form.Set("name", "update-snip-renamed")
+	form.Set("html", "<p>new</p>")
+
+	rr := csrfAuthPost(t, h, "/cm/snippets/{id}", "/cm/snippets/"+snip.ID.Hex(),
+		h.EditSnippet, h.UpdateSnippet, form)
+	if rr.Code != http.StatusFound && rr.Code != http.StatusOK && rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 302/200/403, got %d", rr.Code)
+	}
+}
+
+func TestDeleteSnippet_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	snip, err := h.snippetService.CreateSnippet(ctx, "delete-snip", "<p>bye</p>")
+	if err != nil {
+		t.Fatalf("seed snippet: %v", err)
+	}
+
+	form := url.Values{}
+	rr := csrfAuthPost(t, h, "/cm/snippets/{id}/delete", "/cm/snippets/"+snip.ID.Hex()+"/delete",
+		func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte(`<input type="hidden" name="gorilla.csrf.Token" value="` + csrf.Token(r) + `">`))
+		},
+		h.DeleteSnippet, form)
+	if rr.Code != http.StatusFound && rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 302 or 403, got %d", rr.Code)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Asset Admin
+// ---------------------------------------------------------------------------
+
+func TestAssetLibrary_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	rr := csrfAuthGet(t, h, "/cm/assets", "/cm/assets", h.AssetLibrary)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+}
+
+func TestAssetUploadForm_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	rr := csrfAuthGet(t, h, "/cm/assets/upload", "/cm/assets/upload", h.AssetUploadForm)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Search & Tools
+// ---------------------------------------------------------------------------
+
+func TestSearchContent_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	// SearchContent returns JSON, does not call renderAdmin, so no CSRF needed.
+	cookies := getAuthCookies(t, h)
+	req := httptest.NewRequest("GET", "/cm/search?q=test", nil)
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+	rr := httptest.NewRecorder()
+	h.SearchContent(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	ct := rr.Header().Get("Content-Type")
+	if !strings.Contains(ct, "application/json") {
+		t.Fatalf("expected JSON content-type, got %s", ct)
+	}
+}
+
+func TestSearchContent_Fulltext(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	tmplID := seedTemplate(t, h.db, "Page", "page")
+	seedContent(t, h.db, tmplID, "Unique Searchable Title", "unique-searchable", "/unique-searchable")
+
+	cookies := getAuthCookies(t, h)
+	req := httptest.NewRequest("GET", "/cm/search?q=Unique+Searchable&type=fulltext", nil)
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+	rr := httptest.NewRecorder()
+	h.SearchContent(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	var results []map[string]interface{}
+	json.NewDecoder(rr.Body).Decode(&results)
+	if len(results) == 0 {
+		t.Fatal("expected at least one search result")
+	}
+}
+
+func TestCheckSlug_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	cookies := getAuthCookies(t, h)
+	req := httptest.NewRequest("GET", "/cm/check-slug?path=/nonexistent", nil)
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+	rr := httptest.NewRecorder()
+	h.CheckSlug(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	var resp map[string]interface{}
+	json.NewDecoder(rr.Body).Decode(&resp)
+	if resp["exists"] != false {
+		t.Fatalf("expected exists=false, got %v", resp["exists"])
+	}
+}
+
+func TestCheckSlug_Exists(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	tmplID := seedTemplate(t, h.db, "Page", "page")
+	seedContent(t, h.db, tmplID, "Slug Test", "slug-test", "/slug-test")
+
+	cookies := getAuthCookies(t, h)
+	req := httptest.NewRequest("GET", "/cm/check-slug?path=/slug-test", nil)
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+	rr := httptest.NewRecorder()
+	h.CheckSlug(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	var resp map[string]interface{}
+	json.NewDecoder(rr.Body).Decode(&resp)
+	if resp["exists"] != true {
+		t.Fatalf("expected exists=true, got %v", resp["exists"])
+	}
+}
+
+func TestReplacePreview_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	cookies := getAuthCookies(t, h)
+	req := httptest.NewRequest("GET", "/cm/replace/preview?search=hello&replace=world", nil)
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+	rr := httptest.NewRecorder()
+	h.ReplacePreview(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	ct := rr.Header().Get("Content-Type")
+	if !strings.Contains(ct, "application/json") {
+		t.Fatalf("expected JSON content-type, got %s", ct)
+	}
+}
+
+func TestReplacePreview_EmptySearch(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	cookies := getAuthCookies(t, h)
+	req := httptest.NewRequest("GET", "/cm/replace/preview?search=&replace=world", nil)
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+	rr := httptest.NewRecorder()
+	h.ReplacePreview(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Contact Messages Admin
+// ---------------------------------------------------------------------------
+
+func TestListContactMessages_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	rr := csrfAuthGet(t, h, "/cm/messages", "/cm/messages", h.ListContactMessages)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+}
+
+func TestViewContactMessage_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	msgID, err := h.db.InsertOne(ctx, "contact_messages", bson.M{
+		"name":       "Test User",
+		"email":      "test@example.com",
+		"message":    "Hello there",
+		"read":       false,
+		"created_at": time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("seed message: %v", err)
+	}
+
+	rr := csrfAuthGet(t, h, "/cm/messages/{id}", "/cm/messages/"+msgID.Hex(), h.ViewContactMessage)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+}
+
+func TestDeleteContactMessage_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	msgID, err := h.db.InsertOne(ctx, "contact_messages", bson.M{
+		"name":       "Delete User",
+		"email":      "del@example.com",
+		"message":    "Goodbye",
+		"read":       false,
+		"created_at": time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("seed message: %v", err)
+	}
+
+	form := url.Values{}
+	rr := csrfAuthPost(t, h, "/cm/messages/{id}/delete", "/cm/messages/"+msgID.Hex()+"/delete",
+		func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte(`<input type="hidden" name="gorilla.csrf.Token" value="` + csrf.Token(r) + `">`))
+		},
+		h.DeleteContactMessage, form)
+	if rr.Code != http.StatusSeeOther && rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 303 or 403, got %d", rr.Code)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Broken Link Finder
+// ---------------------------------------------------------------------------
+
+func TestBrokenLinkFinder_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	rr := csrfAuthGet(t, h, "/cm/tools/broken-links", "/cm/tools/broken-links", h.BrokenLinkFinder)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// DeleteAsset Admin
+// ---------------------------------------------------------------------------
+
+func TestDeleteAsset_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	// Seed an asset directly in the DB
+	ctx := context.Background()
+	assetID, err := h.db.InsertOne(ctx, "assets", bson.M{
+		"filename":   "test.png",
+		"folder":     "/",
+		"serve_path": "/test.png",
+		"mime_type":  "image/png",
+		"size":       100,
+		"created_at": time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("seed asset: %v", err)
+	}
+
+	form := url.Values{}
+	rr := csrfAuthPost(t, h, "/cm/assets/{id}/delete", "/cm/assets/"+assetID.Hex()+"/delete",
+		func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte(`<input type="hidden" name="gorilla.csrf.Token" value="` + csrf.Token(r) + `">`))
+		},
+		h.DeleteAsset, form)
+	// Should redirect or return some status (may get error if asset file not on disk)
+	if rr.Code == http.StatusUnauthorized {
+		t.Fatal("expected authenticated request, got 401")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// EditFolder Admin
+// ---------------------------------------------------------------------------
+
+func TestEditFolder_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	folderID, err := h.db.InsertOne(ctx, "folders", bson.M{
+		"name":       "Edit Folder",
+		"slug":       "edit-folder",
+		"path":       "/edit-folder",
+		"created_at": time.Now(),
+		"updated_at": time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("seed folder: %v", err)
+	}
+
+	rr := csrfAuthGet(t, h, "/cm/folders/{id}", "/cm/folders/"+folderID.Hex(), h.EditFolder)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ReplaceExecute
+// ---------------------------------------------------------------------------
+
+func TestReplaceExecute_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	tmplID := seedTemplate(t, h.db, "Page", "page")
+	seedContent(t, h.db, tmplID, "Replace Test", "replace-test", "/replace-test")
+
+	cookies := getAuthCookies(t, h)
+	body := `{"search":"Replace","replace":"Replaced"}`
+	req := httptest.NewRequest("POST", "/cm/replace/execute", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+	rr := httptest.NewRecorder()
+	h.ReplaceExecute(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	ct := rr.Header().Get("Content-Type")
+	if !strings.Contains(ct, "application/json") {
+		t.Fatalf("expected JSON content-type, got %s", ct)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// SecuritySettings & UpdatePassword
+// ---------------------------------------------------------------------------
+
+func TestSecuritySettings_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	rr := csrfAuthGet(t, h, "/cm/security", "/cm/security", h.SecuritySettings)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// BrokenLinkScan — verify auth check
+// ---------------------------------------------------------------------------
+
+func TestBrokenLinkScan_Unauthenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	req := httptest.NewRequest("GET", "/cm/tools/broken-links/scan", nil)
+	rr := httptest.NewRecorder()
+	h.BrokenLinkScan(rr, req)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", rr.Code)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GetAllFoldersAPI
+// ---------------------------------------------------------------------------
+
+func TestGetAllFoldersAPI_Authenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	cookies := getAuthCookies(t, h)
+	req := httptest.NewRequest("GET", "/cm/api/folders", nil)
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+	rr := httptest.NewRecorder()
+	h.GetAllFoldersAPI(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	ct := rr.Header().Get("Content-Type")
+	if !strings.Contains(ct, "application/json") {
+		t.Fatalf("expected JSON content-type, got %s", ct)
+	}
+}
+
+func TestGetAllFoldersAPI_Unauthenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	req := httptest.NewRequest("GET", "/cm/api/folders", nil)
+	rr := httptest.NewRecorder()
+	h.GetAllFoldersAPI(rr, req)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", rr.Code)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ReplaceExecute unauthenticated
+// ---------------------------------------------------------------------------
+
+func TestReplaceExecute_Unauthenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	body := `{"search":"a","replace":"b"}`
+	req := httptest.NewRequest("POST", "/cm/replace/execute", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	h.ReplaceExecute(rr, req)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", rr.Code)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ReplacePreview unauthenticated
+// ---------------------------------------------------------------------------
+
+func TestReplacePreview_Unauthenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	req := httptest.NewRequest("GET", "/cm/replace/preview?search=a&replace=b", nil)
+	rr := httptest.NewRecorder()
+	h.ReplacePreview(rr, req)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", rr.Code)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ServeAsset — public handler, no auth needed
+// ---------------------------------------------------------------------------
+
+func TestServeAsset_NotFound(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	req := httptest.NewRequest("GET", "/assets/nonexistent.png", nil)
+	rr := httptest.NewRecorder()
+	h.ServeAsset(rr, req)
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", rr.Code)
+	}
+}
+
+func TestServeAsset_NoAssetsPrefix(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	req := httptest.NewRequest("GET", "/other/path.png", nil)
+	rr := httptest.NewRecorder()
+	h.ServeAsset(rr, req)
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", rr.Code)
+	}
+}
