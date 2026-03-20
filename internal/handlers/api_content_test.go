@@ -1257,3 +1257,411 @@ func TestAPISearchContent_TypeParam(t *testing.T) {
 		t.Fatalf("expected search_type=title_only, got %v", body["search_type"])
 	}
 }
+
+// ---------------------------------------------------------------------------
+// APIRevertContentVersion
+// ---------------------------------------------------------------------------
+
+func TestAPIRevertContentVersion_InvalidID(t *testing.T) {
+	ah, _, cleanup := newTestAPIHandler(t)
+	defer cleanup()
+
+	r := mux.NewRouter()
+	r.HandleFunc("/api/v1/content/{id}/versions/{version}/revert", ah.APIRevertContentVersion).Methods("POST")
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/invalidid/versions/1/revert", strings.NewReader(`{}`))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rr.Code)
+	}
+}
+
+func TestAPIRevertContentVersion_InvalidVersion(t *testing.T) {
+	ah, _, cleanup := newTestAPIHandler(t)
+	defer cleanup()
+
+	id := primitive.NewObjectID()
+	r := mux.NewRouter()
+	r.HandleFunc("/api/v1/content/{id}/versions/{version}/revert", ah.APIRevertContentVersion).Methods("POST")
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/"+id.Hex()+"/versions/notanumber/revert", strings.NewReader(`{}`))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rr.Code)
+	}
+}
+
+func TestAPIRevertContentVersion_NotFound(t *testing.T) {
+	ah, _, cleanup := newTestAPIHandler(t)
+	defer cleanup()
+
+	id := primitive.NewObjectID()
+	r := mux.NewRouter()
+	r.HandleFunc("/api/v1/content/{id}/versions/{version}/revert", ah.APIRevertContentVersion).Methods("POST")
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/"+id.Hex()+"/versions/99/revert", strings.NewReader(`{}`))
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(rr, req)
+	if rr.Code != http.StatusInternalServerError && rr.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 or 500, got %d", rr.Code)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// APISearchReplacePreview
+// ---------------------------------------------------------------------------
+
+func TestAPISearchReplacePreview_EmptySearch(t *testing.T) {
+	ah, _, cleanup := newTestAPIHandler(t)
+	defer cleanup()
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/search-replace/preview",
+		strings.NewReader(`{"search":"","replace":"bar"}`))
+	req.Header.Set("Content-Type", "application/json")
+	ah.APISearchReplacePreview(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rr.Code)
+	}
+}
+
+func TestAPISearchReplacePreview_ValidSearch(t *testing.T) {
+	ah, db, cleanup := newTestAPIHandler(t)
+	defer cleanup()
+
+	tmplID := seedTemplate(t, db, "Page", "page-sr")
+	seedContent(t, db, tmplID, "SearchReplace Page", "searchreplace-page", "/searchreplace-page")
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/search-replace/preview",
+		strings.NewReader(`{"search":"SearchReplace","replace":"Changed"}`))
+	req.Header.Set("Content-Type", "application/json")
+	ah.APISearchReplacePreview(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+	var body map[string]interface{}
+	json.NewDecoder(rr.Body).Decode(&body)
+	if body["search"] != "SearchReplace" {
+		t.Fatalf("expected search=SearchReplace in response, got %v", body)
+	}
+}
+
+func TestAPISearchReplacePreview_RegexSearch(t *testing.T) {
+	ah, db, cleanup := newTestAPIHandler(t)
+	defer cleanup()
+
+	tmplID := seedTemplate(t, db, "Page", "page-regex")
+	seedContent(t, db, tmplID, "Regex Test 123", "regex-test", "/regex-test")
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/search-replace/preview",
+		strings.NewReader(`{"search":"[0-9]+","replace":"NUM","regex":true}`))
+	req.Header.Set("Content-Type", "application/json")
+	ah.APISearchReplacePreview(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestAPISearchReplacePreview_InvalidRegex(t *testing.T) {
+	ah, _, cleanup := newTestAPIHandler(t)
+	defer cleanup()
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/search-replace/preview",
+		strings.NewReader(`{"search":"[invalid","replace":"bar","regex":true}`))
+	req.Header.Set("Content-Type", "application/json")
+	ah.APISearchReplacePreview(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rr.Code)
+	}
+}
+
+func TestAPISearchReplacePreview_InvalidBody(t *testing.T) {
+	ah, _, cleanup := newTestAPIHandler(t)
+	defer cleanup()
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/search-replace/preview",
+		strings.NewReader(`not-json`))
+	req.Header.Set("Content-Type", "application/json")
+	ah.APISearchReplacePreview(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rr.Code)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// APISearchReplaceExecute
+// ---------------------------------------------------------------------------
+
+func TestAPISearchReplaceExecute_EmptySearch(t *testing.T) {
+	ah, _, cleanup := newTestAPIHandler(t)
+	defer cleanup()
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/search-replace/execute",
+		strings.NewReader(`{"search":"","replace":"bar"}`))
+	req.Header.Set("Content-Type", "application/json")
+	ah.APISearchReplaceExecute(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rr.Code)
+	}
+}
+
+func TestAPISearchReplaceExecute_ValidSearch(t *testing.T) {
+	ah, db, cleanup := newTestAPIHandler(t)
+	defer cleanup()
+
+	tmplID := seedTemplate(t, db, "Page", "page-sre")
+	seedContent(t, db, tmplID, "Execute Replace Page", "execute-replace-page", "/execute-replace-page")
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/search-replace/execute",
+		strings.NewReader(`{"search":"Execute Replace","replace":"Done Replace","dry_run":true}`))
+	req.Header.Set("Content-Type", "application/json")
+	ah.APISearchReplaceExecute(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestAPISearchReplaceExecute_InvalidBody(t *testing.T) {
+	ah, _, cleanup := newTestAPIHandler(t)
+	defer cleanup()
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/search-replace/execute",
+		strings.NewReader(`not-json`))
+	req.Header.Set("Content-Type", "application/json")
+	ah.APISearchReplaceExecute(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rr.Code)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// APIBulkUpdateContent
+// ---------------------------------------------------------------------------
+
+func TestAPIBulkUpdateContent_EmptyUpdates(t *testing.T) {
+	ah, _, cleanup := newTestAPIHandler(t)
+	defer cleanup()
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/bulk-update",
+		strings.NewReader(`{"updates":[]}`))
+	req.Header.Set("Content-Type", "application/json")
+	ah.APIBulkUpdateContent(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rr.Code)
+	}
+}
+
+func TestAPIBulkUpdateContent_DryRun(t *testing.T) {
+	ah, db, cleanup := newTestAPIHandler(t)
+	defer cleanup()
+
+	tmplID := seedTemplate(t, db, "Page", "page-bulk")
+	id := seedContent(t, db, tmplID, "Bulk Update Page", "bulk-update-page", "/bulk-update-page")
+
+	payload := `{"updates":[{"id":"` + id.Hex() + `","title":"New Title"}],"dry_run":true}`
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/bulk-update",
+		strings.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	ah.APIBulkUpdateContent(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestAPIBulkUpdateContent_WithInvalidID(t *testing.T) {
+	ah, _, cleanup := newTestAPIHandler(t)
+	defer cleanup()
+
+	payload := `{"updates":[{"id":"notanid","title":"Title"}]}`
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/bulk-update",
+		strings.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	ah.APIBulkUpdateContent(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestAPIBulkUpdateContent_TooManyUpdates(t *testing.T) {
+	ah, _, cleanup := newTestAPIHandler(t)
+	defer cleanup()
+
+	updates := make([]string, 101)
+	for i := range updates {
+		updates[i] = `{"id":"` + primitive.NewObjectID().Hex() + `","title":"T"}`
+	}
+	payload := `{"updates":[` + strings.Join(updates, ",") + `]}`
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/bulk-update",
+		strings.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	ah.APIBulkUpdateContent(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rr.Code)
+	}
+}
+
+func TestAPIBulkUpdateContent_InvalidBody(t *testing.T) {
+	ah, _, cleanup := newTestAPIHandler(t)
+	defer cleanup()
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/bulk-update",
+		strings.NewReader(`not-json`))
+	req.Header.Set("Content-Type", "application/json")
+	ah.APIBulkUpdateContent(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rr.Code)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// APIScopedSearchReplacePreview
+// ---------------------------------------------------------------------------
+
+func TestAPIScopedSearchReplacePreview_EmptySearch(t *testing.T) {
+	ah, _, cleanup := newTestAPIHandler(t)
+	defer cleanup()
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/scoped-search-replace/preview",
+		strings.NewReader(`{"search":"","replace":"bar","scope":{}}`))
+	req.Header.Set("Content-Type", "application/json")
+	ah.APIScopedSearchReplacePreview(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rr.Code)
+	}
+}
+
+func TestAPIScopedSearchReplacePreview_WithScope(t *testing.T) {
+	ah, db, cleanup := newTestAPIHandler(t)
+	defer cleanup()
+
+	tmplID := seedTemplate(t, db, "Page", "page-scoped")
+	_ = seedContent(t, db, tmplID, "Scoped Replace Page", "scoped-replace", "/scoped-replace")
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/scoped-search-replace/preview",
+		strings.NewReader(`{"search":"Scoped","replace":"Changed","scope":{"folder_path":"/"}}`))
+	req.Header.Set("Content-Type", "application/json")
+	ah.APIScopedSearchReplacePreview(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestAPIScopedSearchReplacePreview_ValidRequest(t *testing.T) {
+	ah, db, cleanup := newTestAPIHandler(t)
+	defer cleanup()
+
+	tmplID := seedTemplate(t, db, "Page", "page-scoped2")
+	id := seedContent(t, db, tmplID, "Scoped Replace Page 2", "scoped-replace2", "/scoped-replace2")
+
+	payload := `{"search":"Scoped","replace":"Changed","scope":{"content_ids":["` + id.Hex() + `"]}}`
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/scoped-search-replace/preview",
+		strings.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	ah.APIScopedSearchReplacePreview(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+}
+
+// ---------------------------------------------------------------------------
+// APIScopedSearchReplaceExecute
+// ---------------------------------------------------------------------------
+
+func TestAPIScopedSearchReplaceExecute_EmptySearch(t *testing.T) {
+	ah, _, cleanup := newTestAPIHandler(t)
+	defer cleanup()
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/scoped-search-replace/execute",
+		strings.NewReader(`{"search":"","replace":"bar","content_ids":["` + primitive.NewObjectID().Hex() + `"]}`))
+	req.Header.Set("Content-Type", "application/json")
+	ah.APIScopedSearchReplaceExecute(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rr.Code)
+	}
+}
+
+func TestAPIScopedSearchReplaceExecute_ValidRequest(t *testing.T) {
+	ah, db, cleanup := newTestAPIHandler(t)
+	defer cleanup()
+
+	tmplID := seedTemplate(t, db, "Page", "page-scoped-ex")
+	id := seedContent(t, db, tmplID, "Scoped Execute Replace", "scoped-execute", "/scoped-execute")
+
+	payload := `{"search":"Scoped Execute","replace":"Done","scope":{"content_ids":["` + id.Hex() + `"]},"dry_run":true}`
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/scoped-search-replace/execute",
+		strings.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	ah.APIScopedSearchReplaceExecute(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+}
+
+// ---------------------------------------------------------------------------
+// APIBulkFieldOperation
+// ---------------------------------------------------------------------------
+
+func TestAPIBulkFieldOperation_EmptyUpdates(t *testing.T) {
+	ah, _, cleanup := newTestAPIHandler(t)
+	defer cleanup()
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/bulk-field",
+		strings.NewReader(`{"operation":"","field":"body"}`))
+	req.Header.Set("Content-Type", "application/json")
+	ah.APIBulkFieldOperation(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestAPIBulkFieldOperation_InvalidBody(t *testing.T) {
+	ah, _, cleanup := newTestAPIHandler(t)
+	defer cleanup()
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/bulk-field",
+		strings.NewReader(`not-json`))
+	req.Header.Set("Content-Type", "application/json")
+	ah.APIBulkFieldOperation(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rr.Code)
+	}
+}
+
+func TestAPIBulkFieldOperation_ValidOperation(t *testing.T) {
+	ah, db, cleanup := newTestAPIHandler(t)
+	defer cleanup()
+
+	tmplID := seedTemplate(t, db, "Page", "page-bfo")
+	id := seedContent(t, db, tmplID, "BFO Page", "bfo-page", "/bfo-page")
+
+	payload := `{"operation":"set","field":"body","value":"Updated body","scope":{"content_ids":["` + id.Hex() + `"]}}`
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/bulk-field",
+		strings.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
+	ah.APIBulkFieldOperation(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+}

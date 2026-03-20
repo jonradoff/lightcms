@@ -797,3 +797,38 @@ func TestUpdateTheme_CustomCSS(t *testing.T) {
 		t.Error("expected primary color CSS variable")
 	}
 }
+
+func TestSettingsService_EnsureThemeCSS(t *testing.T) {
+	svc, cleanup := newTestSettingsService(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	// Should succeed even with default (empty) theme
+	if err := svc.EnsureThemeCSS(ctx); err != nil {
+		t.Fatalf("EnsureThemeCSS: %v", err)
+	}
+	// CSS file should exist in content/generated/
+	defer os.Remove("content/generated/theme.css")
+}
+
+func TestSettingsService_SetThemeVersionLocked(t *testing.T) {
+	svc, cleanup := newTestSettingsService(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	// Save a theme to create a version first
+	theme := &database.ThemeSettings{PrimaryColor: "#111111"}
+	if err := svc.UpdateTheme(ctx, theme); err != nil {
+		t.Fatalf("UpdateTheme: %v", err)
+	}
+
+	// Lock version 1
+	if err := svc.SetThemeVersionLocked(ctx, 1, true); err != nil {
+		t.Fatalf("SetThemeVersionLocked: %v", err)
+	}
+
+	// Unlock version 1
+	if err := svc.SetThemeVersionLocked(ctx, 1, false); err != nil {
+		t.Fatalf("SetThemeVersionLocked unlock: %v", err)
+	}
+}

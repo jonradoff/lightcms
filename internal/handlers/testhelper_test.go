@@ -90,6 +90,7 @@ func testDB(t *testing.T) *database.DB {
 }
 
 // cleanupCollections removes all documents from test collections for isolation.
+// Deletes are issued in parallel to minimise Atlas round-trip overhead.
 func cleanupCollections(t *testing.T, db *database.DB) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -102,9 +103,15 @@ func cleanupCollections(t *testing.T, db *database.DB) {
 		"oauth_clients", "user_activity",
 	}
 	empty := bson.M{}
+	var wg sync.WaitGroup
 	for _, name := range collections {
-		db.Collection(name).DeleteMany(ctx, empty)
+		wg.Add(1)
+		go func(col string) {
+			defer wg.Done()
+			db.Collection(col).DeleteMany(ctx, empty)
+		}(name)
 	}
+	wg.Wait()
 }
 
 // newTestHandler returns a Handler wired to a real test DB and a cleanup function.

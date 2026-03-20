@@ -338,3 +338,53 @@ func TestUserService_ResetPassword(t *testing.T) {
 		t.Error("expected IsDefaultPassword=true after reset")
 	}
 }
+
+func TestUserService_ChangePassword_Success(t *testing.T) {
+	db, cleanup := testutil.MustConnectTestDB(t)
+	defer cleanup()
+
+	svc := NewUserService(db)
+	ctx := context.Background()
+
+	hash, _ := bcrypt.GenerateFromPassword([]byte("oldpass"), 4)
+	user, _ := svc.CreateUserWithHash(ctx, "chpw@example.com", "ChPw", models.RoleViewer, string(hash), false)
+
+	if err := svc.ChangePassword(ctx, user.ID, "oldpass", "newpass"); err != nil {
+		t.Fatalf("ChangePassword: %v", err)
+	}
+
+	// Should now authenticate with new password
+	got, _ := svc.ValidateCredentials(ctx, "chpw@example.com", "newpass")
+	if got == nil {
+		t.Fatal("expected to authenticate with new password")
+	}
+}
+
+func TestUserService_ChangePassword_WrongCurrent(t *testing.T) {
+	db, cleanup := testutil.MustConnectTestDB(t)
+	defer cleanup()
+
+	svc := NewUserService(db)
+	ctx := context.Background()
+
+	hash, _ := bcrypt.GenerateFromPassword([]byte("correct"), 4)
+	user, _ := svc.CreateUserWithHash(ctx, "chpw2@example.com", "X", models.RoleViewer, string(hash), false)
+
+	err := svc.ChangePassword(ctx, user.ID, "wrong", "newpass")
+	if err == nil {
+		t.Error("expected error for wrong current password")
+	}
+}
+
+func TestUserService_ChangePassword_NotFound(t *testing.T) {
+	db, cleanup := testutil.MustConnectTestDB(t)
+	defer cleanup()
+
+	svc := NewUserService(db)
+	ctx := context.Background()
+
+	err := svc.ChangePassword(ctx, primitive.NewObjectID(), "any", "new")
+	if err == nil {
+		t.Error("expected error for missing user")
+	}
+}

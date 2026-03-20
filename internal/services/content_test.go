@@ -1658,3 +1658,70 @@ func TestSetSearchService(t *testing.T) {
 	// Should not panic
 	svc.SetSearchService(nil)
 }
+
+func TestContentService_QueryContentForDirective_Empty(t *testing.T) {
+	svc, cleanup := newTestContentService(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	results, err := svc.QueryContentForDirective(ctx, map[string]string{}, "title", "asc")
+	if err != nil {
+		t.Fatalf("QueryContentForDirective: %v", err)
+	}
+	// No published content, should return empty
+	if len(results) != 0 {
+		t.Errorf("expected 0 results, got %d", len(results))
+	}
+}
+
+func TestContentService_QueryContentForDirective_WithFilter(t *testing.T) {
+	svc, cleanup := newTestContentService(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	tmplID := createTestTemplate(t, svc)
+	// Seed published content
+	content := &models.Content{
+		TemplateID:   tmplID,
+		TemplateName: "Test Template",
+		Title:        "Blog Post A",
+		Slug:         "blog-post-a",
+		FullPath:     "/blog/blog-post-a",
+		Published:    true,
+		Category:     "blog",
+		Data:         map[string]interface{}{"content": "hello"},
+	}
+	svc.CreateContent(ctx, content, "admin")
+
+	results, err := svc.QueryContentForDirective(ctx, map[string]string{"category": "blog"}, "title", "asc")
+	if err != nil {
+		t.Fatalf("QueryContentForDirective with filter: %v", err)
+	}
+	if len(results) == 0 {
+		t.Error("expected at least one result")
+	}
+}
+
+func TestContentService_QueryContentForDirective_SortByPublishedAt(t *testing.T) {
+	svc, cleanup := newTestContentService(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	tmplID := createTestTemplate(t, svc)
+	content := &models.Content{
+		TemplateID:   tmplID,
+		TemplateName: "Test Template",
+		Title:        "Sort Test",
+		Slug:         "sort-test-pat",
+		FullPath:     "/sort-test-pat",
+		Published:    true,
+		Data:         map[string]interface{}{"content": "hello"},
+	}
+	svc.CreateContent(ctx, content, "admin")
+
+	// Sort by published_at desc should not panic
+	_, err := svc.QueryContentForDirective(ctx, map[string]string{}, "published_at", "desc")
+	if err != nil {
+		t.Fatalf("QueryContentForDirective sort by published_at: %v", err)
+	}
+}
