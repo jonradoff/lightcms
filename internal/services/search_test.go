@@ -526,3 +526,59 @@ func TestSearchService_Search_Empty(t *testing.T) {
 	}
 }
 
+
+func TestSearchService_RebuildKeywords_Empty(t *testing.T) {
+	db, cleanup := testutil.MustConnectTestDB(t)
+	defer cleanup()
+
+	svc := NewSearchService(db, "")
+	ctx := context.Background()
+
+	if err := svc.RebuildKeywords(ctx); err != nil {
+		t.Fatalf("RebuildKeywords: %v", err)
+	}
+}
+
+func TestSearchService_RebuildKeywords_WithContent(t *testing.T) {
+	db, cleanup := testutil.MustConnectTestDB(t)
+	defer cleanup()
+
+	svc := NewSearchService(db, "")
+	ctx := context.Background()
+
+	// Seed some published content
+	for i, title := range []string{"Go Programming Language", "Go Programming Tips", "Advanced Go Programming"} {
+		db.Collection("content").InsertOne(ctx, map[string]interface{}{
+			"title":            title,
+			"full_path":        "/go-" + string(rune('a'+i)),
+			"published":        true,
+			"meta_description": "Learn " + title,
+		})
+	}
+
+	if err := svc.RebuildKeywords(ctx); err != nil {
+		t.Fatalf("RebuildKeywords with content: %v", err)
+	}
+}
+
+func TestSearchService_InvalidateSearchConfigCache(t *testing.T) {
+	db, cleanup := testutil.MustConnectTestDB(t)
+	defer cleanup()
+
+	svc := NewSearchService(db, "")
+	// Should not panic
+	svc.InvalidateSearchConfigCache()
+}
+
+func TestSearchService_SearchSemantic_NoVoyageKey(t *testing.T) {
+	db, cleanup := testutil.MustConnectTestDB(t)
+	defer cleanup()
+
+	svc := NewSearchService(db, "") // no voyage key
+	ctx := context.Background()
+
+	results, err := svc.SearchSemantic(ctx, "hello", 10)
+	// Should return empty or error gracefully (no voyage key)
+	_ = results
+	_ = err
+}

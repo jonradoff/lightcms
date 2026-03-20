@@ -1725,3 +1725,135 @@ func TestContentService_QueryContentForDirective_SortByPublishedAt(t *testing.T)
 		t.Fatalf("QueryContentForDirective sort by published_at: %v", err)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// GenerateStaticPage with lc:query directive (triggers processQueryDirectives,
+// buildWikilinkIndex, and related functions)
+// ---------------------------------------------------------------------------
+
+func TestContentService_GenerateStaticPage_WithQueryDirective(t *testing.T) {
+	db, cleanup := testutil.MustConnectTestDB(t)
+	defer cleanup()
+	svc := NewContentService(db)
+	ctx := context.Background()
+
+	// Create a template with an lc:query directive
+	tmpl := models.Template{
+		Name:       "Index Template",
+		Slug:       "index-tmpl",
+		Fields:     []models.TemplateField{},
+		HTMLLayout: `<div><!-- lc:query category="news" sort="title:asc" --></div>`,
+	}
+	tmplID, _ := svc.db.InsertOne(ctx, "templates", tmpl)
+
+	content := &models.Content{
+		TemplateID:   tmplID,
+		TemplateName: "Index Template",
+		Title:        "Query Page",
+		Slug:         "query-page",
+		FullPath:     "/query-page",
+		Published:    true,
+		Data:         map[string]interface{}{},
+	}
+	if err := svc.CreateContent(ctx, content, "admin"); err != nil {
+		t.Fatalf("CreateContent: %v", err)
+	}
+
+	// GenerateStaticPage processes lc:query directives
+	if err := svc.GenerateStaticPage(ctx, content); err != nil {
+		t.Fatalf("GenerateStaticPage with lc:query: %v", err)
+	}
+}
+
+func TestContentService_GenerateStaticPage_WithWikilinks(t *testing.T) {
+	db, cleanup := testutil.MustConnectTestDB(t)
+	defer cleanup()
+	svc := NewContentService(db)
+	ctx := context.Background()
+
+	// Create template with a wikilink placeholder
+	tmpl := models.Template{
+		Name:       "Wiki Template",
+		Slug:       "wiki-tmpl",
+		Fields:     []models.TemplateField{{Name: "body", Label: "Body", Type: "richtext"}},
+		HTMLLayout: `<div>{{.body}}</div>`,
+	}
+	tmplID, _ := svc.db.InsertOne(ctx, "templates", tmpl)
+
+	content := &models.Content{
+		TemplateID:   tmplID,
+		TemplateName: "Wiki Template",
+		Title:        "Wiki Page",
+		Slug:         "wiki-page",
+		FullPath:     "/wiki-page",
+		Published:    true,
+		Data:         map[string]interface{}{"body": "See [[Home Page]] for details."},
+	}
+	if err := svc.CreateContent(ctx, content, "admin"); err != nil {
+		t.Fatalf("CreateContent: %v", err)
+	}
+
+	if err := svc.GenerateStaticPage(ctx, content); err != nil {
+		t.Fatalf("GenerateStaticPage with wikilinks: %v", err)
+	}
+}
+
+func TestContentService_GenerateStaticPage_AdminOnlyPolicy(t *testing.T) {
+	db, cleanup := testutil.MustConnectTestDB(t)
+	defer cleanup()
+	svc := NewContentService(db)
+	ctx := context.Background()
+
+	// Set admin_only markdown script policy
+	db.Collection("settings").InsertOne(ctx, map[string]interface{}{
+		"type":                    "site_config",
+		"markdown_script_policy": "admin_only",
+	})
+
+	tmpl := models.Template{
+		Name:       "Markdown Policy Template",
+		Slug:       "mdpolicy-tmpl",
+		Fields:     []models.TemplateField{{Name: "body", Label: "Body", Type: "markdown"}},
+		HTMLLayout: `<div>{{.body}}</div>`,
+	}
+	tmplID, _ := svc.db.InsertOne(ctx, "templates", tmpl)
+
+	content := &models.Content{
+		TemplateID:   tmplID,
+		TemplateName: "Markdown Policy Template",
+		Title:        "MD Policy Page",
+		Slug:         "md-policy-page",
+		FullPath:     "/md-policy-page",
+		Published:    true,
+		Data:         map[string]interface{}{"body": "## Hello\n\n<script>alert(1)</script>"},
+	}
+	if err := svc.CreateContent(ctx, content, "admin"); err != nil {
+		t.Fatalf("CreateContent: %v", err)
+	}
+
+	// Should succeed — triggers getContentAuthorRole (no version → "admin")
+	if err := svc.GenerateStaticPage(ctx, content); err != nil {
+		t.Fatalf("GenerateStaticPage admin_only policy: %v", err)
+	}
+}
+
+func TestRenderSnippet_Valid(t *testing.T) {
+	item := models.Content{
+		Title:    "My Page",
+		FullPath: "/my-page",
+	}
+	html, err := renderSnippet(`<a href="{{.FullPath}}">{{.Title}}</a>`, item)
+	if err != nil {
+		t.Fatalf("renderSnippet: %v", err)
+	}
+	if !strings.Contains(html, "/my-page") {
+		t.Fatalf("expected /my-page in output: %s", html)
+	}
+}
+
+func TestRenderSnippet_InvalidTemplate(t *testing.T) {
+	_, err := renderSnippet(`{{.Missing`, models.Content{})
+	if err == nil {
+		t.Error("expected error for invalid template")
+	}
+}
