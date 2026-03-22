@@ -354,24 +354,12 @@ Template fields support types: text, textarea, richtext, date, image, select
 
 Deployed to Fly.io (`metavert-cms` app, machine `d890122a371528`). Uses environment variables for configuration. Health check at `/health`.
 
-**⚠️ Do NOT use `fly deploy` directly** — the app uses a non-Launch machine and `fly deploy` creates a stuck "Fly Launch" machine instead of updating the running one.
-
-**Correct deploy procedure:**
+**Deploy procedure:**
 ```bash
-# 1. Build and push the image (let it fail at the machine-creation step — that's fine)
 fly deploy --app metavert-cms
-# (will error: "Your app doesn't have any Fly Launch machines" — ignore)
-
-# 2. Grab the new image tag from the output or:
-fly image show --app metavert-cms
-
-# 3. Apply it to the running machine
-fly machine update d890122a371528 --image registry.fly.io/metavert-cms:<deployment-tag> --app metavert-cms --yes
-
-# 4. Destroy the stuck Fly Launch machine if one was created
-fly machines list --app metavert-cms  # find the "created" state machine
-fly machine destroy <stuck-machine-id> --app metavert-cms --force
 ```
+
+`fly.toml` uses `strategy = "immediate"` to avoid stuck machines (the app has a single volume, so rolling deploy would try to start a new machine before stopping the old one, creating a volume conflict and leaving the new machine stuck in "created" state).
 
 ## Testing Locally
 

@@ -1,6 +1,9 @@
 app = 'metavert-cms'
 primary_region = 'ord'
 
+[deploy]
+  strategy = "immediate"
+
 [build]
 
 [env]
