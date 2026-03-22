@@ -4,6 +4,14 @@ All notable changes to LightCMS are documented here, organized by version.
 
 ---
 
+## v4.1.0 — Bug Fixes
+
+### Bug Fixes
+
+- **Redirect deletion now takes effect immediately** — Redirects were served with `Cache-Control: max-age=3600`, causing browsers to cache redirect responses for up to an hour. Deleting a redirect had no effect until the browser cache expired. Changed to `Cache-Control: no-store` so browsers never cache redirects and always re-check with the server.
+
+---
+
 ## v4.0.0 — Content Forks
 
 This release adds fork workspaces for safe page experimentation, plus bulk operation resilience improvements and content search refinements.

@@ -3281,9 +3281,8 @@ func (h *Handler) ServePage(w http.ResponseWriter, r *http.Request) {
 		if statusCode == 0 {
 			statusCode = 301
 		}
-		// Add cache-control to limit browser caching of redirects
-		// This helps when redirects are later deleted
-		w.Header().Set("Cache-Control", "max-age=3600, must-revalidate")
+		// Do not cache redirects — they may be deleted or changed at any time
+		w.Header().Set("Cache-Control", "no-store")
 		http.Redirect(w, r, redirect.ToPath, statusCode)
 		return
 	}
