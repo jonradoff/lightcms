@@ -23,6 +23,9 @@ config.prod.json
 # Registry tokens (contain auth secrets)
 .mcpregistry_*
 
+# Deploy script (local only, not for distribution)
+deploy.sh
+
 # IDE
 .idea/
 .vscode/

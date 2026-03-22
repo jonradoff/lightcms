@@ -354,12 +354,12 @@ Template fields support types: text, textarea, richtext, date, image, select
 
 Deployed to Fly.io (`metavert-cms` app, machine `d890122a371528`). Uses environment variables for configuration. Health check at `/health`.
 
-**Deploy procedure:**
+**Deploy procedure — always use the deploy script:**
 ```bash
-fly deploy --app metavert-cms
+./deploy.sh
 ```
 
-`fly.toml` uses `strategy = "immediate"` to avoid stuck machines (the app has a single volume, so rolling deploy would try to start a new machine before stopping the old one, creating a volume conflict and leaving the new machine stuck in "created" state).
+The script runs a build check, deploys via `fly deploy --app metavert-cms`, and polls `/health` until the server is ready. `deploy.sh` is gitignored (local only). `fly.toml` uses `strategy = "immediate"` to avoid stuck machines (the app has a single volume — rolling deploy would try to start a new machine before stopping the old one, creating a volume conflict).
 
 ## Testing Locally
 
