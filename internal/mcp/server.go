@@ -114,7 +114,7 @@ func ServerCard(baseURL string) ([]byte, error) {
 	card := map[string]interface{}{
 		"serverInfo": map[string]string{
 			"name":    "LightCMS",
-			"version": "1.3.0",
+			"version": "4.0.0",
 		},
 		"endpoint":  "/mcp",
 		"transport": []string{"streamable-http", "stdio"},

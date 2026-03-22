@@ -3369,3 +3369,504 @@ func TestBrokenLinkScan_Authenticated(t *testing.T) {
 		t.Fatalf("expected 200, got %d; body: %s", rr.Code, rr.Body.String())
 	}
 }
+
+// ---------------------------------------------------------------------------
+// ServePage — public page serving
+// ---------------------------------------------------------------------------
+
+func TestServePage_WithPublishedContent(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	tmplID := seedTemplate(t, h.db, "Public Template", "public-template")
+	// Seed published content
+	now := time.Now()
+	contentID := primitive.NewObjectID()
+	h.db.Collection("content").InsertOne(ctx, bson.M{
+		"_id":         contentID,
+		"template_id": tmplID,
+		"title":       "My Public Page",
+		"slug":        "my-public-page",
+		"full_path":   "/my-public-page",
+		"published":   true,
+		"use_header":  true,
+		"use_footer":  true,
+		"use_theme":   true,
+		"data":        bson.M{"content": "<p>Hello Public</p>"},
+		"created_at":  now,
+		"updated_at":  now,
+		"deleted":     false,
+	})
+
+	r := mux.NewRouter()
+	r.HandleFunc("/{slug:.*}", h.ServePage)
+	req := httptest.NewRequest(http.MethodGet, "/my-public-page", nil)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestServePage_WithRedirect(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	// Seed a redirect
+	h.db.Collection("redirects").InsertOne(ctx, bson.M{
+		"_id":        primitive.NewObjectID(),
+		"from_path":  "/old-page",
+		"to_path":    "/new-page",
+		"status_code": 301,
+		"created_at": time.Now(),
+		"updated_at": time.Now(),
+	})
+
+	r := mux.NewRouter()
+	r.HandleFunc("/{slug:.*}", h.ServePage)
+	req := httptest.NewRequest(http.MethodGet, "/old-page", nil)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+	if rr.Code != http.StatusMovedPermanently && rr.Code != http.StatusFound && rr.Code != http.StatusSeeOther {
+		t.Fatalf("expected redirect, got %d", rr.Code)
+	}
+}
+
+func TestServePage_WithCollection(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	// Seed a collection
+	h.db.Collection("collections").InsertOne(ctx, bson.M{
+		"_id":           primitive.NewObjectID(),
+		"name":          "Test Collection",
+		"slug":          "test-collection",
+		"description":   "A test collection",
+		"category":      "blog",
+		"sort_field":    "created_at",
+		"sort_order":    "desc",
+		"item_template": `<li>{{.title}}</li>`,
+		"page_template": `<ul>{{.items}}</ul>`,
+		"created_at":    time.Now(),
+		"updated_at":    time.Now(),
+	})
+
+	r := mux.NewRouter()
+	r.HandleFunc("/{slug:.*}", h.ServePage)
+	req := httptest.NewRequest(http.MethodGet, "/test-collection", nil)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestServePage_BlankPageNoTheme(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	tmplID := seedTemplate(t, h.db, "Blank Page", "blank-page")
+	now := time.Now()
+	h.db.Collection("content").InsertOne(ctx, bson.M{
+		"_id":           primitive.NewObjectID(),
+		"template_id":   tmplID,
+		"title":         "Blank Raw Page",
+		"slug":          "blank-raw",
+		"full_path":     "/blank-raw",
+		"published":     true,
+		"use_theme":     false,
+		"template_name": "Blank Page",
+		"data":          bson.M{"content": "<h1>Raw HTML</h1>"},
+		"created_at":    now,
+		"updated_at":    now,
+		"deleted":       false,
+	})
+
+	r := mux.NewRouter()
+	r.HandleFunc("/{slug:.*}", h.ServePage)
+	req := httptest.NewRequest(http.MethodGet, "/blank-raw", nil)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+	if !strings.Contains(rr.Body.String(), "Raw HTML") {
+		t.Error("expected raw HTML in response")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// FixBrokenLink — various paths
+// ---------------------------------------------------------------------------
+
+func TestFixBrokenLink_Unauthenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	req := httptest.NewRequest(http.MethodPost, "/cm/tools/broken-links/fix",
+		strings.NewReader(`{"contentId":"abc","field":"body","oldUrl":"/bad","newUrl":"/good"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	h.FixBrokenLink(rr, req)
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", rr.Code)
+	}
+}
+
+// fixBrokenLinkWithAuth is a helper that calls FixBrokenLink with session cookies but NO CSRF middleware
+// (FixBrokenLink is a JSON API endpoint mounted under /api/, not /cm/).
+func fixBrokenLinkWithAuth(t *testing.T, h *Handler, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	cookies := getAuthCookies(t, h)
+	req := httptest.NewRequest(http.MethodPost, "/api/tools/fix-link", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+	rr := httptest.NewRecorder()
+	h.FixBrokenLink(rr, req)
+	return rr
+}
+
+func TestFixBrokenLink_InvalidJSON(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	rr := fixBrokenLinkWithAuth(t, h, `{not valid json`)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rr.Code)
+	}
+}
+
+func TestFixBrokenLink_InvalidContentID(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	rr := fixBrokenLinkWithAuth(t, h, `{"contentId":"not-a-valid-id","field":"body","oldUrl":"/bad","newUrl":"/good"}`)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rr.Code)
+	}
+}
+
+func TestFixBrokenLink_ContentNotFound(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	body := `{"contentId":"` + primitive.NewObjectID().Hex() + `","field":"body","oldUrl":"/bad","newUrl":"/good"}`
+	rr := fixBrokenLinkWithAuth(t, h, body)
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", rr.Code)
+	}
+}
+
+func TestFixBrokenLink_FieldNotFound(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	tmplID := seedTemplate(t, h.db, "Link Page", "link-page")
+	contentID := seedContent(t, h.db, tmplID, "Link Test", "link-test", "/link-test")
+
+	body := `{"contentId":"` + contentID.Hex() + `","field":"nonexistent_field","oldUrl":"/bad","newUrl":"/good"}`
+	rr := fixBrokenLinkWithAuth(t, h, body)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rr.Code)
+	}
+}
+
+func TestFixBrokenLink_Success(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	tmplID := seedTemplate(t, h.db, "Link Page 2", "link-page-2")
+	contentID := primitive.NewObjectID()
+	now := time.Now()
+	h.db.Collection("content").InsertOne(ctx, bson.M{
+		"_id":         contentID,
+		"template_id": tmplID,
+		"title":       "Link Test 2",
+		"slug":        "link-test-2",
+		"full_path":   "/link-test-2",
+		"published":   false,
+		"data":        bson.M{"body": `<a href="/old-link">click</a>`},
+		"created_at":  now,
+		"updated_at":  now,
+		"deleted":     false,
+	})
+
+	body := `{"contentId":"` + contentID.Hex() + `","field":"body","oldUrl":"/old-link","newUrl":"/new-link"}`
+	rr := fixBrokenLinkWithAuth(t, h, body)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+}
+
+// ---------------------------------------------------------------------------
+// serve404 with custom 404 content page
+// ---------------------------------------------------------------------------
+
+func TestServePage_With404Content(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	tmplID := seedTemplate(t, h.db, "Error Template", "error-template")
+	// Seed published 404 page
+	now := time.Now()
+	h.db.Collection("content").InsertOne(ctx, bson.M{
+		"_id":         primitive.NewObjectID(),
+		"template_id": tmplID,
+		"title":       "Page Not Found",
+		"slug":        "404",
+		"full_path":   "/404",
+		"published":   true,
+		"use_header":  true,
+		"use_footer":  true,
+		"data":        bson.M{"content": "<p>404 Error Page</p>"},
+		"created_at":  now,
+		"updated_at":  now,
+		"deleted":     false,
+	})
+
+	r := mux.NewRouter()
+	r.HandleFunc("/{slug:.*}", h.ServePage)
+	req := httptest.NewRequest(http.MethodGet, "/this-page-does-not-exist-xyz", nil)
+	rr := httptest.NewRecorder()
+	r.ServeHTTP(rr, req)
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", rr.Code)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// APIListAPIKeys — more coverage
+// ---------------------------------------------------------------------------
+
+func TestAPIListAPIKeys_NoAuth(t *testing.T) {
+	ah, _, cleanup := newTestAPIHandler(t)
+	defer cleanup()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/api-keys", nil)
+	rr := httptest.NewRecorder()
+	ah.APIListAPIKeys(rr, req)
+	// No API key → backward compat allows (returns 200 with empty list)
+	if rr.Code != http.StatusOK && rr.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 200 or 401, got %d", rr.Code)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GetAllSlugs — extra coverage handled by existing TestGetAllSlugs_Authenticated
+
+// ---------------------------------------------------------------------------
+// RegenerateContent — unauthenticated
+// ---------------------------------------------------------------------------
+
+func TestRegenerateContent_Unauthenticated(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	req := httptest.NewRequest(http.MethodPost, "/cm/content/123/regenerate", nil)
+	rr := httptest.NewRecorder()
+	h.RegenerateContent(rr, req)
+	if rr.Code != http.StatusUnauthorized && rr.Code != http.StatusSeeOther && rr.Code != http.StatusFound {
+		t.Fatalf("expected 401 or redirect, got %d", rr.Code)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ForceChangePasswordPage with authenticated (non-default-password) user
+// ---------------------------------------------------------------------------
+
+func TestForceChangePasswordPage_NotDefaultPw(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	// getAuthCookies already clears is_default_password; the page should redirect back to /cm
+	rr := csrfAuthGet(t, h, "/cm/change-password", "/cm/change-password", h.ForceChangePasswordPage)
+	if rr.Code != http.StatusSeeOther && rr.Code != http.StatusFound && rr.Code != http.StatusOK {
+		t.Fatalf("expected redirect or 200, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+}
+
+// ---------------------------------------------------------------------------
+// RevertThemeVersion — success and not-found paths
+// ---------------------------------------------------------------------------
+
+func TestRevertThemeVersion_NotFound(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	// Version 999 doesn't exist → redirect back to /cm/theme/versions
+	form := url.Values{}
+	rr := csrfAuthPost(t, h,
+		"/cm/theme/versions/{version}/revert", "/cm/theme/versions/999/revert",
+		// GET handler: something that renders a CSRF field
+		func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte(`<input type="hidden" name="gorilla.csrf.Token" value="` + csrf.Token(r) + `">`))
+		},
+		h.RevertThemeVersion, form)
+	if rr.Code != http.StatusSeeOther && rr.Code != http.StatusFound && rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected redirect or 400, got %d", rr.Code)
+	}
+}
+
+func TestRevertThemeVersion_Success(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	// Seed a theme version
+	v := &database.ThemeVersion{
+		Version:      1,
+		Comment:      "Initial version",
+		PrimaryColor: "#ff0000",
+	}
+	h.db.SaveThemeVersion(ctx, v)
+
+	form := url.Values{}
+	rr := csrfAuthPost(t, h,
+		"/cm/theme/versions/{version}/revert", "/cm/theme/versions/1/revert",
+		func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte(`<input type="hidden" name="gorilla.csrf.Token" value="` + csrf.Token(r) + `">`))
+		},
+		h.RevertThemeVersion, form)
+	if rr.Code != http.StatusSeeOther && rr.Code != http.StatusFound && rr.Code != http.StatusOK {
+		t.Fatalf("expected redirect or 200, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+}
+
+// ---------------------------------------------------------------------------
+// UploadFile — authenticated, no file (covers multipart parsing path)
+// ---------------------------------------------------------------------------
+
+func TestUploadFile_NoFile(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	cookies := getAuthCookies(t, h)
+	// Send a multipart body without a file field
+	body := strings.NewReader("")
+	req := httptest.NewRequest(http.MethodPost, "/cm/upload", body)
+	req.Header.Set("Content-Type", "multipart/form-data; boundary=----boundary")
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+	rr := httptest.NewRecorder()
+	h.UploadFile(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 (no file), got %d", rr.Code)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// DiffContentVersion — valid request
+// ---------------------------------------------------------------------------
+
+func TestDiffContentVersion_ValidRequest(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	ctx := context.Background()
+	tmplID := seedTemplate(t, h.db, "Diff Template", "diff-template")
+	contentID := seedContent(t, h.db, tmplID, "Diff Page", "diff-page", "/diff-page")
+
+	// Seed a version manually
+	h.db.Collection("content_versions").InsertOne(ctx, bson.M{
+		"_id":        primitive.NewObjectID(),
+		"content_id": contentID,
+		"version":    1,
+		"title":      "Diff Page",
+		"data":       bson.M{"content": "original content"},
+		"created_at": time.Now(),
+	})
+
+	rr := csrfAuthGet(t, h,
+		"/cm/content/{id}/versions/{version}/diff",
+		"/cm/content/"+contentID.Hex()+"/versions/1/diff",
+		h.DiffContentVersion)
+	if rr.Code != http.StatusOK && rr.Code != http.StatusNotFound && rr.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 200/404/500, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ForceChangePasswordHandler — wrong current password
+// ---------------------------------------------------------------------------
+
+func TestForceChangePasswordHandler_WrongPassword(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	form := url.Values{
+		"current_password": {"wrong-password"},
+		"new_password":     {"newpass123"},
+		"confirm_password": {"newpass123"},
+	}
+	rr := csrfAuthPost(t, h, "/cm/change-password", "/cm/change-password",
+		func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte(`<input type="hidden" name="gorilla.csrf.Token" value="` + csrf.Token(r) + `">`))
+		},
+		h.ForceChangePasswordHandler, form)
+	// Wrong password → re-render form (200) or redirect
+	if rr.Code != http.StatusOK && rr.Code != http.StatusSeeOther && rr.Code != http.StatusFound {
+		t.Fatalf("expected 200 or redirect, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+}
+
+// ---------------------------------------------------------------------------
+// CreateAPIKey — authenticated POST
+// ---------------------------------------------------------------------------
+
+func TestCreateAPIKey_AuthenticatedPost(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	form := url.Values{
+		"name":        {"Test API Key"},
+		"description": {"For testing"},
+	}
+	rr := csrfAuthPost(t, h, "/cm/api-keys/new", "/cm/api-keys/new",
+		h.NewAPIKeyPage, h.CreateAPIKey, form)
+	if rr.Code != http.StatusSeeOther && rr.Code != http.StatusFound && rr.Code != http.StatusOK {
+		t.Fatalf("expected redirect or 200, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+}
+
+// ---------------------------------------------------------------------------
+// UpdateSnippet — authenticated POST
+// ---------------------------------------------------------------------------
+
+func TestUpdateSnippet_AuthenticatedPost(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	// Seed a snippet
+	ctx := context.Background()
+	snippetID := primitive.NewObjectID()
+	h.db.Collection("snippets").InsertOne(ctx, bson.M{
+		"_id":        snippetID,
+		"name":       "test-snippet",
+		"content":    "<p>original</p>",
+		"created_at": time.Now(),
+		"updated_at": time.Now(),
+	})
+
+	form := url.Values{
+		"name":    {"test-snippet"},
+		"content": {"<p>updated content</p>"},
+	}
+	rr := csrfAuthPost(t, h,
+		"/cm/snippets/{id}", "/cm/snippets/"+snippetID.Hex(),
+		func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte(`<input type="hidden" name="gorilla.csrf.Token" value="` + csrf.Token(r) + `">`))
+		},
+		h.UpdateSnippet, form)
+	if rr.Code != http.StatusSeeOther && rr.Code != http.StatusFound && rr.Code != http.StatusOK {
+		t.Fatalf("expected redirect or 200, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+}

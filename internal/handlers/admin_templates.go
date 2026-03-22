@@ -136,13 +136,6 @@ var adminTemplates = map[string]string{
                     </div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-icon">📁</div>
-                    <div class="stat-info">
-                        <span class="stat-value">{{.CollectionCount}}</span>
-                        <span class="stat-label">Collections</span>
-                    </div>
-                </div>
-                <div class="stat-card">
                     <div class="stat-icon">👤</div>
                     <div class="stat-info">
                         <span class="stat-value">{{.DAU}}</span>
@@ -430,6 +423,10 @@ var adminTemplates = map[string]string{
                             <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
                                 <input type="radio" name="search-type" value="name" checked style="accent-color: var(--primary);" onchange="updateSearchMode()">
                                 <span>Title only</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                                <input type="radio" name="search-type" value="slug" style="accent-color: var(--primary);" onchange="updateSearchMode()">
+                                <span>Slug</span>
                             </label>
                             <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
                                 <input type="radio" name="search-type" value="fulltext" style="accent-color: var(--primary);" onchange="updateSearchMode()">
@@ -1495,6 +1492,9 @@ var adminTemplates = map[string]string{
 
             <div class="form-actions">
                 <a href="/cm/content" class="btn btn-outline">Cancel</a>
+                {{if .ForkPageID}}
+                <a href="/cm/forks?fork_page={{.ForkPageID}}" class="btn btn-outline" title="Copy this page into a fork workspace for staged editing">🌿 Fork to workspace</a>
+                {{end}}
                 <button type="submit" class="btn btn-primary">{{if .IsNew}}Create{{else}}Update{{end}}</button>
             </div>
         </form>
@@ -5828,6 +5828,232 @@ async function doSearch(q) {
             </div>
         </form>
     ` + adminLayoutEnd,
+
+	"forks_list": adminLayoutStart + `
+        <div class="page-header">
+            <h1>Content Forks</h1>
+            <a href="/cm/forks/new" class="btn btn-primary">+ New Fork</a>
+        </div>
+        <p class="help-text" style="margin-bottom:1.5rem;">Forks are isolated workspaces where you can draft changes to multiple pages and preview them before merging into the live site. Editors can create and work in forks; only admins can merge.</p>
+        {{if .ForkPageID}}
+        <div class="alert alert-info" style="margin-bottom:1.5rem;background:rgba(99,102,241,0.15);border:1px solid rgba(99,102,241,0.3);padding:1rem;border-radius:var(--radius)">
+            <strong>Select a fork</strong> to add this page to, or <a href="/cm/forks/new">create a new fork</a>.
+        </div>
+        {{end}}
+        {{if .Forks}}
+        <div class="table-container">
+            <table class="table">
+                <thead><tr>
+                    <th>Name</th>
+                    <th>Description</th>
+                    <th>Pages</th>
+                    <th>Status</th>
+                    <th>Created By</th>
+                    <th>Created</th>
+                    <th>Actions</th>
+                </tr></thead>
+                <tbody>
+                {{range .Forks}}
+                <tr>
+                    <td><a href="/cm/forks/{{.ID.Hex}}">{{.Name}}</a></td>
+                    <td style="color:var(--text-muted)">{{.Description}}</td>
+                    <td>{{.PageCount}}</td>
+                    <td><span class="badge badge-{{if eq .Status "active"}}success{{else if eq .Status "merged"}}info{{else}}warning{{end}}">{{.Status}}</span></td>
+                    <td style="color:var(--text-muted);font-size:0.85rem">{{.CreatedByEmail}}</td>
+                    <td style="color:var(--text-muted);font-size:0.85rem">{{.CreatedAt.Format "Jan 2, 2006"}}</td>
+                    <td>
+                        <a href="/cm/forks/{{.ID.Hex}}" class="btn btn-sm btn-outline">View</a>
+                        {{if eq .Status "active"}}
+                        <a href="/cm/forks/{{.ID.Hex}}/preview" class="btn btn-sm">👁 Preview</a>
+                        {{if $.ForkPageID}}
+                        <form method="POST" action="/cm/forks/{{.ID.Hex}}/fork-page" style="display:inline">
+                            {{$.CSRFField}}
+                            <input type="hidden" name="content_id" value="{{$.ForkPageID}}">
+                            <button type="submit" class="btn btn-sm btn-primary">+ Add to this fork</button>
+                        </form>
+                        {{end}}
+                        {{end}}
+                    </td>
+                </tr>
+                {{end}}
+                </tbody>
+            </table>
+        </div>
+        {{else}}
+        <div class="empty-state">
+            <p>No forks yet. Create one to start staging changes.</p>
+            <a href="/cm/forks/new" class="btn btn-primary">Create your first fork</a>
+        </div>
+        {{end}}
+    ` + adminLayoutEnd,
+
+	"fork_form": adminLayoutStart + `
+        <div class="page-header">
+            <h1>New Fork</h1>
+            <a href="/cm/forks" class="btn btn-outline">← Back</a>
+        </div>
+        {{if .Error}}<div class="alert alert-danger">{{.Error}}</div>{{end}}
+        <div class="card">
+            <form method="POST" action="/cm/forks/new">
+                {{.CSRFField}}
+                <div class="form-group">
+                    <label class="form-label">Fork Name *</label>
+                    <input type="text" name="name" class="form-control" placeholder="e.g. Q2 Redesign, Holiday Campaign" required autofocus>
+                    <span class="help-text">A short name to identify this set of changes.</span>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Description</label>
+                    <textarea name="description" class="form-control" rows="3" placeholder="Optional notes about what this fork is for"></textarea>
+                </div>
+                <div class="form-actions">
+                    <a href="/cm/forks" class="btn btn-outline">Cancel</a>
+                    <button type="submit" class="btn btn-primary">Create Fork</button>
+                </div>
+            </form>
+        </div>
+    ` + adminLayoutEnd,
+
+	"fork_detail": adminLayoutStart + `
+        <div class="page-header">
+            <div>
+                <h1>🌿 {{.Fork.Name}}</h1>
+                {{if .Fork.Description}}<p style="color:var(--text-muted);margin-top:0.25rem">{{.Fork.Description}}</p>{{end}}
+            </div>
+            <div style="display:flex;gap:0.75rem;align-items:center">
+                {{if eq .Fork.Status "active"}}
+                <a href="/cm/forks/{{.Fork.ID.Hex}}/preview" class="btn btn-secondary">👁 Start Preview</a>
+                {{if .CanMerge}}
+                <form method="POST" action="/cm/forks/{{.Fork.ID.Hex}}/merge" onsubmit="return confirm('Merge this fork into the live site? This will update all matching pages and cannot be undone.')">
+                    {{.CSRFField}}
+                    <button type="submit" class="btn btn-primary">Merge into Live →</button>
+                </form>
+                <form method="POST" action="/cm/forks/{{.Fork.ID.Hex}}/archive" style="margin:0">
+                    {{.CSRFField}}
+                    <button type="submit" class="btn btn-outline" onclick="return confirm('Archive this fork without merging?')">Archive</button>
+                </form>
+                {{end}}
+                {{end}}
+                <a href="/cm/forks" class="btn btn-outline">← All Forks</a>
+            </div>
+        </div>
+
+        <div style="display:flex;gap:1rem;margin-bottom:1.5rem;flex-wrap:wrap">
+            <div class="card" style="flex:1;min-width:160px;padding:1rem;text-align:center">
+                <div style="font-size:2rem;font-weight:700;color:var(--primary)">{{len .Pages}}</div>
+                <div style="color:var(--text-muted);font-size:0.85rem">Pages in fork</div>
+            </div>
+            <div class="card" style="flex:1;min-width:160px;padding:1rem;text-align:center">
+                <div style="font-size:1rem;font-weight:600">
+                    <span class="badge badge-{{if eq .Fork.Status "active"}}success{{else if eq .Fork.Status "merged"}}info{{else}}warning{{end}}">{{.Fork.Status}}</span>
+                </div>
+                <div style="color:var(--text-muted);font-size:0.85rem;margin-top:0.5rem">Status</div>
+            </div>
+            <div class="card" style="flex:1;min-width:160px;padding:1rem;text-align:center">
+                <div style="font-size:0.9rem;font-weight:500">{{.Fork.CreatedByEmail}}</div>
+                <div style="color:var(--text-muted);font-size:0.85rem;margin-top:0.25rem">{{.Fork.CreatedAt.Format "Jan 2, 2006"}}</div>
+                <div style="color:var(--text-muted);font-size:0.75rem">Created by</div>
+            </div>
+            {{if .Fork.MergedByEmail}}
+            <div class="card" style="flex:1;min-width:160px;padding:1rem;text-align:center">
+                <div style="font-size:0.9rem;font-weight:500">{{.Fork.MergedByEmail}}</div>
+                <div style="color:var(--text-muted);font-size:0.85rem;margin-top:0.25rem">{{.Fork.MergedAt.Format "Jan 2, 2006"}}</div>
+                <div style="color:var(--text-muted);font-size:0.75rem">Merged by</div>
+            </div>
+            {{end}}
+        </div>
+
+        <div class="page-header" style="margin-top:2rem">
+            <h2 style="font-size:1.25rem">Pages in this fork</h2>
+            {{if eq .Fork.Status "active"}}
+            <a href="/cm/content?fork={{.Fork.ID.Hex}}" class="btn btn-outline btn-sm">+ Fork a live page</a>
+            {{end}}
+        </div>
+
+        {{if .Pages}}
+        <div class="table-container">
+            <table class="table">
+                <thead><tr>
+                    <th>Page</th>
+                    <th>Path</th>
+                    <th>Template</th>
+                    <th>Last Updated</th>
+                    {{if eq .Fork.Status "active"}}<th>Actions</th>{{end}}
+                </tr></thead>
+                <tbody>
+                {{range .Pages}}
+                <tr>
+                    <td><strong>{{.Title}}</strong></td>
+                    <td style="font-family:monospace;font-size:0.85rem;color:var(--text-muted)">{{.FullPath}}</td>
+                    <td style="color:var(--text-muted);font-size:0.85rem">{{.TemplateName}}</td>
+                    <td style="color:var(--text-muted);font-size:0.85rem">{{.UpdatedAt.Format "Jan 2, 2006 15:04"}}</td>
+                    {{if eq $.Fork.Status "active"}}
+                    <td>
+                        <a href="/cm/content/{{.ID.Hex}}?fork={{$.Fork.ID.Hex}}" class="btn btn-sm btn-outline">Edit</a>
+                        <form method="POST" action="/cm/forks/{{$.Fork.ID.Hex}}/pages/{{.ID.Hex}}/remove" style="display:inline">
+                            {{$.CSRFField}}
+                            <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Remove this page from the fork?')">Remove</button>
+                        </form>
+                    </td>
+                    {{end}}
+                </tr>
+                {{end}}
+                </tbody>
+            </table>
+        </div>
+        {{else}}
+        <div class="empty-state">
+            <p>No pages in this fork yet.</p>
+            {{if eq .Fork.Status "active"}}
+            <p style="color:var(--text-muted);font-size:0.9rem">Go to <a href="/cm/content">Content</a>, open a page, and click "Fork to workspace" to add it here.</p>
+            {{end}}
+        </div>
+        {{end}}
+    ` + adminLayoutEnd,
+
+	"fork_merge_result": adminLayoutStart + `
+        <div class="page-header">
+            <h1>Merge Complete</h1>
+            <a href="/cm/forks" class="btn btn-outline">← All Forks</a>
+        </div>
+        {{if .Error}}
+        <div class="alert alert-danger">{{.Error}}</div>
+        {{else}}
+        <div class="alert alert-success" style="margin-bottom:1.5rem">
+            Fork successfully merged into the live site.
+        </div>
+        <div style="display:flex;gap:1rem;flex-wrap:wrap;margin-bottom:2rem">
+            <div class="card" style="flex:1;min-width:140px;padding:1.25rem;text-align:center">
+                <div style="font-size:2.5rem;font-weight:700;color:var(--success)">{{.Result.Updated}}</div>
+                <div style="color:var(--text-muted)">Pages updated</div>
+            </div>
+            <div class="card" style="flex:1;min-width:140px;padding:1.25rem;text-align:center">
+                <div style="font-size:2.5rem;font-weight:700;color:var(--primary)">{{.Result.Created}}</div>
+                <div style="color:var(--text-muted)">Pages created</div>
+            </div>
+            <div class="card" style="flex:1;min-width:140px;padding:1.25rem;text-align:center">
+                <div style="font-size:2.5rem;font-weight:700;color:{{if .Result.Conflicts}}#f59e0b{{else}}var(--success){{end}}">{{len .Result.Conflicts}}</div>
+                <div style="color:var(--text-muted)">Conflicts (fork won)</div>
+            </div>
+        </div>
+        {{if .Result.Conflicts}}
+        <div class="card">
+            <h3 style="margin-bottom:1rem;color:#f59e0b">⚠️ Conflicts — Fork Overwrote Live Changes</h3>
+            <p style="color:var(--text-muted);margin-bottom:1rem;font-size:0.9rem">These pages were modified on the live site after the fork was created. The fork version was applied. Review these pages to ensure nothing was lost.</p>
+            <table class="table">
+                <thead><tr><th>Page</th><th>Path</th></tr></thead>
+                <tbody>
+                {{range .Result.Conflicts}}
+                <tr>
+                    <td>{{.LiveTitle}}</td>
+                    <td style="font-family:monospace;font-size:0.85rem"><a href="{{.LivePath}}">{{.LivePath}}</a></td>
+                </tr>
+                {{end}}
+                </tbody>
+            </table>
+        </div>
+        {{end}}
+        {{end}}
+    ` + adminLayoutEnd,
 }
 
 const adminLayoutStart = `<!DOCTYPE html>
@@ -6459,6 +6685,7 @@ const adminLayoutStart = `<!DOCTYPE html>
                     <a href="/cm/snippets" class="nav-link">✂️ Snippets</a>
                     <a href="/cm/collections" class="nav-link">📁 Collections</a>
                     <a href="/cm/folders" class="nav-link">🗂️ Folders</a>
+                    <a href="/cm/forks" class="nav-link">🌿 Forks</a>
                 </div>
                 <div class="nav-section">
                     <div class="nav-section-title">Media</div>

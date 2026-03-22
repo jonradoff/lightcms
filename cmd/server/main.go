@@ -158,6 +158,10 @@ func main() {
 	defer watchCancel()
 	go contentService.WatchForChanges(watchCtx)
 
+	// Initialize fork service
+	forkService := services.NewForkService(db, contentService)
+	h.SetForkService(forkService)
+
 	// Wire search service into handlers
 	h.SetSearchService(searchService)
 	h.SetProxyConfig(proxyConfig)
@@ -292,6 +296,19 @@ func main() {
 	admin.HandleFunc("/tools/search/test", h.SearchToolTest).Methods("GET")
 	admin.HandleFunc("/tools/search/reindex", h.SearchToolReindex).Methods("POST")
 	admin.HandleFunc("/tools/search/config", h.SearchToolSaveConfig).Methods("POST")
+
+	// Content fork routes (editor+: create/preview; admin: merge/archive/delete)
+	admin.HandleFunc("/forks", h.ListForks).Methods("GET")
+	admin.HandleFunc("/forks/new", h.NewFork).Methods("GET")
+	admin.HandleFunc("/forks/new", h.CreateFork).Methods("POST")
+	admin.HandleFunc("/forks/exit-preview", h.ExitForkPreview).Methods("GET")
+	admin.HandleFunc("/forks/{id}", h.ViewFork).Methods("GET")
+	admin.HandleFunc("/forks/{id}/fork-page", h.ForkPageHandler).Methods("POST")
+	admin.HandleFunc("/forks/{id}/pages/{pageID}/remove", h.RemoveForkPage).Methods("POST")
+	admin.HandleFunc("/forks/{id}/preview", h.StartForkPreview).Methods("GET")
+	admin.HandleFunc("/forks/{id}/merge", h.MergeFork).Methods("POST")
+	admin.HandleFunc("/forks/{id}/archive", h.ArchiveFork).Methods("POST")
+	admin.HandleFunc("/forks/{id}/delete", h.DeleteForkHandler).Methods("POST")
 
 	// REST API v1 routes (API key authenticated, JSON only)
 	apiKeyService := services.NewAPIKeyService(db)

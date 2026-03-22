@@ -41,18 +41,62 @@ func EditorEmailFromContext(ctx context.Context) string {
 
 // ContentService centralizes all content operations with automatic versioning
 type ContentService struct {
-	db            *database.DB
-	searchService *SearchService
+	db              *database.DB
+	searchService   *SearchService
+	indexRegenCh    chan struct{} // coalescing trigger for RegenerateIndexPages
+	keywordRebuildCh chan struct{} // coalescing trigger for RebuildKeywords
 }
 
 // NewContentService creates a new content service
 func NewContentService(db *database.DB) *ContentService {
-	return &ContentService{db: db}
+	s := &ContentService{
+		db:               db,
+		indexRegenCh:     make(chan struct{}, 1),
+		keywordRebuildCh: make(chan struct{}, 1),
+	}
+	go s.indexRegenWorker()
+	go s.keywordRebuildWorker()
+	return s
 }
 
 // SetSearchService sets the search service for automatic embedding generation
 func (s *ContentService) SetSearchService(ss *SearchService) {
 	s.searchService = ss
+}
+
+// indexRegenWorker drains indexRegenCh and runs RegenerateIndexPages, coalescing
+// bursts so a bulk update of N items triggers only one regeneration pass.
+func (s *ContentService) indexRegenWorker() {
+	for range s.indexRegenCh {
+		// Small debounce: let any remaining burst signals arrive
+		time.Sleep(200 * time.Millisecond)
+		// Drain any accumulated signals
+		for len(s.indexRegenCh) > 0 {
+			<-s.indexRegenCh
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+		s.RegenerateIndexPages(ctx)
+		cancel()
+	}
+}
+
+// keywordRebuildWorker drains keywordRebuildCh and runs RebuildKeywords, coalescing
+// bursts so a bulk update triggers only one rebuild.
+func (s *ContentService) keywordRebuildWorker() {
+	for range s.keywordRebuildCh {
+		time.Sleep(200 * time.Millisecond)
+		for len(s.keywordRebuildCh) > 0 {
+			<-s.keywordRebuildCh
+		}
+		if s.searchService == nil {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		if err := s.searchService.RebuildKeywords(ctx); err != nil {
+			fmt.Printf("Warning: failed to rebuild search keywords: %v\n", err)
+		}
+		cancel()
+	}
 }
 
 // triggerEmbedding asynchronously generates an embedding for the given content
@@ -69,18 +113,27 @@ func (s *ContentService) triggerEmbedding(contentID primitive.ObjectID) {
 	}()
 }
 
-// triggerKeywordRebuild asynchronously rebuilds the search keyword cache
+// triggerKeywordRebuild signals the coalescing worker to rebuild search keywords.
+// Multiple rapid calls collapse into a single rebuild.
 func (s *ContentService) triggerKeywordRebuild() {
-	if s.searchService == nil {
-		return
+	select {
+	case s.keywordRebuildCh <- struct{}{}:
+	default: // already pending
 	}
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		if err := s.searchService.RebuildKeywords(ctx); err != nil {
-			fmt.Printf("Warning: failed to rebuild search keywords: %v\n", err)
-		}
-	}()
+}
+
+// triggerIndexRegen signals the coalescing worker to regenerate lc:query index pages.
+// Multiple rapid calls collapse into a single regeneration pass.
+func (s *ContentService) triggerIndexRegen() {
+	select {
+	case s.indexRegenCh <- struct{}{}:
+	default: // already pending
+	}
+}
+
+// TriggerIndexRegen is the exported variant for callers outside this package.
+func (s *ContentService) TriggerIndexRegen() {
+	s.triggerIndexRegen()
 }
 
 // CreateContent creates new content and saves the initial version
@@ -220,11 +273,7 @@ func (s *ContentService) UpdateContent(ctx context.Context, content *models.Cont
 	}
 
 	// Regenerate index pages that may reference this content via lc:query
-	go func() {
-		rCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-		defer cancel()
-		s.RegenerateIndexPages(rCtx)
-	}()
+	s.triggerIndexRegen()
 
 	return nil
 }
@@ -283,11 +332,7 @@ func (s *ContentService) DeleteContent(ctx context.Context, id primitive.ObjectI
 	s.triggerKeywordRebuild()
 
 	// Regenerate index pages that referenced this content
-	go func() {
-		rCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-		defer cancel()
-		s.RegenerateIndexPages(rCtx)
-	}()
+	s.triggerIndexRegen()
 
 	return nil
 }

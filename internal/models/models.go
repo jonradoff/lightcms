@@ -58,8 +58,27 @@ type Content struct {
 	PlainText       string                 `bson:"plain_text,omitempty" json:"-"`                           // Cached stripped-HTML text for search snippets
 	Deleted         bool                   `bson:"deleted" json:"deleted"`       // Soft delete flag
 	DeletedAt       *time.Time             `bson:"deleted_at,omitempty" json:"deleted_at,omitempty"`
+	// Fork fields — set when this content item belongs to a fork workspace
+	ForkID        *primitive.ObjectID    `bson:"fork_id,omitempty" json:"fork_id,omitempty"`         // nil for live content
+	BaseUpdatedAt *time.Time             `bson:"base_updated_at,omitempty" json:"base_updated_at,omitempty"` // updated_at of the live page at fork time (for conflict detection)
 	CreatedAt       time.Time              `bson:"created_at" json:"created_at"`
 	UpdatedAt       time.Time              `bson:"updated_at" json:"updated_at"`
+}
+
+// ContentFork represents a named workspace for staging site changes before merging to live
+type ContentFork struct {
+	ID             primitive.ObjectID  `bson:"_id,omitempty" json:"id"`
+	Name           string              `bson:"name" json:"name"`
+	Description    string              `bson:"description" json:"description"`
+	Status         string              `bson:"status" json:"status"` // "active" | "merged" | "archived"
+	PreviewToken   string              `bson:"preview_token" json:"preview_token"` // random token for cookie-based preview
+	CreatedBy      primitive.ObjectID  `bson:"created_by" json:"created_by"`
+	CreatedByEmail string              `bson:"created_by_email" json:"created_by_email"`
+	CreatedAt      time.Time           `bson:"created_at" json:"created_at"`
+	MergedAt       *time.Time          `bson:"merged_at,omitempty" json:"merged_at,omitempty"`
+	MergedBy       *primitive.ObjectID `bson:"merged_by,omitempty" json:"merged_by,omitempty"`
+	MergedByEmail  string              `bson:"merged_by_email,omitempty" json:"merged_by_email,omitempty"`
+	ArchivedAt     *time.Time          `bson:"archived_at,omitempty" json:"archived_at,omitempty"`
 }
 
 // ContentVersion represents a historical version of content

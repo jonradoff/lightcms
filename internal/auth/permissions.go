@@ -53,6 +53,10 @@ const (
 
 	// Audit logs
 	PermAuditView = "audit.view"
+
+	// Content forks
+	PermForkCreate = "fork.create" // create + edit fork pages (editor+)
+	PermForkMerge  = "fork.merge"  // merge fork into live (admin only)
 )
 
 // RolePermissions maps each role to its allowed permissions
@@ -69,6 +73,7 @@ var RolePermissions = map[string][]string{
 		PermAssetView, PermAssetUpload, PermAssetDelete,
 		PermSettingsView,
 		PermAPIKeyManage,
+		PermForkCreate,
 	},
 	"admin": {
 		PermContentView, PermContentCreate, PermContentEdit, PermContentDelete, PermContentPublish,
@@ -79,6 +84,7 @@ var RolePermissions = map[string][]string{
 		PermAPIKeyManage, PermAPIKeyManageAll,
 		PermUserManage,
 		PermAuditView,
+		PermForkCreate, PermForkMerge,
 	},
 }
 

@@ -45,6 +45,7 @@ type Handler struct {
 	snippetService   *services.SnippetService
 	contentService   *services.ContentService
 	analyticsService *services.AnalyticsService
+	forkService      *services.ForkService
 	proxyConfig      *middleware.TrustedProxyConfig
 }
 
@@ -643,6 +644,9 @@ func (h *Handler) ListContent(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Always exclude fork copies from the main content list
+	conditions = append(conditions, bson.M{"fork_id": bson.M{"$exists": false}})
+
 	// Combine all conditions with $and
 	filter := bson.M{}
 	if len(conditions) == 1 {
@@ -661,6 +665,15 @@ func (h *Handler) ListContent(w http.ResponseWriter, r *http.Request) {
 	if err := cursor.All(ctx, &content); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// Pin the homepage to the top of the list.
+	// The homepage is stored with empty slug and empty full_path (displayed as "/" in the UI).
+	for i, c := range content {
+		if c.FullPath == "/" || (c.FullPath == "" && c.Slug == "") {
+			content = append([]models.Content{content[i]}, append(content[:i], content[i+1:]...)...)
+			break
+		}
 	}
 
 	// Get all folders for the filter dropdown
@@ -998,6 +1011,12 @@ func (h *Handler) EditContent(w http.ResponseWriter, r *http.Request) {
 		templateCursor.All(ctx, &allTemplates)
 	}
 
+	// If this is a live page (no fork), provide the ID so the template can offer "Fork to workspace"
+	forkPageID := ""
+	if content.ForkID == nil {
+		forkPageID = content.ID.Hex()
+	}
+
 	h.renderAdmin(w, r, "content_form", map[string]interface{}{
 		"IsNew":         false,
 		"Template":      tmpl,
@@ -1007,6 +1026,7 @@ func (h *Handler) EditContent(w http.ResponseWriter, r *http.Request) {
 		"SameSlugPages": sameSlugPages,
 		"AllTemplates":  allTemplates,
 		"Error":         errorMsg,
+		"ForkPageID":    forkPageID,
 	})
 }
 
@@ -1315,11 +1335,7 @@ func (h *Handler) UpdateContent(w http.ResponseWriter, r *http.Request) {
 
 	// Regenerate index pages that may reference this content via lc:query
 	if h.contentService != nil {
-		go func() {
-			rCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-			defer cancel()
-			h.contentService.RegenerateIndexPages(rCtx)
-		}()
+		h.contentService.TriggerIndexRegen()
 	}
 
 	// Rewrite [[wikilinks]] across all content if title or path changed
@@ -1397,11 +1413,7 @@ func (h *Handler) DeleteContent(w http.ResponseWriter, r *http.Request) {
 
 	// Regenerate index pages — the deleted item may have appeared in lc:query results
 	if h.contentService != nil {
-		go func() {
-			rCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-			defer cancel()
-			h.contentService.RegenerateIndexPages(rCtx)
-		}()
+		h.contentService.TriggerIndexRegen()
 	}
 
 	http.Redirect(w, r, "/cm/content", http.StatusSeeOther)
@@ -1472,11 +1484,7 @@ func (h *Handler) UndeleteContent(w http.ResponseWriter, r *http.Request) {
 
 	// Regenerate index pages — the restored item may now appear in lc:query results
 	if h.contentService != nil {
-		go func() {
-			rCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-			defer cancel()
-			h.contentService.RegenerateIndexPages(rCtx)
-		}()
+		h.contentService.TriggerIndexRegen()
 	}
 
 	http.Redirect(w, r, "/cm/content/"+id.Hex(), http.StatusSeeOther)
@@ -3287,12 +3295,21 @@ func (h *Handler) ServePage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check for fork preview mode — if active and fork has a copy of this page, serve it
+	activeFork := h.getActiveForkPreview(r)
+	if activeFork != nil {
+		if forkPage, err := h.forkService.GetForkPageByPath(ctx, activeFork.ID, fullPath); err == nil && forkPage != nil {
+			h.servePageContent(w, r, forkPage, theme, activeFork)
+			return
+		}
+	}
+
 	// Look up content from database - try full_path first, fall back to slug for legacy
 	var content models.Content
-	filter := bson.M{"published": true, "full_path": fullPath}
+	filter := bson.M{"published": true, "full_path": fullPath, "fork_id": bson.M{"$exists": false}}
 	if err := h.db.FindOne(ctx, "content", filter, &content); err != nil {
 		// Fall back to legacy slug lookup
-		legacyFilter := bson.M{"published": true, "slug": slug}
+		legacyFilter := bson.M{"published": true, "slug": slug, "fork_id": bson.M{"$exists": false}}
 		if err := h.db.FindOne(ctx, "content", legacyFilter, &content); err != nil {
 			h.serve404(w, r, theme)
 			return
@@ -3305,12 +3322,26 @@ func (h *Handler) ServePage(w http.ResponseWriter, r *http.Request) {
 		go h.analyticsService.RecordActivity(context.Background(), visitorID)
 	}
 
+	h.servePageContent(w, r, &content, theme, activeFork)
+}
+
+// servePageContent renders a content item to the response.
+// activeFork is non-nil when serving a fork preview; the preview bar is injected into the page.
+func (h *Handler) servePageContent(w http.ResponseWriter, r *http.Request, content *models.Content, theme *database.ThemeSettings, activeFork *models.ContentFork) {
+	ctx := r.Context()
+	fullPath := content.FullPath
+
 	// For blank pages with raw mode and no theme, serve raw HTML directly
 	if !content.UseTheme && content.TemplateName == "Blank Page" {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		if htmlContent, ok := content.Data["content"].(string); ok {
-			w.Write([]byte(htmlContent))
+		htmlContent := ""
+		if v, ok := content.Data["content"].(string); ok {
+			htmlContent = v
 		}
+		if activeFork != nil {
+			htmlContent = forkPreviewBar(activeFork) + htmlContent
+		}
+		w.Write([]byte(htmlContent))
 		return
 	}
 
@@ -3321,21 +3352,35 @@ func (h *Handler) ServePage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ogImage := inferOGImage(&content, &tmpl)
+	ogImage := inferOGImage(content, &tmpl)
 
-	// Try to serve from static file first
-	staticPath := h.getStaticFilePath(fullPath)
-
-	if _, err := os.Stat(staticPath); err == nil {
-		staticContent, _ := os.ReadFile(staticPath)
-		h.renderPublicWithSEO(w, r, theme, string(staticContent), content.UseHeader, content.UseFooter,
-			content.Title, content.MetaDescription, ogImage, fullPath)
-		return
+	// For live pages (no active fork), try static file first
+	if activeFork == nil {
+		staticPath := h.getStaticFilePath(fullPath)
+		if _, err := os.Stat(staticPath); err == nil {
+			staticContent, _ := os.ReadFile(staticPath)
+			h.renderPublicWithSEO(w, r, theme, string(staticContent), content.UseHeader, content.UseFooter,
+				content.Title, content.MetaDescription, ogImage, fullPath)
+			return
+		}
 	}
 
-	rendered := h.renderContent(&content, &tmpl)
+	rendered := h.renderContent(content, &tmpl)
+	if activeFork != nil {
+		rendered = forkPreviewBar(activeFork) + rendered
+	}
 	h.renderPublicWithSEO(w, r, theme, rendered, content.UseHeader, content.UseFooter,
 		content.Title, content.MetaDescription, ogImage, fullPath)
+}
+
+// forkPreviewBar returns the HTML for the floating preview bar injected during fork preview.
+func forkPreviewBar(fork *models.ContentFork) string {
+	return `<div id="lc-fork-preview-bar" style="position:fixed;top:0;left:0;right:0;z-index:99999;background:#6366f1;color:white;padding:10px 20px;display:flex;align-items:center;gap:16px;font-family:system-ui,sans-serif;font-size:13px;font-weight:500;box-shadow:0 2px 8px rgba(0,0,0,0.3);">` +
+		`<span>🌿 Previewing fork: <strong>` + template.HTMLEscapeString(fork.Name) + `</strong></span>` +
+		`<span style="flex:1"></span>` +
+		`<a href="/cm/forks/` + fork.ID.Hex() + `" style="color:white;opacity:0.85;text-decoration:underline;">Manage</a>` +
+		`<a href="/cm/forks/exit-preview" style="background:rgba(255,255,255,0.2);padding:5px 14px;border-radius:6px;color:white;text-decoration:none;">Exit Preview</a>` +
+		`</div><div style="height:44px"></div>`
 }
 
 func (h *Handler) serveCollection(w http.ResponseWriter, r *http.Request, collection *models.Collection, theme *database.ThemeSettings) {
@@ -5346,7 +5391,7 @@ func (h *Handler) SearchContent(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 	query := r.URL.Query().Get("q")
-	searchType := r.URL.Query().Get("type")           // "name" or "fulltext"
+	searchType := r.URL.Query().Get("type") // "name", "slug", or "fulltext"
 	includeDeleted := r.URL.Query().Get("deleted") == "true"
 
 	// Sanitize and limit query length
@@ -5359,28 +5404,46 @@ func (h *Handler) SearchContent(w http.ResponseWriter, r *http.Request) {
 
 	// Build the base filter
 	var filter bson.M
+	// Sort order: slug mode sorts alphabetically by slug; others sort by updated_at desc
+	sortOpt := options.Find().SetLimit(100).SetSort(bson.D{{Key: "updated_at", Value: -1}})
+
 	if query == "" {
 		// Empty query - return all content
 		filter = bson.M{}
+	} else if searchType == "slug" {
+		// Slug-only search: match slug or full_path by regex.
+		// The homepage (empty slug) is always prepended after the query runs.
+		orClauses := []bson.M{
+			{"slug": bson.M{"$regex": query, "$options": "i"}},
+			{"full_path": bson.M{"$regex": query, "$options": "i"}},
+		}
+		filter = bson.M{"$or": orClauses}
+		sortOpt = options.Find().SetLimit(100).SetSort(bson.D{{Key: "slug", Value: 1}})
 	} else if searchType == "fulltext" {
 		// Search in title, slug, full_path, and all data fields using $or and $regex
-		filter = bson.M{
-			"$or": []bson.M{
-				{"title": bson.M{"$regex": query, "$options": "i"}},
-				{"slug": bson.M{"$regex": query, "$options": "i"}},
-				{"full_path": bson.M{"$regex": query, "$options": "i"}},
-				{"data": bson.M{"$regex": query, "$options": "i"}},
-			},
+		orClauses := []bson.M{
+			{"title": bson.M{"$regex": query, "$options": "i"}},
+			{"slug": bson.M{"$regex": query, "$options": "i"}},
+			{"full_path": bson.M{"$regex": query, "$options": "i"}},
+			{"data": bson.M{"$regex": query, "$options": "i"}},
 		}
+		// "/" query should also match the homepage (stored with empty full_path and slug)
+		if strings.HasPrefix(query, "/") {
+			orClauses = append(orClauses, bson.M{"full_path": "", "slug": ""})
+		}
+		filter = bson.M{"$or": orClauses}
 	} else {
 		// Default to name/title search — also match slug and full_path
-		filter = bson.M{
-			"$or": []bson.M{
-				{"title": bson.M{"$regex": query, "$options": "i"}},
-				{"slug": bson.M{"$regex": query, "$options": "i"}},
-				{"full_path": bson.M{"$regex": query, "$options": "i"}},
-			},
+		orClauses := []bson.M{
+			{"title": bson.M{"$regex": query, "$options": "i"}},
+			{"slug": bson.M{"$regex": query, "$options": "i"}},
+			{"full_path": bson.M{"$regex": query, "$options": "i"}},
 		}
+		// "/" query should also match the homepage (stored with empty full_path and slug)
+		if strings.HasPrefix(query, "/") {
+			orClauses = append(orClauses, bson.M{"full_path": "", "slug": ""})
+		}
+		filter = bson.M{"$or": orClauses}
 	}
 
 	// Add deleted filter
@@ -5388,7 +5451,10 @@ func (h *Handler) SearchContent(w http.ResponseWriter, r *http.Request) {
 		filter["deleted"] = bson.M{"$ne": true}
 	}
 
-	cursor, err := h.db.FindMany(ctx, "content", filter, options.Find().SetSort(bson.D{{Key: "updated_at", Value: -1}}).SetLimit(100))
+	// Always exclude fork copies
+	filter["fork_id"] = bson.M{"$exists": false}
+
+	cursor, err := h.db.FindMany(ctx, "content", filter, sortOpt)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -5404,7 +5470,7 @@ func (h *Handler) SearchContent(w http.ResponseWriter, r *http.Request) {
 	// we need to do a manual search through Data fields
 	if query != "" && searchType == "fulltext" && len(results) == 0 {
 		// Fallback: get all content and search manually
-		fallbackFilter := bson.M{}
+		fallbackFilter := bson.M{"fork_id": bson.M{"$exists": false}}
 		if !includeDeleted {
 			fallbackFilter["deleted"] = bson.M{"$ne": true}
 		}
@@ -5434,6 +5500,32 @@ func (h *Handler) SearchContent(w http.ResponseWriter, r *http.Request) {
 						break
 					}
 				}
+			}
+		}
+	}
+
+	// Always pin the homepage (full_path="" slug="") to position 0.
+	// For slug-mode searches MongoDB null-slug pages can sort before it, so we
+	// explicitly fetch and prepend the homepage if it isn't already first.
+	isHomepage := func(c models.Content) bool {
+		return c.FullPath == "/" || (c.FullPath == "" && c.Slug == "")
+	}
+	if len(results) == 0 || !isHomepage(results[0]) {
+		// Check if homepage is already somewhere in results and move it, or fetch it.
+		found := false
+		for i, c := range results {
+			if isHomepage(c) {
+				results = append([]models.Content{results[i]}, append(results[:i], results[i+1:]...)...)
+				found = true
+				break
+			}
+		}
+		if !found {
+			// Homepage wasn't returned by the query — fetch it directly.
+			var homepage models.Content
+			hpFilter := bson.M{"full_path": "", "slug": "", "deleted": bson.M{"$ne": true}, "fork_id": bson.M{"$exists": false}}
+			if err := h.db.FindOne(ctx, "content", hpFilter, &homepage); err == nil {
+				results = append([]models.Content{homepage}, results...)
 			}
 		}
 	}

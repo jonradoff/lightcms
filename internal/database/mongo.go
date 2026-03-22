@@ -43,9 +43,21 @@ func Connect(ctx context.Context, uri, dbName string, extraOpts ...*options.Clie
 }
 
 func (db *DB) createIndexes(ctx context.Context) error {
-	// Content full_path index (unique) - replaces slug index
+	// Content full_path index (unique for live content only).
+	// Fork copies share the same full_path as their live counterpart, so the
+	// uniqueness constraint must be partial — only documents without fork_id.
+	// Drop the old unpartitioned index first (ignore error if it doesn't exist).
+	// Drop both the old single-field index and any previous partial-index attempts.
+	db.database.Collection("content").Indexes().DropOne(ctx, "full_path_1")
+	// Compound unique index on (full_path, fork_id).
+	// Live pages have no fork_id (stored as null); fork copies have an ObjectID.
+	// The compound key ensures live pages can't duplicate full_path, while a live
+	// page and its fork copy can share the same full_path without conflicting.
 	_, err := db.database.Collection("content").Indexes().CreateOne(ctx, mongo.IndexModel{
-		Keys:    bson.D{{Key: "full_path", Value: 1}},
+		Keys: bson.D{
+			{Key: "full_path", Value: 1},
+			{Key: "fork_id", Value: 1},
+		},
 		Options: options.Index().SetUnique(true).SetSparse(true),
 	})
 	if err != nil {
