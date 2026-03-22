@@ -4,9 +4,9 @@ All notable changes to LightCMS are documented here, organized by version.
 
 ---
 
-## v4.0.0 — Content Forks, Multiuser RBAC & Audit Logging
+## v4.0.0 — Content Forks
 
-This major release adds collaborative content workflows, a full multiuser access control system, and comprehensive audit logging.
+This release adds fork workspaces for safe page experimentation, plus bulk operation resilience improvements and content search refinements.
 
 ### Content Forks
 
@@ -16,28 +16,6 @@ This major release adds collaborative content workflows, a full multiuser access
 - **Permission gating** — Creating and editing forks requires at least `editor` role; merging requires `admin`.
 - **"Fork to workspace" button** — Available on any content edit page; opens the forks list with a one-click "Add to this fork" action.
 - **Fork exclusion from content list** — Fork copies are invisible in the main admin content list and search results.
-
-### Multiuser RBAC
-
-- **Three roles**: `admin` (full access), `editor` (content + assets), `viewer` (read-only)
-- **Email + password login** — Replaces single-admin password. Session carries user identity (id, email, role).
-- **Force password change** — Users created with temporary passwords must change on first login before accessing anything else.
-- **Migration** — On first startup with an empty `users` collection, the existing admin password hash is migrated automatically into a new admin user account.
-- **API key ownership** — Keys are linked to their creating user; downstream operations carry that user's permissions.
-
-### Audit Logging
-
-- Comprehensive audit trail (`audit_logs` collection, 365-day TTL auto-cleanup)
-- Events logged: login success/failure, password changes, user management, all content mutations, template/asset/theme/config/redirect/folder/collection changes, API key lifecycle
-- Async logging (fire-and-forget) on non-critical paths — no request latency impact
-- Audit log viewer in admin UI (admin role only), paginated with filters
-
-### Admin UI
-
-- Sidebar shows current user email and conditionally shows Users / Audit Log nav for admins
-- User management pages: list, create, edit (role change, disable/enable, password reset)
-- Dashboard "Welcome" greeting with current user name
-- Security page scoped to per-user password change
 
 ### Performance & Resilience
 
