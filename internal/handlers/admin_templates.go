@@ -1806,7 +1806,7 @@ var adminTemplates = map[string]string{
         async function loadMentionUsers() {
             if (mentionUsers !== null) return mentionUsers;
             try {
-                const r = await fetch('/api/v1/users', {headers: {'Authorization': 'Bearer '}});
+                const r = await fetch('/api/v1/users');
                 if (r.ok) { mentionUsers = await r.json(); }
             } catch(e) {}
             return mentionUsers || [];
@@ -6352,6 +6352,7 @@ async function doSearch(q) {
                     <label for="role">Role *</label>
                     <select id="role" name="role" required>
                         <option value="viewer">Viewer (read-only)</option>
+                        <option value="contributor">Contributor (create &amp; submit for approval)</option>
                         <option value="editor" selected>Editor (content management)</option>
                         <option value="admin">Admin (full access)</option>
                     </select>
@@ -6395,6 +6396,7 @@ async function doSearch(q) {
                     <label for="role">Role</label>
                     <select id="role" name="role">
                         <option value="viewer" {{if eq .EditUser.Role "viewer"}}selected{{end}}>Viewer</option>
+                        <option value="contributor" {{if eq .EditUser.Role "contributor"}}selected{{end}}>Contributor</option>
                         <option value="editor" {{if eq .EditUser.Role "editor"}}selected{{end}}>Editor</option>
                         <option value="admin" {{if eq .EditUser.Role "admin"}}selected{{end}}>Admin</option>
                     </select>
@@ -6478,7 +6480,7 @@ async function doSearch(q) {
                 {{range .Logs}}
                     <tr style="vertical-align: top;">
                         <td style="white-space: nowrap; padding: 0.4rem 0.625rem; color: var(--text-muted);">{{.CreatedAt.Format "Jan 2 15:04:05"}}</td>
-                        <td style="padding: 0.4rem 0.625rem; max-width: 11rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{.UserEmail}}</td>
+                        <td style="padding: 0.4rem 0.625rem; max-width: 11rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{.UserEmail}}{{if .ViaAPI}} <span style="font-size:0.7rem;color:var(--text-muted);opacity:0.7;">(api)</span>{{end}}</td>
                         <td style="padding: 0.4rem 0.625rem;"><code style="font-size: 0.75rem;">{{.Action}}</code></td>
                         <td style="padding: 0.4rem 0.625rem;">{{.Resource}}{{if .ResourceID}}<br><span style="color:var(--text-muted);font-size:0.7rem;font-family:monospace;">{{slice .ResourceID 0 8}}…</span>{{end}}</td>
                         <td style="padding: 0.4rem 0.625rem;">
@@ -7539,7 +7541,51 @@ function verify(secret, signature, body) {
         <div class="form-section">
             <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">
                 <h2 style="font-size:1.1rem;margin:0;">Approval Workflows</h2>
+                <button type="button" class="btn btn-primary btn-sm" onclick="document.getElementById('new-workflow-form').style.display='block';this.style.display='none';">+ New Workflow</button>
             </div>
+
+            <div id="new-workflow-form" style="display:none;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius);padding:1.25rem;margin-bottom:1.5rem;">
+                <h3 style="font-size:1rem;margin:0 0 1rem;">Create Workflow</h3>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem;">
+                    <div>
+                        <label style="display:block;font-size:0.85rem;color:var(--muted);margin-bottom:0.35rem;">Name *</label>
+                        <input type="text" id="wf-name" placeholder="e.g. Blog Post Review" style="width:100%;padding:0.5rem 0.75rem;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);">
+                    </div>
+                    <div>
+                        <label style="display:block;font-size:0.85rem;color:var(--muted);margin-bottom:0.35rem;">Mode</label>
+                        <select id="wf-mode" style="width:100%;padding:0.5rem 0.75rem;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);">
+                            <option value="concurrent">Concurrent (any approver)</option>
+                            <option value="sequential">Sequential (in order)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label style="display:block;font-size:0.85rem;color:var(--muted);margin-bottom:0.35rem;">Trigger</label>
+                        <select id="wf-trigger" onchange="toggleTriggerValue()" style="width:100%;padding:0.5rem 0.75rem;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);">
+                            <option value="all_contributor">All contributors</option>
+                            <option value="folder_path">Folder path</option>
+                            <option value="template_id">Template ID</option>
+                            <option value="tag">Tag</option>
+                        </select>
+                    </div>
+                    <div id="wf-trigger-value-wrap">
+                        <label style="display:block;font-size:0.85rem;color:var(--muted);margin-bottom:0.35rem;">Trigger Value <span style="font-size:0.8rem;">(folder path / template ID / tag)</span></label>
+                        <input type="text" id="wf-trigger-value" placeholder="e.g. /blog or tag-name" style="width:100%;padding:0.5rem 0.75rem;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);">
+                    </div>
+                </div>
+                <div style="margin-bottom:1rem;">
+                    <label style="display:block;font-size:0.85rem;color:var(--muted);margin-bottom:0.35rem;">Approvers <span style="font-size:0.8rem;">(search by email)</span></label>
+                    <div style="display:flex;gap:0.5rem;margin-bottom:0.5rem;">
+                        <input type="text" id="wf-approver-search" placeholder="Type email to search..." style="flex:1;padding:0.5rem 0.75rem;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);" oninput="searchApprovers()">
+                    </div>
+                    <div id="wf-approver-results" style="display:none;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);max-height:120px;overflow-y:auto;margin-bottom:0.5rem;"></div>
+                    <div id="wf-approvers-list" style="display:flex;flex-wrap:wrap;gap:0.4rem;"></div>
+                </div>
+                <div style="display:flex;gap:0.75rem;">
+                    <button type="button" class="btn btn-primary btn-sm" onclick="createWorkflow()">Create Workflow</button>
+                    <button type="button" class="btn btn-outline btn-sm" onclick="document.getElementById('new-workflow-form').style.display='none';document.querySelector('.btn-primary.btn-sm[onclick*=new-workflow]').style.display='';">Cancel</button>
+                </div>
+            </div>
+
             {{if .Workflows}}
             <div class="table-container">
                 <table>
@@ -7578,10 +7624,13 @@ function verify(secret, signature, body) {
         </div>
         <script>
         var rejectingId = null;
+        var wfApprovers = []; // [{user_id, email}]
+        var allUsers = null;
+
         async function approveRequest(id) {
             if (!confirm('Approve this request?')) return;
             var r = await fetch('/api/v1/approval-requests/'+id+'/approve', {method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
-            if (r.ok) location.reload(); else alert('Failed');
+            if (r.ok) location.reload(); else { var e = await r.json().catch(()=>({error:'Failed'})); alert(e.error||'Failed'); }
         }
         function openRejectModal(id) { rejectingId = id; document.getElementById('reject-comment').value=''; document.getElementById('reject-modal').style.display='flex'; }
         function closeRejectModal() { document.getElementById('reject-modal').style.display='none'; rejectingId=null; }
@@ -7589,12 +7638,61 @@ function verify(secret, signature, body) {
             var c = document.getElementById('reject-comment').value.trim();
             if (!c) { alert('Comment required'); return; }
             var r = await fetch('/api/v1/approval-requests/'+rejectingId+'/reject', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({comment:c})});
-            if (r.ok) { closeRejectModal(); location.reload(); } else alert('Failed');
+            if (r.ok) { closeRejectModal(); location.reload(); } else { var e = await r.json().catch(()=>({error:'Failed'})); alert(e.error||'Failed'); }
         }
         async function deleteWorkflow(id) {
             if (!confirm('Delete this workflow?')) return;
             var r = await fetch('/api/v1/approval-workflows/'+id, {method:'DELETE'});
             if (r.ok) location.reload(); else alert('Failed');
+        }
+        function toggleTriggerValue() {
+            var t = document.getElementById('wf-trigger').value;
+            document.getElementById('wf-trigger-value-wrap').style.display = t === 'all_contributor' ? 'none' : '';
+        }
+        async function loadAllUsers() {
+            if (allUsers) return allUsers;
+            var r = await fetch('/api/v1/users');
+            if (r.ok) { allUsers = await r.json(); }
+            return allUsers || [];
+        }
+        async function searchApprovers() {
+            var q = document.getElementById('wf-approver-search').value.trim().toLowerCase();
+            var res = document.getElementById('wf-approver-results');
+            if (!q) { res.style.display='none'; return; }
+            var users = await loadAllUsers();
+            var matches = (users.users||users||[]).filter(u => (u.email||'').toLowerCase().includes(q) && !wfApprovers.find(a=>a.user_id===u.id));
+            if (!matches.length) { res.style.display='none'; return; }
+            res.style.display='block';
+            res.innerHTML = matches.slice(0,5).map(u =>
+                '<div onclick="addApprover(\''+u.id+'\',\''+u.email+'\')" style="padding:0.5rem 0.75rem;cursor:pointer;font-size:0.9rem;" onmouseover="this.style.background=\'var(--bg-tertiary)\'" onmouseout="this.style.background=\'\'">'+u.email+'</div>'
+            ).join('');
+        }
+        function addApprover(id, email) {
+            if (wfApprovers.find(a=>a.user_id===id)) return;
+            wfApprovers.push({user_id:id,email:email});
+            document.getElementById('wf-approver-search').value='';
+            document.getElementById('wf-approver-results').style.display='none';
+            renderApprovers();
+        }
+        function removeApprover(id) {
+            wfApprovers = wfApprovers.filter(a=>a.user_id!==id);
+            renderApprovers();
+        }
+        function renderApprovers() {
+            document.getElementById('wf-approvers-list').innerHTML = wfApprovers.map(a =>
+                '<span style="display:inline-flex;align-items:center;gap:0.3rem;background:var(--bg-card);border:1px solid var(--border);border-radius:9999px;padding:0.2rem 0.6rem;font-size:0.85rem;">'+a.email+'<button type="button" onclick="removeApprover(\''+a.user_id+'\')" style="background:none;border:none;color:var(--muted);cursor:pointer;padding:0;font-size:1rem;line-height:1;">&times;</button></span>'
+            ).join('');
+        }
+        async function createWorkflow() {
+            var name = document.getElementById('wf-name').value.trim();
+            if (!name) { alert('Name is required'); return; }
+            var trigger = document.getElementById('wf-trigger').value;
+            var triggerValue = trigger !== 'all_contributor' ? document.getElementById('wf-trigger-value').value.trim() : '';
+            var mode = document.getElementById('wf-mode').value;
+            var approvers = wfApprovers.map(a => ({user_id: a.user_id}));
+            var payload = {name:name, trigger:trigger, trigger_value:triggerValue, mode:mode, approvers:approvers};
+            var r = await fetch('/api/v1/approval-workflows', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+            if (r.ok) { location.reload(); } else { var e = await r.json().catch(()=>({error:'Failed'})); alert(e.error||'Failed to create workflow'); }
         }
         </script>
     ` + adminLayoutEnd,
@@ -8231,6 +8329,7 @@ const adminLayoutStart = `<!DOCTYPE html>
                     <a href="/cm/folders" class="nav-link">🗂️ Folders</a>
                     <a href="/cm/forks" class="nav-link">🌿 Forks</a>
                     <a href="/cm/imports" class="nav-link">📥 Imports</a>
+                    <a href="/cm/approvals" class="nav-link">✅ Approvals{{if .PendingApprovalCount}} <span class="nav-badge">{{.PendingApprovalCount}}</span>{{end}}</a>
                 </div>
                 <div class="nav-section">
                     <div class="nav-section-title">Media</div>
@@ -8258,7 +8357,6 @@ const adminLayoutStart = `<!DOCTYPE html>
                 <div class="nav-section">
                     <div class="nav-section-title">Inbox</div>
                     <a href="/cm/messages" class="nav-link">📬 Messages{{if .UnreadMessageCount}} <span class="nav-badge">{{.UnreadMessageCount}}</span>{{end}}</a>
-                    <a href="/cm/approvals" class="nav-link">✅ Approvals{{if .PendingApprovalCount}} <span class="nav-badge">{{.PendingApprovalCount}}</span>{{end}}</a>
                 </div>
                 <div class="nav-section">
                     <a href="/" target="_blank" class="nav-link">🌐 View Site</a>

@@ -4,6 +4,21 @@ All notable changes to LightCMS are documented here, organized by version.
 
 ---
 
+## [6.0.2] - 2026-03-24
+
+### Added
+- **`GET /api/v1/users` endpoint**: Returns a minimal user list (id, email, display_name, role) for UI features like @mention autocomplete and workflow approver selection. Requires `content.view` permission.
+- **Workflow creation UI**: Admin approvals page now includes an inline "New Workflow" form. Search users by email to add approvers, choose trigger type (all_contributor / folder_path / template_id / tag), set mode (sequential / concurrent), and create the workflow without leaving the page.
+- **API attribution in audit log**: Audit log entries created via API key now have `via_api: true` stored in the database. The audit log display shows "(api)" next to the username for API-originated actions. Session-based (browser) actions are unaffected.
+
+### Fixed
+- **Admin UI calls to `/api/v1/` now authenticated via session**: The API auth middleware now accepts session cookies as a fallback when no `Authorization: Bearer` header is present. This fixes all admin UI interactions that call `/api/v1/` endpoints directly from browser JavaScript (posting comments, approving/rejecting requests, deleting workflows) — they were returning "Missing authorization header" for session-authenticated users.
+- **Contributor role missing from user dropdowns**: The Create User and Edit User forms now include the Contributor role option.
+- **Approvals moved to Content nav section**: The "Approvals" link in the admin sidebar is now under the Content section (alongside Content, Templates, Forks, Imports) instead of the Inbox section.
+- **Broken `Bearer ` token in mention user search**: The @mention user autocomplete was sending an empty Bearer token, causing a 401. It now relies on session cookie fallback.
+
+---
+
 ## [6.0.1] - 2026-03-24
 
 ### Security

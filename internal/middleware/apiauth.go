@@ -29,10 +29,15 @@ func APIUserFromContext(ctx context.Context) (interface{}, bool) {
 	return user, user != nil
 }
 
+// SessionValidateFunc validates a session cookie and returns the authenticated user (as interface{}).
+// It receives the full HTTP request so it can read cookies.
+type SessionValidateFunc func(r *http.Request) interface{}
+
 // APIAuth is middleware that authenticates requests via API key or OAuth token
 type APIAuth struct {
 	validate            APIKeyValidateFunc
 	validateOAuth       OAuthValidateFunc
+	validateSession     SessionValidateFunc
 	systemAPIKey        string // internal API key substituted for OAuth-authenticated requests
 	resourceMetadataURL string // for WWW-Authenticate header (OAuth discovery)
 }
@@ -40,6 +45,12 @@ type APIAuth struct {
 // NewAPIAuth creates a new API auth middleware
 func NewAPIAuth(validate APIKeyValidateFunc) *APIAuth {
 	return &APIAuth{validate: validate}
+}
+
+// SetSessionAuth enables session cookie fallback for browser-based admin UI calls.
+// When no Authorization header is present, the session validator is tried as a fallback.
+func (m *APIAuth) SetSessionAuth(validateSession SessionValidateFunc) {
+	m.validateSession = validateSession
 }
 
 // SetOAuth enables OAuth token validation alongside API key validation.
@@ -56,6 +67,14 @@ func (m *APIAuth) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" {
+			// No Authorization header — try session cookie fallback for browser-based admin UI calls
+			if m.validateSession != nil {
+				if user := m.validateSession(r); user != nil {
+					r = r.WithContext(context.WithValue(r.Context(), apiUserContextKey, user))
+					next.ServeHTTP(w, r)
+					return
+				}
+			}
 			m.setWWWAuthenticate(w)
 			apiJsonError(w, http.StatusUnauthorized, "Missing Authorization header")
 			return

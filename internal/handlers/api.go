@@ -98,6 +98,7 @@ func (a *APIHandler) auditLog(r *http.Request, action, resource, resourceID stri
 			entry.UserID = oid
 		}
 		entry.UserEmail = user.Email
+		entry.ViaAPI = user.ViaAPIKey
 	}
 	a.auditService.LogAsync(entry)
 }

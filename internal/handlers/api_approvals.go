@@ -11,6 +11,43 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
+// ==================== Users (for mention/approver search) ====================
+
+// APIListUsers returns a minimal user list for UI features like @mention and approver selection.
+// GET /api/v1/users
+func (a *APIHandler) APIListUsers(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermContentView) {
+		return
+	}
+	if a.userService == nil {
+		a.jsonResponse(w, http.StatusOK, map[string]interface{}{"users": []interface{}{}})
+		return
+	}
+	users, err := a.userService.ListUsers(r.Context())
+	if err != nil {
+		a.jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	type userSummary struct {
+		ID          string `json:"id"`
+		Email       string `json:"email"`
+		DisplayName string `json:"display_name"`
+		Role        string `json:"role"`
+	}
+	result := make([]userSummary, 0, len(users))
+	for _, u := range users {
+		if !u.Disabled {
+			result = append(result, userSummary{
+				ID:          u.ID.Hex(),
+				Email:       u.Email,
+				DisplayName: u.DisplayName,
+				Role:        u.Role,
+			})
+		}
+	}
+	a.jsonResponse(w, http.StatusOK, map[string]interface{}{"users": result})
+}
+
 // ==================== Approval Workflows ====================
 
 // APIListApprovalWorkflows returns all configured approval workflows.

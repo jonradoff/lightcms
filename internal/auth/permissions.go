@@ -128,7 +128,8 @@ func HasPermission(role, perm string) bool {
 
 // SessionUser represents the authenticated user extracted from a session or API context
 type SessionUser struct {
-	ID    string `json:"id"`
-	Email string `json:"email"`
-	Role  string `json:"role"`
+	ID         string `json:"id"`
+	Email      string `json:"email"`
+	Role       string `json:"role"`
+	ViaAPIKey  bool   `json:"via_api_key,omitempty"` // true when authenticated via API key (not session)
 }

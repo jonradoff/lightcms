@@ -407,9 +407,10 @@ func main() {
 			if err == nil && user != nil {
 				go analyticsService.RecordActivity(context.Background(), user.ID.Hex())
 				return &auth.SessionUser{
-					ID:    user.ID.Hex(),
-					Email: user.Email,
-					Role:  user.Role,
+					ID:         user.ID.Hex(),
+					Email:      user.Email,
+					Role:       user.Role,
+					ViaAPIKey:  true,
 				}, nil
 			}
 		}
@@ -450,6 +451,17 @@ func main() {
 		resourceMetadataURL,
 	)
 	oauthHandler := oauth.NewHandler(oauthService, authManager, cfg.BaseURL, cfg.SessionSecret)
+
+	// Allow browser-based admin UI calls to /api/v1/ using session cookies (no Bearer token required).
+	// This enables admin pages to call API endpoints (e.g., post comments, approve requests)
+	// without needing to embed an API key in the page.
+	apiAuthMiddleware.SetSessionAuth(func(r *http.Request) interface{} {
+		user, ok := authManager.GetCurrentUser(r)
+		if !ok {
+			return nil
+		}
+		return user
+	})
 
 	apiv1 := r.PathPrefix("/api/v1").Subrouter()
 	apiv1.Use(apiAuthMiddleware.Middleware)
@@ -606,6 +618,9 @@ func main() {
 	apiv1.Handle("/content/{id}/comments", middleware.CommentCreateLimiter()(http.HandlerFunc(apiHandler.APICreateComment))).Methods("POST")
 	apiv1.HandleFunc("/content/{id}/comments/{cid}", apiHandler.APIDeleteComment).Methods("DELETE")
 	apiv1.HandleFunc("/content/{id}/submit-approval", apiHandler.APISubmitForApproval).Methods("POST")
+
+	// Users list (for @mention and approver search in UI)
+	apiv1.HandleFunc("/users", apiHandler.APIListUsers).Methods("GET")
 
 	// Approval workflows API
 	apiv1.HandleFunc("/approval-workflows", apiHandler.APIListApprovalWorkflows).Methods("GET")
