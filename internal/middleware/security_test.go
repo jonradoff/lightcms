@@ -309,8 +309,8 @@ func TestDefaultCloudConfig(t *testing.T) {
 	if cfg == nil {
 		t.Fatal("expected non-nil config")
 	}
-	if !cfg.TrustAllProxies {
-		t.Error("expected TrustAllProxies=true for cloud config")
+	if !cfg.TrustFlyProxy {
+		t.Error("expected TrustFlyProxy=true for cloud config")
 	}
 }
 

@@ -1314,19 +1314,7 @@ func (s *ContentService) UpdateWikilinksOnRename(ctx context.Context, oldTitle, 
 		return
 	}
 
-	// Build a $regex pre-filter to only scan documents that are likely to contain the old reference.
-	// This avoids a full collection scan when only a small fraction of pages reference the renamed item.
-	var orConditions []bson.M
-	if oldTitle != "" && oldTitle != newTitle {
-		orConditions = append(orConditions, bson.M{"data": bson.M{"$regex": regexp.QuoteMeta("[[" + oldTitle)}})
-	}
-	if oldPath != "" && oldPath != newPath {
-		orConditions = append(orConditions, bson.M{"data": bson.M{"$regex": regexp.QuoteMeta("[[" + oldPath)}})
-	}
 	filter := bson.M{"deleted": bson.M{"$ne": true}}
-	if len(orConditions) > 0 {
-		filter["$or"] = orConditions
-	}
 
 	// Stream documents one-by-one to avoid loading the entire collection into memory.
 	cursor, err := s.db.FindMany(ctx, "content", filter)
