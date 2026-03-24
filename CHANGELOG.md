@@ -4,25 +4,62 @@ All notable changes to LightCMS are documented here, organized by version.
 
 ---
 
-## v4.2.0 — Performance Improvements
+## v4.2.0 — Security Hardening, Fork MCP Tools & Performance Overhaul
 
-### Database
+### Security
+
+- **CORS lockdown**: Chat widget endpoints (`/api/chat/*`) now restrict `Access-Control-Allow-Origin` to the site's configured `BASE_URL` instead of `*`. Falls back to `*` only when `BASE_URL` is unset.
+- **Prompt injection defense**: User query text in the chat widget is wrapped in `<user_question>...</user_question>` XML delimiters before being interpolated into the Anthropic prompt. The `</` sequence is escaped to prevent tag injection.
+- **Prompt template validation**: Saved chat widget system/user prompts are validated to only allow known placeholders (`{siteName}`, `{question}`, `{excerpts}`). Unknown placeholders are rejected at save time.
+- **Configurable upload size limit**: `MaxUploadBytes` added to `SiteConfig`, settable via the admin Configuration page and the `update_site_config` API. Defaults to 1 MiB (2× the largest asset stored at time of release). Enforced via `http.MaxBytesReader` on both the file upload endpoint and the asset upload endpoint.
+- **API body size limit**: All `/api/v1/` endpoints now enforce a 10 MiB request body cap via `APIBodySizeLimit` middleware, preventing memory exhaustion from oversized payloads.
+- **Fly.io IP spoofing fix**: `TrustedProxyConfig` adds a `TrustFlyProxy` mode that reads `Fly-Client-IP` (set exclusively by Fly.io's edge proxy) instead of `X-Forwarded-For`, which can be set by anyone. `DefaultCloudConfig()` now uses this mode, preventing rate-limit and audit-log bypass.
+- **Session secret entropy**: Production deployments now hard-fail on startup if `SESSION_SECRET` is shorter than 32 characters (previously 16).
+- **Per-endpoint rate limiters**: New limiters protect expensive endpoints beyond the global 300 req/min cap — regenerate (2/min), search-replace execute (10/min), asset-from-url (10/min), bulk-update (5/min), export (5/min), reindex-embeddings (1/min).
+- **Rate limiter map pruning**: A background goroutine prunes stale token entries from all rate limiter maps every 5 minutes, preventing unbounded memory growth over long-running deployments.
+
+### Fork MCP Tools (8 new tools)
+
+Full MCP and REST API coverage for the fork workspaces system introduced in v4.0.0:
+
+- **`list_forks`** — List all forks with status and page count.
+- **`create_fork`** — Create a named fork workspace.
+- **`get_fork`** — Retrieve fork details including merge conflicts from last merge.
+- **`fork_page`** — Add a page to a fork (accepts content ID or path); returns fork page ID for use with `update_content`.
+- **`remove_fork_page`** — Remove a page from a fork (reverts to live content on preview).
+- **`merge_fork`** — Merge all fork changes into live content (admin only).
+- **`archive_fork`** — Archive a fork without merging.
+- **`delete_fork`** — Permanently delete a fork and all its page copies.
+
+### Performance
+
+- **Admin template caching**: Admin HTML templates are compiled once at startup (via `sync.Once`) and cached. Previously each admin page request re-parsed the full template from source — eliminated entirely.
+- **Content list pagination**: The admin Content page now loads 100 items at a time with Previous/Next controls and a total count. Previously it loaded the entire `content` collection into memory, which OOM'd the server on large sites.
+- **Content indexes**: Added `{updated_at: -1}` and compound `{fork_id, deleted, updated_at}` indexes to fix `Sort exceeded memory limit` errors on the MongoDB Atlas free tier when the collection grew past ~32 MiB.
+- **Search/replace streaming**: All four search/replace handlers (global preview, global execute, scoped preview, scoped execute) now stream documents one at a time via cursor iteration instead of loading the entire collection into a Go slice. Memory is bounded regardless of collection size. Coverage is complete — every document is still checked, nothing is truncated.
+- **New `StreamContent` / `StreamContentScoped`** service methods return raw `*mongo.Cursor` for callers that need bounded-memory processing.
+- **`QueryContentForDirective` cap**: `lc:query` template directives now apply a 10,000-item `SetLimit` cap, preventing a single index page from OOM-ing the server on a large site.
+- **Wikilink index cache**: `buildWikilinkIndex` caches results for 60 seconds (TTL), invalidated immediately on any title, path, or publish-status change. Previously a full `content` collection scan ran for every page publish — on bulk operations this was O(n) scans for n pages.
+- **`UpdateWikilinksOnRename` streaming**: Changed from `FindAll` (full load into slice) to streaming cursor iteration, bounding memory when many pages reference a renamed item.
+- **Export scope push-down**: `APIExportContent` now uses `ListContentScoped` to push all filters (template, category, folder, content IDs) to MongoDB, instead of loading all content then filtering in Go.
+
+### Database (earlier v4.2.0 work)
 
 - **New indexes**: Added `settings.type`, `login_attempts.ip`, `theme_versions.version`, and `content.plain_text` (text index) to eliminate collection scans on hot query paths.
 - **`ListAssets` projection**: Excludes the binary `data` field from asset listing queries, dramatically reducing wire transfer for asset list operations.
 - **Atomic login rate limiting**: `RecordFailedLogin` replaced a read-then-write pattern with `FindOneAndUpdate` + `$inc`, eliminating a race condition under concurrent login attempts.
 
-### Search
+### Search (earlier v4.2.0 work)
 
 - **Parallel hybrid search**: `SearchHybrid` now runs `SearchFullText` and `SearchSemantic` concurrently via goroutines, halving latency when both sources are available.
 - **`sort.Slice` everywhere**: All ranking insertion sorts in `SearchFullText`, `Suggest`, and `RebuildKeywords` replaced with `sort.Slice` / `sort.SliceStable` for O(n log n) behaviour on larger result sets.
-- **Pre-normalized search config**: `getSearchConfig` lowercases and trims all path/template lists once on cache load, removing redundant per-query `strings.ToLower`/`strings.TrimSpace` calls in `pathBoost`, `isDemotedPath`, and `isBoostedTemplate`.
+- **Pre-normalized search config**: `getSearchConfig` lowercases and trims all path/template lists once on cache load, removing redundant per-query `strings.ToLower`/`strings.TrimSpace` calls.
 
-### Content Regeneration
+### Content Regeneration (earlier v4.2.0 work)
 
 - **Parallel `RegenerateAllContent`**: Sequential per-page loop replaced with a semaphore-bounded goroutine pool (6 workers), enabling concurrent static page generation.
-- **Single wikilink index per bulk regen**: `buildWikilinkIndex` is called once before the worker pool starts and the result is shared across all workers, instead of once per page.
-- **Targeted `UpdateWikilinksOnRename`**: Added a `$regex` pre-filter so only documents likely referencing the old title/path are loaded, avoiding a full collection scan on rename.
+- **Single wikilink index per bulk regen**: `buildWikilinkIndex` is called once before the worker pool starts and shared across all workers.
+- **Targeted `UpdateWikilinksOnRename`**: `$regex` pre-filter limits the scan to documents that likely reference the old title/path.
 
 ---
 
