@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       MONGODB_URI: ${{ secrets.MONGODB_URI }}
-      DATABASE_NAME: lightcms-test
+      DATABASE_NAME: lightcms-test-${{ github.run_id }}
     steps:
       - uses: actions/checkout@v4
 

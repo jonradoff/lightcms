@@ -237,8 +237,10 @@
     s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
     // Auto-link bare https:// URLs not already inside an href attribute
     s = s.replace(/(?<!href=")(https?:\/\/[^\s<>")\]]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
-    // Auto-link bare relative paths like /about or /projects/foo
-    s = s.replace(/(?<![="<\/])(\/[a-zA-Z][a-zA-Z0-9\-_\/]*)/g, '<a href="$1">$1</a>');
+    // Auto-link bare relative paths like /about or /projects/foo — only when
+    // preceded by whitespace or start of string, so mid-word slashes like
+    // "contact/collaborate" are not linked.
+    s = s.replace(/(^|\s)(\/[a-zA-Z][a-zA-Z0-9\-_\/]*)/g, '$1<a href="$2">$2</a>');
     s = s.replace(/\n/g, '<br>');
     return s;
   }

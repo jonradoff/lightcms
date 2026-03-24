@@ -3,6 +3,7 @@
 [![CI](https://github.com/jonradoff/lightcms/actions/workflows/ci.yml/badge.svg)](https://github.com/jonradoff/lightcms/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/jonradoff/lightcms/branch/main/graph/badge.svg)](https://codecov.io/gh/jonradoff/lightcms)
 [![Go Report Card](https://goreportcard.com/badge/github.com/jonradoff/lightcms)](https://goreportcard.com/report/github.com/jonradoff/lightcms)
+[![lightcms MCP server](https://glama.ai/mcp/servers/jonradoff/lightcms/badges/score.svg)](https://glama.ai/mcp/servers/jonradoff/lightcms)
 
 A lightweight, AI-native content management system for building and managing websites. Built with Go and MongoDB Atlas.
 
