@@ -17,6 +17,9 @@ import (
 // Theme
 
 func (a *APIHandler) APIGetTheme(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermSettingsView) {
+		return
+	}
 	theme, err := a.settingsService.GetTheme(r.Context())
 	if err != nil {
 		a.jsonError(w, http.StatusInternalServerError, err.Error())
@@ -121,6 +124,9 @@ func (a *APIHandler) APIUpdateTheme(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *APIHandler) APIListThemeVersions(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermSettingsView) {
+		return
+	}
 	versions, err := a.settingsService.GetThemeVersions(r.Context())
 	if err != nil {
 		a.jsonError(w, http.StatusInternalServerError, err.Error())
@@ -130,6 +136,9 @@ func (a *APIHandler) APIListThemeVersions(w http.ResponseWriter, r *http.Request
 }
 
 func (a *APIHandler) APIGetThemeVersion(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermSettingsView) {
+		return
+	}
 	version, err := strconv.Atoi(mux.Vars(r)["version"])
 	if err != nil {
 		a.jsonError(w, http.StatusBadRequest, "invalid version number")
@@ -202,12 +211,21 @@ func (a *APIHandler) APIPinThemeVersion(w http.ResponseWriter, r *http.Request) 
 // Site Config
 
 func (a *APIHandler) APIGetSiteConfig(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermSettingsView) {
+		return
+	}
 	config, err := a.settingsService.GetSiteConfig(r.Context())
 	if err != nil {
 		a.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	a.jsonResponse(w, http.StatusOK, config)
+	// Redact the Cloudflare API token from API responses — it's a secret.
+	// Callers only need to know whether a token is configured, not its value.
+	redacted := *config
+	if redacted.CloudflareAPIToken != "" {
+		redacted.CloudflareAPIToken = "***"
+	}
+	a.jsonResponse(w, http.StatusOK, redacted)
 }
 
 func (a *APIHandler) APIUpdateSiteConfig(w http.ResponseWriter, r *http.Request) {
@@ -267,6 +285,9 @@ func (a *APIHandler) APIUpdateSiteConfig(w http.ResponseWriter, r *http.Request)
 // Redirects
 
 func (a *APIHandler) APIListRedirects(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermSettingsView) {
+		return
+	}
 	redirects, err := a.settingsService.ListRedirects(r.Context())
 	if err != nil {
 		a.jsonError(w, http.StatusInternalServerError, err.Error())
@@ -276,6 +297,9 @@ func (a *APIHandler) APIListRedirects(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *APIHandler) APIGetRedirect(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermSettingsView) {
+		return
+	}
 	id, err := primitive.ObjectIDFromHex(mux.Vars(r)["id"])
 	if err != nil {
 		a.jsonError(w, http.StatusBadRequest, "invalid redirect ID")
@@ -399,6 +423,9 @@ func (a *APIHandler) APIDeleteRedirect(w http.ResponseWriter, r *http.Request) {
 // Folders
 
 func (a *APIHandler) APIListFolders(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermSettingsView) {
+		return
+	}
 	folders, err := a.settingsService.ListFolders(r.Context())
 	if err != nil {
 		a.jsonError(w, http.StatusInternalServerError, err.Error())
@@ -408,6 +435,9 @@ func (a *APIHandler) APIListFolders(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *APIHandler) APIGetFolder(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermSettingsView) {
+		return
+	}
 	id, err := primitive.ObjectIDFromHex(mux.Vars(r)["id"])
 	if err != nil {
 		a.jsonError(w, http.StatusBadRequest, "invalid folder ID")
@@ -487,6 +517,9 @@ func (a *APIHandler) APIDeleteFolder(w http.ResponseWriter, r *http.Request) {
 // Collections
 
 func (a *APIHandler) APIListCollections(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermSettingsView) {
+		return
+	}
 	collections, err := a.settingsService.ListCollections(r.Context())
 	if err != nil {
 		a.jsonError(w, http.StatusInternalServerError, err.Error())
@@ -496,6 +529,9 @@ func (a *APIHandler) APIListCollections(w http.ResponseWriter, r *http.Request) 
 }
 
 func (a *APIHandler) APIGetCollection(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermSettingsView) {
+		return
+	}
 	id, err := primitive.ObjectIDFromHex(mux.Vars(r)["id"])
 	if err != nil {
 		a.jsonError(w, http.StatusBadRequest, "invalid collection ID")

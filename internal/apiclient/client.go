@@ -848,3 +848,354 @@ func (c *Client) ArchiveFork(ctx context.Context, forkID string) error {
 func (c *Client) DeleteFork(ctx context.Context, forkID string) error {
 	return c.do(ctx, "DELETE", "/forks/"+forkID, nil, nil)
 }
+
+// ---------------------------------------------------------------------------
+// Import operations
+// ---------------------------------------------------------------------------
+
+// ListImportSources returns all configured import sources.
+func (c *Client) ListImportSources(ctx context.Context) ([]ImportSource, error) {
+	var result []ImportSource
+	if err := c.do(ctx, "GET", "/imports/sources", nil, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// CreateImportSource creates a new RSS/Atom import source.
+func (c *Client) CreateImportSource(ctx context.Context, req CreateImportSourceRequest) (*ImportSource, error) {
+	var result ImportSource
+	if err := c.do(ctx, "POST", "/imports/sources", req, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// UpdateImportSource updates an existing import source by ID.
+func (c *Client) UpdateImportSource(ctx context.Context, id string, req UpdateImportSourceRequest) (*ImportSource, error) {
+	var result ImportSource
+	if err := c.do(ctx, "PUT", "/imports/sources/"+id, req, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// DeleteImportSource deletes an import source by ID.
+func (c *Client) DeleteImportSource(ctx context.Context, id string) error {
+	return c.do(ctx, "DELETE", "/imports/sources/"+id, nil, nil)
+}
+
+// TriggerImportSource manually triggers an RSS import source.
+func (c *Client) TriggerImportSource(ctx context.Context, id string) (*ImportJobResponse, error) {
+	var result ImportJobResponse
+	if err := c.do(ctx, "POST", "/imports/sources/"+id+"/trigger", nil, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// ImportMarkdown submits one or more markdown pages for import.
+func (c *Client) ImportMarkdown(ctx context.Context, req ImportMarkdownRequest) (*ImportJobResponse, error) {
+	var result ImportJobResponse
+	if err := c.do(ctx, "POST", "/imports/markdown", req, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// ImportCSV submits CSV data for import.
+func (c *Client) ImportCSV(ctx context.Context, req ImportCSVRequest) (*ImportJobResponse, error) {
+	var result ImportJobResponse
+	if err := c.do(ctx, "POST", "/imports/csv", req, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// ListImportJobs returns recent import jobs.
+func (c *Client) ListImportJobs(ctx context.Context, limit int) ([]ImportJob, error) {
+	path := "/imports/jobs"
+	if limit > 0 {
+		path += "?limit=" + strconv.Itoa(limit)
+	}
+	var result []ImportJob
+	if err := c.do(ctx, "GET", path, nil, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// GetImportJob returns a specific import job with optional log lines.
+func (c *Client) GetImportJob(ctx context.Context, id string, includeLogs bool) (*ImportJobDetail, error) {
+	path := "/imports/jobs/" + id
+	if !includeLogs {
+		path += "?logs=false"
+	}
+	var result ImportJobDetail
+	if err := c.do(ctx, "GET", path, nil, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// CancelImportJob cancels a running import job.
+func (c *Client) CancelImportJob(ctx context.Context, id string) error {
+	return c.do(ctx, "POST", "/imports/jobs/"+id+"/cancel", nil, nil)
+}
+
+// ---------------------------------------------------------------------------
+// Webhook operations
+// ---------------------------------------------------------------------------
+
+func (c *Client) ListWebhooks(ctx context.Context) ([]Webhook, error) {
+	var result []Webhook
+	if err := c.do(ctx, "GET", "/webhooks", nil, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (c *Client) CreateWebhook(ctx context.Context, req CreateWebhookRequest) (*WebhookCreated, error) {
+	var result WebhookCreated
+	if err := c.do(ctx, "POST", "/webhooks", req, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func (c *Client) UpdateWebhook(ctx context.Context, id string, req UpdateWebhookRequest) (map[string]interface{}, error) {
+	var result map[string]interface{}
+	if err := c.do(ctx, "PUT", "/webhooks/"+id, req, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (c *Client) DeleteWebhook(ctx context.Context, id string) error {
+	return c.do(ctx, "DELETE", "/webhooks/"+id, nil, nil)
+}
+
+func (c *Client) RegenerateWebhookSecret(ctx context.Context, id string) (string, error) {
+	var result struct {
+		Secret string `json:"secret"`
+	}
+	if err := c.do(ctx, "POST", "/webhooks/"+id+"/regenerate-secret", nil, &result); err != nil {
+		return "", err
+	}
+	return result.Secret, nil
+}
+
+func (c *Client) ListWebhookDeliveries(ctx context.Context, id string, limit int) ([]WebhookDelivery, error) {
+	path := "/webhooks/" + id + "/deliveries"
+	if limit > 0 {
+		path += "?limit=" + strconv.Itoa(limit)
+	}
+	var result []WebhookDelivery
+	if err := c.do(ctx, "GET", path, nil, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// ---------------------------------------------------------------------------
+// Content lock operations
+// ---------------------------------------------------------------------------
+
+func (c *Client) GetContentLock(ctx context.Context, contentID string) (*ContentLock, error) {
+	var result ContentLock
+	if err := c.do(ctx, "GET", "/content/"+contentID+"/lock", nil, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func (c *Client) AcquireContentLock(ctx context.Context, contentID string) (*ContentLock, error) {
+	var result ContentLock
+	if err := c.do(ctx, "POST", "/content/"+contentID+"/lock", nil, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func (c *Client) ReleaseContentLock(ctx context.Context, contentID string) error {
+	return c.do(ctx, "DELETE", "/content/"+contentID+"/lock", nil, nil)
+}
+
+func (c *Client) ForceUnlockContent(ctx context.Context, contentID string) error {
+	return c.do(ctx, "POST", "/content/"+contentID+"/lock/force", nil, nil)
+}
+
+// ---------------------------------------------------------------------------
+// Scheduled publish operations
+// ---------------------------------------------------------------------------
+
+func (c *Client) ScheduleContentPublish(ctx context.Context, contentID string, publishAt *string) (map[string]interface{}, error) {
+	req := map[string]interface{}{"publish_at": publishAt}
+	var result map[string]interface{}
+	if err := c.do(ctx, "POST", "/content/"+contentID+"/schedule", req, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (c *Client) ListScheduledContent(ctx context.Context, folder string) ([]ScheduledContent, error) {
+	path := "/content/scheduled"
+	if folder != "" {
+		path += "?folder=" + url.QueryEscape(folder)
+	}
+	var result []ScheduledContent
+	if err := c.do(ctx, "GET", path, nil, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// ---------------------------------------------------------------------------
+// Audit log operations
+// ---------------------------------------------------------------------------
+
+func (c *Client) ListAuditLogs(ctx context.Context, limit int, action, resource string) (*AuditLogList, error) {
+	params := url.Values{}
+	if limit > 0 {
+		params.Set("limit", strconv.Itoa(limit))
+	}
+	if action != "" {
+		params.Set("action", action)
+	}
+	if resource != "" {
+		params.Set("resource", resource)
+	}
+	path := "/audit"
+	if len(params) > 0 {
+		path += "?" + params.Encode()
+	}
+	var result AuditLogList
+	if err := c.do(ctx, "GET", path, nil, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// ---------------------------------------------------------------------------
+// Link check operations
+// ---------------------------------------------------------------------------
+
+func (c *Client) StartLinkCheck(ctx context.Context) (*LinkCheckJobResponse, error) {
+	var result LinkCheckJobResponse
+	if err := c.do(ctx, "POST", "/link-check", nil, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func (c *Client) GetLinkCheckJob(ctx context.Context, id string) (*LinkCheckJob, error) {
+	var result LinkCheckJob
+	if err := c.do(ctx, "GET", "/link-check/"+id, nil, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// ---------------------------------------------------------------------------
+// Comments
+// ---------------------------------------------------------------------------
+
+func (c *Client) ListComments(ctx context.Context, contentID string) ([]ContentComment, error) {
+	var result []ContentComment
+	if err := c.do(ctx, "GET", "/content/"+contentID+"/comments", nil, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (c *Client) CreateComment(ctx context.Context, contentID string, req CreateCommentRequest) (*ContentComment, error) {
+	var result ContentComment
+	if err := c.do(ctx, "POST", "/content/"+contentID+"/comments", req, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func (c *Client) DeleteComment(ctx context.Context, contentID, commentID string) error {
+	return c.do(ctx, "DELETE", "/content/"+contentID+"/comments/"+commentID, nil, nil)
+}
+
+// ---------------------------------------------------------------------------
+// Approval Workflows
+// ---------------------------------------------------------------------------
+
+func (c *Client) ListApprovalWorkflows(ctx context.Context) ([]ApprovalWorkflow, error) {
+	var result []ApprovalWorkflow
+	if err := c.do(ctx, "GET", "/approval-workflows", nil, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (c *Client) GetApprovalWorkflow(ctx context.Context, id string) (*ApprovalWorkflow, error) {
+	var result ApprovalWorkflow
+	if err := c.do(ctx, "GET", "/approval-workflows/"+id, nil, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func (c *Client) CreateApprovalWorkflow(ctx context.Context, req CreateWorkflowRequest) (*ApprovalWorkflow, error) {
+	var result ApprovalWorkflow
+	if err := c.do(ctx, "POST", "/approval-workflows", req, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func (c *Client) UpdateApprovalWorkflow(ctx context.Context, id string, req CreateWorkflowRequest) error {
+	return c.do(ctx, "PUT", "/approval-workflows/"+id, req, nil)
+}
+
+func (c *Client) DeleteApprovalWorkflow(ctx context.Context, id string) error {
+	return c.do(ctx, "DELETE", "/approval-workflows/"+id, nil, nil)
+}
+
+// ---------------------------------------------------------------------------
+// Approval Requests
+// ---------------------------------------------------------------------------
+
+func (c *Client) ListApprovalRequests(ctx context.Context, filter string) ([]ApprovalRequest, error) {
+	path := "/approval-requests"
+	if filter != "" {
+		path += "?filter=" + filter
+	}
+	var result []ApprovalRequest
+	if err := c.do(ctx, "GET", path, nil, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (c *Client) GetApprovalRequest(ctx context.Context, id string) (*ApprovalRequest, error) {
+	var result ApprovalRequest
+	if err := c.do(ctx, "GET", "/approval-requests/"+id, nil, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func (c *Client) SubmitForApproval(ctx context.Context, contentID string) (*ApprovalRequest, error) {
+	var result ApprovalRequest
+	if err := c.do(ctx, "POST", "/content/"+contentID+"/submit-approval", nil, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func (c *Client) ApproveRequest(ctx context.Context, id string, req ApproveRejectRequest) error {
+	return c.do(ctx, "POST", "/approval-requests/"+id+"/approve", req, nil)
+}
+
+func (c *Client) RejectRequest(ctx context.Context, id string, req ApproveRejectRequest) error {
+	return c.do(ctx, "POST", "/approval-requests/"+id+"/reject", req, nil)
+}
+
+func (c *Client) CancelApprovalRequest(ctx context.Context, id string) error {
+	return c.do(ctx, "POST", "/approval-requests/"+id+"/cancel", nil, nil)
+}

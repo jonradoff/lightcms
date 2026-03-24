@@ -89,7 +89,7 @@ Once connected, you can ask Claude to manage your content naturally:
 Binary: `bin/lightcms-mcp`
 Config: Uses same `config.dev.json` or environment variables as main server
 
-### Available MCP Tools (71 total):
+### Available MCP Tools (106 total):
 
 **Content (22 tools):** list_content, get_content, create_content, update_content, update_content_by_path, publish_content, publish_multiple, unpublish_content, delete_content, restore_content, preview_content, get_content_versions, get_content_version, revert_to_version, bulk_update_content, bulk_field_operation, export_content, get_backlinks
 
@@ -104,6 +104,10 @@ Config: Uses same `config.dev.json` or environment variables as main server
 **Settings (18 tools):** get_theme, update_theme, get_theme_versions, get_theme_version, revert_theme_to_version, pin_theme_version, unpin_theme_version, get_site_config, update_site_config, list_redirects, create_redirect, update_redirect, delete_redirect, list_folders, create_folder, get_folder, delete_folder, list_collections, create_collection, get_collection, update_collection, delete_collection, regenerate_all_content
 
 **Forks (8 tools):** list_forks, create_fork, get_fork, fork_page, remove_fork_page, merge_fork, archive_fork, delete_fork
+
+**Comments (3 tools, v6.0+):** list_comments, create_comment, delete_comment
+
+**Approvals (11 tools, v6.0+):** list_approval_workflows, get_approval_workflow, create_approval_workflow, update_approval_workflow, delete_approval_workflow, list_approval_requests, get_approval_request, submit_for_approval, approve_request, reject_request, cancel_approval_request
 
 ### ⚠️ CRITICAL: Search & Replace Safety
 

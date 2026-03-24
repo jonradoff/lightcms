@@ -5,14 +5,55 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/jonradoff/lightcms)](https://goreportcard.com/report/github.com/jonradoff/lightcms)
 [![lightcms MCP server](https://glama.ai/mcp/servers/jonradoff/lightcms/badges/score.svg)](https://glama.ai/mcp/servers/jonradoff/lightcms)
 
-A lightweight, AI-native content management system for building and managing websites. Built with Go and MongoDB Atlas.
+LightCMS is a Go-powered content management system built for the AI era. It's simultaneously **AI-native** (semantic search, built-in Claude-powered chat widget, MCP server for agent control), **agentically controllable** (Claude Code and any MCP client can read, write, publish, and bulk-import content via 106 MCP tools), and **agentically updatable** (the codebase is clean, well-structured Go — coding agents can safely extend it). For teams that want a CMS that works with AI rather than around it.
+
+## What's New in v6.0
+
+| Feature | Summary |
+|---------|---------|
+| **Content Approvals** | Contributors submit content for approval; editors/admins approve or reject from `/cm/approvals`. Rejection comments auto-post to the discussion thread. |
+| **Contributor Role** | New RBAC role between Viewer and Editor. Can create content + upload assets (pending), post comments, and submit for approval — but cannot publish directly or manage system settings. |
+| **Approval Workflows** | Configurable trigger-based workflows (contributor, folder path, template ID, or tag). Sequential or concurrent mode with configurable approver lists. |
+| **Content Discussion** | Inline comment thread at the bottom of every edit page. @mention autocomplete, live badge count, admin delete. |
+| **Tabbed Bottom Panel** | Discussion, Version History, and Forks organized into tabs on the content edit page. |
+| **Approvals Dashboard** | My Queue + Other Pending + Workflow Config at `/cm/approvals`. Sidebar badge shows pending count. |
+| **Dashboard Sections** | Requiring Approvals and Recent Comments appear on the admin dashboard when relevant. |
+| **New Webhook Events** | `comment.created`, `content.pending_approval`, `asset.pending_review`. |
+| **14 new MCP tools** | Full comment and approval lifecycle — list/create/delete comments, full workflow CRUD, list/get/submit/approve/reject/cancel approval requests. |
+
+## What's New in v5.0
+
+| Feature | Summary |
+|---------|---------|
+| **Import Pipeline** | Three new import types — RSS/Atom feeds, Markdown/ZIP upload, CSV bulk import — with a unified job dashboard at `/cm/imports`. |
+| **RSS/Atom Import** | Configure recurring feed sources with hourly/daily/weekly schedules, template mapping, folder targeting, and auto-publish. |
+| **Markdown Import** | Upload `.md` files or `.zip` archives with YAML frontmatter. Supports Notion exports, Obsidian vaults, Hugo/Jekyll migrations, and AI-generated content. |
+| **CSV Import** | Upload CSV files and map columns to content fields. Specify the title column; all other columns become fields automatically. |
+| **Real-time Job Status** | SSE-powered live log stream at `/cm/imports/{jobID}`. Watch imports happen line-by-line or review full history after the fact. |
+| **10 new MCP import tools** | `list_import_sources`, `create_import_source`, `update_import_source`, `delete_import_source`, `trigger_import_source`, `import_markdown`, `import_csv`, `list_import_jobs`, `get_import_job`, `cancel_import_job`. |
+| **Agentic bulk content creation** | `import_markdown` is designed for AI agents to generate and import large content batches in a single call. See [MCP.md](MCP.md). |
+| **Deduplication** | Imports match by `full_path` — re-importing the same slug updates rather than duplicates. |
+
+## What's New in v4.5
+
+| Feature | Summary |
+|---------|---------|
+| **Webhooks** | HMAC-SHA256 signed events for `publish`, `unpublish`, `delete`, `create`, `update`. Admin UI at `/cm/webhooks` with delivery history and a docs page. |
+| **Scheduled Publishing** | Set a future `publish_at` timestamp on any content item; a background scheduler auto-publishes at the right time. |
+| **Content Locking** | Advisory lock when editing (30-min expiry). Warning banner if another user is already editing. Admins can force-unlock. |
+| **Incremental Static Regeneration (ISR)** | Template layout changes regenerate affected pages in 20-page batches, preventing server overload on large sites. |
+| **Edge Caching Headers** | ETag, Cache-Control, Last-Modified, and Vary headers on all public pages. 304 Not Modified support. |
+| **Cloudflare Integration** | Configure Zone ID + API Token to auto-purge Cloudflare cache on publish/unpublish. |
+| **Structured JSON Logging** | All server logs emit structured JSON with `timestamp`, `level`, `message`, and context fields. |
+| **Rate Limit Dashboard** | New tab on the audit log page showing locked IPs, attempt counts, and a one-click clear button. |
+| **MCP Prompt Resources** | Three new MCP resources: `lightcms://site/structure`, `lightcms://content/recent`, `lightcms://theme/config`. |
 
 ## Why LightCMS?
 
-**Lightweight**: A clean, focused codebase (~5K lines of Go) that's easy to understand, modify, and extend. No bloated frameworks or complex abstractions.
+**Lightweight**: A clean, focused codebase that's easy to understand, modify, and extend. No bloated frameworks or complex abstractions.
 
 **AI-Native**: Built from the ground up for the AI era:
-- **MCP Integration**: Full Model Context Protocol server with 72 tools for website management. Supports both local stdio and HTTP streamable transports — connect from Claude Code, Claude Desktop, or any MCP-compatible client.
+- **MCP Integration**: Full Model Context Protocol server with 106 tools and 3 prompt resources for website management. Supports both local stdio and HTTP streamable transports — connect from Claude Code, Claude Desktop, or any MCP-compatible client.
 - **OAuth 2.1 for Remote Agents**: Sandboxed desktop apps like Claude's Cowork can securely connect over HTTP using OAuth 2.1 with PKCE. No embedded passwords — just authorize once and the agent manages your site.
 - **Fork-Friendly**: Designed to be forked and customized by Claude Code. Ask Claude to add new content types, modify templates, or build custom features — the codebase is structured for AI-assisted development.
 - **Natural Language Website Management**: Skip the admin UI entirely. Create pages, manage assets, customize themes, and publish content through conversation.
@@ -32,6 +73,16 @@ A lightweight, AI-native content management system for building and managing web
 - **Rich Text Editor**: TinyMCE integration for visual content editing
 - **Regex Search & Replace**: Site-wide or scoped search-and-replace with RE2 regex support, capture groups, and mandatory preview step
 - **Bulk Operations**: Update or apply field operations across up to 100 pages in a single API call; export/transform/re-import pipelines
+- **Scheduled Publishing** (v4.5+): Set a future `publish_at` timestamp; a background scheduler auto-publishes at the right time
+- **Content Locking** (v4.5+): Advisory lock while editing (30-min expiry); warning banner if another user holds the lock; admins can force-unlock
+- **Incremental Static Regeneration** (v4.5+): Template layout changes regenerate pages in 20-page batches to prevent server overload on large sites
+
+### Import Pipeline (v5.0+)
+- **RSS/Atom Feed Sources**: Configure recurring import sources with configurable schedule (hourly/daily/weekly), template mapping, folder targeting, and auto-publish. Manage sources and run history from `/cm/imports`.
+- **Markdown + ZIP Import**: Upload `.md` files or `.zip` archives of Markdown. YAML frontmatter in each file controls title, slug, folder, template, tags, and scheduled publish time. Supports Notion exports, Obsidian vaults, Hugo/Jekyll site migrations, and AI-generated content.
+- **CSV Bulk Import**: Upload a CSV and specify which column is the title; all other columns are stored as content fields automatically.
+- **Real-time SSE Job Status**: Live log stream at `/cm/imports/{jobID}` — watch imports happen line-by-line or review full history after the fact.
+- **MCP-first Design**: `import_markdown` is specifically designed for AI agents to generate and import large content batches in a single call, replacing dozens of `create_content` calls with one `import_markdown` + one `get_import_job`. See [MCP.md](MCP.md) for workflow examples.
 
 ### Content Forks (v4.0+)
 - **Fork Workspaces**: Create named staging workspaces where sets of page edits can be authored, previewed, and reviewed before going live
@@ -61,10 +112,15 @@ Recommended agent pattern for large updates: `list_content` → transform in par
 - **Dedicated Rate Limiting**: Separate per-IP (5/min) and global (30/min) limiters independent from the search and API limiters
 - **Source Attribution**: Every response includes the content pages whose excerpts were used, with titles and paths
 
-### Multi-User Access Control (v2.0+)
-- **Role-Based Access Control (RBAC)**: Three roles — admin, editor, viewer — with granular permission enforcement on all admin UI pages and REST API endpoints
+### Multi-User Access Control & Approvals (v2.0+, v6.0+)
+- **Role-Based Access Control (RBAC)**: Four roles — admin, editor, contributor, viewer — with granular permission enforcement on all admin UI pages and REST API endpoints
+- **Contributor Role** (v6.0+): Create content, upload assets, post comments, and submit for editorial approval — without publish rights
+- **Approval Workflows** (v6.0+): Configurable trigger-based workflows (by role, folder, template, or tag). Sequential or concurrent mode. Default (no workflow): any editor or admin can approve
+- **Content Approvals Dashboard** (v6.0+): My Queue, Other Pending, and Workflow Config at `/cm/approvals`. Sidebar badge shows pending count
+- **Content Discussion** (v6.0+): Inline threaded comments on every content edit page. @mention autocomplete, admin delete, live count badge
 - **User Management**: Admin panel for creating users, assigning roles, disabling accounts, and resetting passwords
 - **Audit Log**: Persistent, searchable log of all mutations (who did what, when) with 365-day retention
+- **Rate Limit Dashboard** (v4.5+): New tab on the audit log page showing locked IPs, attempt counts, and a clear button
 - **User-Scoped API Keys**: API keys inherit the permissions of their owning user
 - **Force Password Change**: Temporary passwords trigger a mandatory change on first login
 
@@ -79,10 +135,14 @@ Recommended agent pattern for large updates: `list_content` → transform in par
 
 ### Developer & Integration
 - **REST API**: Full `/api/v1/` JSON API with API key and OAuth token authentication, RBAC-enforced
-- **MCP Server**: 72 tools for agentic website management (stdio + HTTP streamable)
+- **MCP Server**: 106 tools + 3 prompt resources for agentic website management (stdio + HTTP streamable)
 - **OAuth 2.1**: Authorization code flow with PKCE for remote MCP clients — no embedded passwords
 - **CLI Tool**: Command-line interface for all content management operations
 - **URL Redirects**: 301/302 redirect rules managed from the admin panel
+- **Webhooks** (v4.5+): HMAC-SHA256 signed event delivery for 6 event types (`content.create`, `content.update`, `content.publish`, `content.unpublish`, `content.delete`, and more); per-webhook secrets; delivery history with retry visibility; admin UI at `/cm/webhooks`
+- **Cloudflare Integration** (v4.5+): Auto-purge Cloudflare cache on publish/unpublish via Zone ID + API Token
+- **Edge Caching Headers** (v4.5+): ETag, Cache-Control, Last-Modified, Vary, and 304 Not Modified on all public pages
+- **Structured JSON Logging** (v4.5+): All server logs emit structured JSON with timestamp, level, message, and context fields
 
 ### Site Customization
 - **Theme Customization**: Colors, fonts, border radius, custom CSS — all editable in the admin panel with version history
@@ -838,7 +898,7 @@ Run `lightcms --help` for full usage.
 
 [![lightcms MCP server](https://glama.ai/mcp/servers/jonradoff/lightcms/badges/card.svg)](https://glama.ai/mcp/servers/jonradoff/lightcms)
 
-LightCMS includes a full MCP (Model Context Protocol) server with 72 tools for managing your entire website through AI agents. It supports two transport modes:
+LightCMS includes a full MCP (Model Context Protocol) server with 92 tools and 3 prompt resources for managing your entire website through AI agents. It supports two transport modes:
 
 - **Stdio** — for local tools like Claude Code
 - **HTTP Streamable** — for remote/sandboxed clients like Claude's Cowork, Claude Desktop, or any MCP-compatible app
@@ -897,7 +957,7 @@ The MCP HTTP endpoint accepts both authentication methods:
 
 Both methods enforce RBAC based on the authenticated user's role.
 
-### Available Tools (72 total)
+### Available Tools (106 total) + 3 Prompt Resources
 
 - **Content** (20): create, read, update, delete, publish, unpublish, restore, versioning, revert, preview, bulk update, bulk field operation, export, backlinks, update by path, publish multiple
 - **Templates** (5): create, read, update, delete, list
@@ -906,6 +966,14 @@ Both methods enforce RBAC based on the authenticated user's role.
 - **Search** (7): full-text search, end-user search, search-and-replace (global + scoped, preview + execute), reindex embeddings
 - **Settings** (23): theme CRUD + versioning + pinning, site config, redirects, folders, collections, regenerate all content
 - **Forks** (8): list, create, get, fork page, remove page, merge, archive, delete
+- **Import** (10, v5.0+): list/create/update/delete/trigger import sources, import markdown, import CSV, list/get/cancel import jobs
+- **Webhooks** (6, v4.5+): list, create, get, update, delete webhooks; regenerate secret
+- **Content Locking** (4, v4.5+): get lock, acquire lock, release lock, force-unlock
+- **Scheduled Publishing** (3, v4.5+): schedule publish, list scheduled, cancel scheduled
+- **Audit & Link Check** (3, v4.5+): get audit log, check links, list broken links
+- **Comments** (3, v6.0+): list comments, post comment, delete comment
+- **Approvals** (11, v6.0+): list/get/create/update/delete approval workflows; list/get/submit/approve/reject/cancel approval requests
+- **Prompt Resources** (3, v4.5+): `lightcms://site/structure`, `lightcms://content/recent`, `lightcms://theme/config`
 
 For detailed API documentation, see [MCP.md](MCP.md).
 

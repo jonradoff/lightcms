@@ -23,7 +23,7 @@ func NewServer(client *apiclient.Client) *Server {
 	mcpServer := mcp.NewServer(
 		&mcp.Implementation{
 			Name:    "lightcms",
-			Version: "1.1.0",
+			Version: "6.0.0",
 		},
 		nil,
 	)
@@ -41,6 +41,17 @@ func NewServer(client *apiclient.Client) *Server {
 	s.registerSearchTools()
 	s.registerSnippetTools()
 	s.registerForkTools()
+	s.registerImportTools()
+	s.registerWebhookTools()
+	s.registerLockTools()
+	s.registerScheduleTools()
+	s.registerAuditTools()
+	s.registerLinkCheckTools()
+	s.registerCommentTools()
+	s.registerApprovalTools()
+
+	// Register resources
+	s.registerResources()
 
 	return s
 }
@@ -115,7 +126,7 @@ func ServerCard(baseURL string) ([]byte, error) {
 	card := map[string]interface{}{
 		"serverInfo": map[string]string{
 			"name":    "LightCMS",
-			"version": "4.2.0",
+			"version": "4.5.0",
 		},
 		"endpoint":  "/mcp",
 		"transport": []string{"streamable-http", "stdio"},

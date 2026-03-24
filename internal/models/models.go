@@ -56,11 +56,15 @@ type Content struct {
 	Embedding       []float32              `bson:"embedding,omitempty" json:"-"`                            // Voyage AI vector embedding (1024 dims)
 	EmbeddingAt     *time.Time             `bson:"embedding_at,omitempty" json:"-"`                         // When embedding was last generated
 	PlainText       string                 `bson:"plain_text,omitempty" json:"-"`                           // Cached stripped-HTML text for search snippets
+	PublishAt       *time.Time             `bson:"publish_at,omitempty" json:"publish_at,omitempty"` // Scheduled publish time
 	Deleted         bool                   `bson:"deleted" json:"deleted"`       // Soft delete flag
 	DeletedAt       *time.Time             `bson:"deleted_at,omitempty" json:"deleted_at,omitempty"`
+	SourceURL     string                 `bson:"source_url,omitempty" json:"source_url,omitempty"` // Original URL for imported content (RSS dedup key)
 	// Fork fields — set when this content item belongs to a fork workspace
 	ForkID        *primitive.ObjectID    `bson:"fork_id,omitempty" json:"fork_id,omitempty"`         // nil for live content
 	BaseUpdatedAt *time.Time             `bson:"base_updated_at,omitempty" json:"base_updated_at,omitempty"` // updated_at of the live page at fork time (for conflict detection)
+	// Approval fields — set when a Contributor submits content for review
+	PendingApproval bool                   `bson:"pending_approval,omitempty" json:"pending_approval,omitempty"`
 	CreatedAt       time.Time              `bson:"created_at" json:"created_at"`
 	UpdatedAt       time.Time              `bson:"updated_at" json:"updated_at"`
 }
@@ -194,9 +198,12 @@ type Asset struct {
 	MimeType    string             `bson:"mime_type" json:"mime_type"`       // MIME type (e.g., image/png)
 	Size        int64              `bson:"size" json:"size"`                 // File size in bytes
 	Data        []byte             `bson:"data" json:"data"`                 // File binary data
-	Description string             `bson:"description" json:"description"`   // Optional description
-	CreatedAt   time.Time          `bson:"created_at" json:"created_at"`
-	UpdatedAt   time.Time          `bson:"updated_at" json:"updated_at"`
+	Description    string              `bson:"description" json:"description"`       // Optional description
+	UploadedByID   *primitive.ObjectID `bson:"uploaded_by_id,omitempty" json:"uploaded_by_id,omitempty"`
+	UploadedByRole string              `bson:"uploaded_by_role,omitempty" json:"uploaded_by_role,omitempty"`
+	PendingReview  bool                `bson:"pending_review,omitempty" json:"pending_review,omitempty"` // true when uploaded by a contributor
+	CreatedAt      time.Time           `bson:"created_at" json:"created_at"`
+	UpdatedAt      time.Time           `bson:"updated_at" json:"updated_at"`
 }
 
 // Default templates

@@ -21,6 +21,7 @@ func init() {
 			bulkUpdateLimiter.prune()
 			exportLimiter.prune()
 			reindexLimiter.prune()
+			commentCreateLimiter.prune()
 		}
 	}()
 }
@@ -181,6 +182,7 @@ var (
 	bulkUpdateLimiter           = newEndpointRateLimiter(5)  // 5 bulk-update calls per minute
 	exportLimiter               = newEndpointRateLimiter(5)  // 5 exports per minute
 	reindexLimiter              = newEndpointRateLimiter(1)  // 1 full reindex per minute
+	commentCreateLimiter        = newEndpointRateLimiter(20) // 20 comments per minute per token
 )
 
 // EndpointRateLimit returns middleware that enforces a per-token limit for a specific
@@ -234,4 +236,9 @@ func ExportLimiter() func(http.Handler) http.Handler {
 // ReindexLimiter returns middleware limiting embedding reindex to 1/min per token.
 func ReindexLimiter() func(http.Handler) http.Handler {
 	return EndpointRateLimit(reindexLimiter, "reindex-embeddings (1/min)")
+}
+
+// CommentCreateLimiter returns middleware limiting comment creation to 20/min per token.
+func CommentCreateLimiter() func(http.Handler) http.Handler {
+	return EndpointRateLimit(commentCreateLimiter, "comment creation (20/min)")
 }

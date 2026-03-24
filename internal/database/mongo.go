@@ -390,6 +390,50 @@ func (db *DB) createIndexes(ctx context.Context) error {
 		}
 	}
 
+	// webhooks collection indexes
+	db.database.Collection("webhooks").Indexes().CreateMany(ctx, []mongo.IndexModel{
+		{Keys: bson.D{{Key: "active", Value: 1}}},
+		{Keys: bson.D{{Key: "created_at", Value: -1}}},
+	})
+	// webhook_deliveries collection — compound + TTL
+	db.database.Collection("webhook_deliveries").Indexes().CreateMany(ctx, []mongo.IndexModel{
+		{Keys: bson.D{{Key: "webhook_id", Value: 1}, {Key: "created_at", Value: -1}}},
+		{Keys: bson.D{{Key: "created_at", Value: 1}}, Options: options.Index().SetExpireAfterSeconds(30 * 24 * 3600)},
+	})
+	// content_locks collection — unique content_id + TTL
+	db.database.Collection("content_locks").Indexes().CreateMany(ctx, []mongo.IndexModel{
+		{Keys: bson.D{{Key: "content_id", Value: 1}}, Options: options.Index().SetUnique(true)},
+		{Keys: bson.D{{Key: "expires_at", Value: 1}}, Options: options.Index().SetExpireAfterSeconds(0)},
+	})
+	// regen_jobs collection
+	db.database.Collection("regen_jobs").Indexes().CreateMany(ctx, []mongo.IndexModel{
+		{Keys: bson.D{{Key: "status", Value: 1}, {Key: "created_at", Value: -1}}},
+		{Keys: bson.D{{Key: "created_at", Value: -1}}},
+	})
+	// content publish_at sparse index for scheduled publishing
+	db.database.Collection("content").Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    bson.D{{Key: "publish_at", Value: 1}},
+		Options: options.Index().SetSparse(true),
+	})
+
+	// import_sources
+	db.database.Collection("import_sources").Indexes().CreateMany(ctx, []mongo.IndexModel{
+		{Keys: bson.D{{Key: "active", Value: 1}}},
+		{Keys: bson.D{{Key: "schedule", Value: 1}, {Key: "last_run_at", Value: 1}}},
+		{Keys: bson.D{{Key: "created_at", Value: -1}}},
+	})
+	// import_jobs
+	db.database.Collection("import_jobs").Indexes().CreateMany(ctx, []mongo.IndexModel{
+		{Keys: bson.D{{Key: "source_id", Value: 1}, {Key: "started_at", Value: -1}}},
+		{Keys: bson.D{{Key: "status", Value: 1}, {Key: "started_at", Value: -1}}},
+		{Keys: bson.D{{Key: "started_at", Value: -1}}},
+	})
+	// import_logs — TTL 90 days, index by job_id+seq for streaming
+	db.database.Collection("import_logs").Indexes().CreateMany(ctx, []mongo.IndexModel{
+		{Keys: bson.D{{Key: "job_id", Value: 1}, {Key: "seq", Value: 1}}},
+		{Keys: bson.D{{Key: "created_at", Value: 1}}, Options: options.Index().SetExpireAfterSeconds(90 * 24 * 3600)},
+	})
+
 	return nil
 }
 
@@ -663,6 +707,9 @@ type SiteConfig struct {
 	TitleTemplateNoTitle string             `bson:"title_template_no_title"` // Template when page has no title, e.g. "{{site_name}}"
 	MarkdownScriptPolicy string             `bson:"markdown_script_policy" json:"markdown_script_policy"` // Values: "all" (default), "admin_only", "none"
 	MaxUploadBytes       int64              `bson:"max_upload_bytes" json:"max_upload_bytes"` // Max file upload size in bytes (default: 1 MiB)
+	CloudflareZoneID     string             `bson:"cloudflare_zone_id,omitempty" json:"cloudflare_zone_id,omitempty"`
+	CloudflareAPIToken   string             `bson:"cloudflare_api_token,omitempty" json:"cloudflare_api_token,omitempty"`
+	CFCacheEnabled       bool               `bson:"cf_cache_enabled,omitempty" json:"cf_cache_enabled,omitempty"`
 	UpdatedAt            time.Time          `bson:"updated_at"`
 }
 
@@ -930,6 +977,27 @@ func (db *DB) RecordFailedLogin(ctx context.Context, ip string) error {
 
 // ClearLoginAttempts resets the login attempt counter (on successful login)
 func (db *DB) ClearLoginAttempts(ctx context.Context, ip string) error {
+	_, err := db.database.Collection("login_attempts").DeleteOne(ctx, bson.M{"ip": ip})
+	return err
+}
+
+// GetAllLoginAttempts returns all login attempt records sorted by attempts descending.
+func (db *DB) GetAllLoginAttempts(ctx context.Context) ([]LoginAttempt, error) {
+	opts := options.Find().SetSort(bson.D{{Key: "attempts", Value: -1}})
+	cursor, err := db.database.Collection("login_attempts").Find(ctx, bson.M{}, opts)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close(ctx)
+	var attempts []LoginAttempt
+	if err := cursor.All(ctx, &attempts); err != nil {
+		return nil, err
+	}
+	return attempts, nil
+}
+
+// ClearLoginAttemptsByIP removes all login attempt records for a specific IP.
+func (db *DB) ClearLoginAttemptsByIP(ctx context.Context, ip string) error {
 	_, err := db.database.Collection("login_attempts").DeleteOne(ctx, bson.M{"ip": ip})
 	return err
 }

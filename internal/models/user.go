@@ -36,7 +36,8 @@ type AuditLog struct {
 
 // Role constants
 const (
-	RoleAdmin  = "admin"
-	RoleEditor = "editor"
-	RoleViewer = "viewer"
+	RoleAdmin       = "admin"
+	RoleEditor      = "editor"
+	RoleContributor = "contributor" // Can create content (→ approval queue); upload assets (→ review); post comments
+	RoleViewer      = "viewer"
 )

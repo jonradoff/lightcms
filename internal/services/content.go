@@ -45,6 +45,8 @@ func EditorEmailFromContext(ctx context.Context) string {
 type ContentService struct {
 	db               *database.DB
 	searchService    *SearchService
+	webhookService   *WebhookService
+	cfService        *CloudflareService
 	indexRegenCh     chan struct{} // coalescing trigger for RegenerateIndexPages
 	keywordRebuildCh chan struct{} // coalescing trigger for RebuildKeywords
 
@@ -57,6 +59,11 @@ type ContentService struct {
 }
 
 const wikilinkCacheTTL = 60 * time.Second
+
+// DB returns the underlying database handle (for internal use by API handlers).
+func (s *ContentService) DB() *database.DB {
+	return s.db
+}
 
 // NewContentService creates a new content service
 func NewContentService(db *database.DB) *ContentService {
@@ -73,6 +80,32 @@ func NewContentService(db *database.DB) *ContentService {
 // SetSearchService sets the search service for automatic embedding generation
 func (s *ContentService) SetSearchService(ss *SearchService) {
 	s.searchService = ss
+}
+
+// SetWebhookService sets the webhook service for firing content lifecycle events.
+func (s *ContentService) SetWebhookService(ws *WebhookService) {
+	s.webhookService = ws
+}
+
+// SetCloudflareService sets the Cloudflare service for cache purging.
+func (s *ContentService) SetCloudflareService(cf *CloudflareService) {
+	s.cfService = cf
+}
+
+// PurgeCloudflareURLs purges specific paths from the Cloudflare cache.
+// No-op if Cloudflare is not configured.
+func (s *ContentService) PurgeCloudflareURLs(paths []string) {
+	if s.cfService != nil && len(paths) > 0 {
+		go s.cfService.PurgeByURLs(context.Background(), paths)
+	}
+}
+
+// PurgeCloudflareAll purges the entire Cloudflare cache for the zone.
+// No-op if Cloudflare is not configured.
+func (s *ContentService) PurgeCloudflareAll() {
+	if s.cfService != nil {
+		go s.cfService.PurgeEverything(context.Background())
+	}
 }
 
 // indexRegenWorker drains indexRegenCh and runs RegenerateIndexPages, coalescing
@@ -193,6 +226,15 @@ func (s *ContentService) CreateContent(ctx context.Context, content *models.Cont
 		s.triggerEmbedding(content.ID)
 	}
 
+	// Fire webhook event
+	if s.webhookService != nil {
+		s.webhookService.FireEvent(ctx, "content.create", map[string]interface{}{
+			"id":    content.ID.Hex(),
+			"title": content.Title,
+			"path":  content.FullPath,
+		})
+	}
+
 	return nil
 }
 
@@ -238,6 +280,7 @@ func (s *ContentService) UpdateContent(ctx context.Context, content *models.Cont
 			"data":             content.Data,
 			"published":        content.Published,
 			"published_at":     content.PublishedAt,
+			"publish_at":       content.PublishAt,
 			"use_header":       content.UseHeader,
 			"use_footer":       content.UseFooter,
 			"use_theme":        content.UseTheme,
@@ -291,6 +334,15 @@ func (s *ContentService) UpdateContent(ctx context.Context, content *models.Cont
 	// Regenerate index pages that may reference this content via lc:query
 	s.triggerIndexRegen()
 
+	// Fire webhook event
+	if s.webhookService != nil {
+		s.webhookService.FireEvent(ctx, "content.update", map[string]interface{}{
+			"id":    content.ID.Hex(),
+			"title": content.Title,
+			"path":  content.FullPath,
+		})
+	}
+
 	return nil
 }
 
@@ -305,7 +357,23 @@ func (s *ContentService) PublishContent(ctx context.Context, id primitive.Object
 	content.Published = true
 	content.PublishedAt = &now
 
-	return s.UpdateContent(ctx, &content)
+	if err := s.UpdateContent(ctx, &content); err != nil {
+		return err
+	}
+
+	// Fire webhook event
+	if s.webhookService != nil {
+		s.webhookService.FireEvent(ctx, "content.publish", map[string]interface{}{
+			"id":    content.ID.Hex(),
+			"title": content.Title,
+			"path":  content.FullPath,
+		})
+	}
+	// Purge Cloudflare cache
+	if s.cfService != nil {
+		go s.cfService.PurgeByURLs(context.Background(), []string{content.FullPath})
+	}
+	return nil
 }
 
 // UnpublishContent unpublishes content and removes static page
@@ -318,7 +386,23 @@ func (s *ContentService) UnpublishContent(ctx context.Context, id primitive.Obje
 	content.Published = false
 	content.PublishedAt = nil
 
-	return s.UpdateContent(ctx, &content)
+	if err := s.UpdateContent(ctx, &content); err != nil {
+		return err
+	}
+
+	// Fire webhook event
+	if s.webhookService != nil {
+		s.webhookService.FireEvent(ctx, "content.unpublish", map[string]interface{}{
+			"id":    content.ID.Hex(),
+			"title": content.Title,
+			"path":  content.FullPath,
+		})
+	}
+	// Purge Cloudflare cache
+	if s.cfService != nil {
+		go s.cfService.PurgeByURLs(context.Background(), []string{content.FullPath})
+	}
+	return nil
 }
 
 // DeleteContent soft-deletes content
@@ -349,6 +433,19 @@ func (s *ContentService) DeleteContent(ctx context.Context, id primitive.ObjectI
 
 	// Regenerate index pages that referenced this content
 	s.triggerIndexRegen()
+
+	// Fire webhook event
+	if s.webhookService != nil {
+		s.webhookService.FireEvent(ctx, "content.delete", map[string]interface{}{
+			"id":    content.ID.Hex(),
+			"title": content.Title,
+			"path":  content.FullPath,
+		})
+	}
+	// Purge Cloudflare cache
+	if s.cfService != nil {
+		go s.cfService.PurgeByURLs(context.Background(), []string{content.FullPath})
+	}
 
 	return nil
 }
@@ -1503,10 +1600,16 @@ func (s *ContentService) RegenerateIndexPages(ctx context.Context) {
 		return
 	}
 
+	var purgedPaths []string
 	for i := range pages {
 		if err := s.GenerateStaticPage(ctx, &pages[i]); err != nil {
 			fmt.Printf("Warning: failed to regenerate index page %s: %v\n", pages[i].FullPath, err)
+		} else {
+			purgedPaths = append(purgedPaths, pages[i].FullPath)
 		}
+	}
+	if s.cfService != nil && len(purgedPaths) > 0 {
+		go s.cfService.PurgeByURLs(context.Background(), purgedPaths)
 	}
 }
 
@@ -1543,6 +1646,11 @@ func (s *ContentService) RegenerateAllContent(ctx context.Context) error {
 		}(contents[i])
 	}
 	wg.Wait()
+
+	// Purge entire Cloudflare cache — every page was just regenerated.
+	if s.cfService != nil {
+		go s.cfService.PurgeEverything(context.Background())
+	}
 
 	return nil
 }

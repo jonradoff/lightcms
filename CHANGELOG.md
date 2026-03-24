@@ -4,6 +4,76 @@ All notable changes to LightCMS are documented here, organized by version.
 
 ---
 
+## [6.0.1] - 2026-03-24
+
+### Security
+- **CSRF key hardening**: CSRF protection key is now derived via SHA-256 hash of the session secret instead of zero-padding, eliminating low-entropy padding.
+- **APIGetSiteConfig auth**: GET `/api/v1/config` now requires `settings.view` permission. The Cloudflare API token is redacted (`***`) in the response — it is write-only via the admin UI.
+- **OAuth system key user context**: The system API key used for OAuth-authenticated MCP sessions is now associated with an admin user. OAuth sessions previously bypassed all permission checks via a nil-user path; they now properly resolve to admin-level RBAC.
+- **Self-approval blocked**: Users can no longer approve their own content submissions.
+- **Sequential workflow order enforced**: Only the approver assigned to the current step in a sequential workflow may advance it.
+- **Workflow approver validation**: Approver user IDs are validated against real users when creating or updating approval workflows.
+- **Bulk export gated**: `APIExportContent` now requires `content.edit` permission (was unauthenticated).
+- **20+ read-only API endpoints now require login**: All `/api/v1/` read endpoints (content list/get/versions/search/preview/backlinks, template list/get, asset list/get/folders, snippet list/get, redirect list/get, folder list/get, collection list/get, theme get/versions, config get, comment list) now require at minimum viewer-level credentials. Public end-user endpoints (`/api/search`, `/api/chat`, `/api/contact`) are unchanged.
+- **Comment rate limiting**: `POST /api/v1/content/{id}/comments` is now rate-limited to 20 requests/minute per API token.
+- **Comment length limit**: Comment text is capped at 10,000 characters.
+- **Comment XSS fix**: `user_display_name` and `user_email` are now HTML-escaped before injection into dynamically created comment DOM nodes. Mention dropdown also escaped.
+- **`APIForceUnlockContent` RBAC**: Replaced hardcoded `role == "admin"` string check with `requirePermission(PermUserManage)`.
+- **Sidebar approval badge efficiency**: `renderAdmin` now calls `CountPending()` (single count query) instead of `ListPending()` (full result set) for the badge count on every admin page render.
+
+---
+
+## [6.0.0] - 2026-03-24
+
+### Added
+- **Content Approvals**: Configurable approval workflows for content publishing. Contributors can save drafts and submit for approval; editors and admins approve or reject from the new `/cm/approvals` dashboard. Rejection comments are auto-posted to the content's discussion thread.
+- **Contributor role**: New RBAC role between Viewer and Editor. Contributors can create content and upload assets (held in a pending queue), post discussion comments, and submit content for approval — but cannot publish directly or manage templates, snippets, theme, or settings.
+- **Approval workflows**: Configurable trigger-based workflows (by contributor, folder path, template ID, or tag). Supports sequential mode (approvers in order) and concurrent mode (any N-of-M). Default behavior (no workflow) allows any editor or admin to approve.
+- **Content Discussion tab**: Inline threaded comment section at the bottom of every content edit page. Supports @mention autocomplete. Admins can delete any comment. Live badge count on the tab.
+- **Tabbed bottom section on content edit page**: Discussion, Version History, and Forks are now organized into tabs instead of stacked plain sections.
+- **Approvals Dashboard** (`/cm/approvals`): Shows "My Queue" (requests where the current user is an approver) and "Other Pending". Approve/reject directly from the page with a required rejection comment. Approval badge count shown in the sidebar nav.
+- **Dashboard: Requiring Approvals section**: When pending approval requests exist, a summary appears on the admin dashboard.
+- **Dashboard: Recent Comments section**: Five most recent discussion comments with links to the relevant content pages.
+- **Webhook events**: Three new event types — `comment.created`, `content.pending_approval`, `asset.pending_review`. Subscribable from the webhook form and documented in the reference table.
+- **MCP tools** (14 new tools): `list_comments`, `create_comment`, `delete_comment`, `list_approval_workflows`, `get_approval_workflow`, `create_approval_workflow`, `update_approval_workflow`, `delete_approval_workflow`, `list_approval_requests`, `get_approval_request`, `submit_for_approval`, `approve_request`, `reject_request`, `cancel_approval_request`.
+- **Messages mark-all-read**: "Mark All as Read" button on the contact messages list page.
+
+### Changed
+- MCP server version updated to 6.0.0.
+
+---
+
+## [5.0.0] - 2026-03-24
+
+### Added
+- **Import Pipeline**: Three new import types with a unified job dashboard at `/cm/imports`:
+  - **RSS/Atom Import**: Configure recurring feed sources with schedule (hourly/daily/weekly), template mapping, folder targeting, and auto-publish. Full run history and per-job logs.
+  - **Markdown Import**: Upload single `.md` files or `.zip` archives of Markdown. YAML frontmatter controls title, slug, folder, template, tags, and scheduling. Supports Notion exports, Obsidian vaults, Hugo/Jekyll migrations, and AI-generated content.
+  - **CSV Import**: Upload CSV files and map columns to content fields. Specify the title column; all other columns become fields automatically.
+- **Real-time import status**: SSE-powered live log stream at `/cm/imports/{jobID}`. Watch imports happen line-by-line or review full history after the fact.
+- **MCP import tools** (10 new tools): `list_import_sources`, `create_import_source`, `update_import_source`, `delete_import_source`, `trigger_import_source`, `import_markdown`, `import_csv`, `list_import_jobs`, `get_import_job`, `cancel_import_job`.
+- **Agentic bulk content creation**: `import_markdown` is specifically designed for AI agents to generate and import large batches of content in a single call. See `MCP.md` for workflow examples.
+- **MCP.md**: New developer guide for MCP/agentic workflows with bulk import examples.
+- **Deduplication**: Imports match by `full_path` — re-importing the same slug updates rather than duplicating.
+- **Import job TTL**: Log entries auto-expire after 90 days.
+
+---
+
+## [4.5.0] - 2026-03-24
+
+### Added
+- **Webhooks**: HMAC-SHA256 signed webhook events for content lifecycle (publish, unpublish, delete, create, update). Configurable per-webhook with retry logic and delivery history. Admin UI at `/cm/webhooks`.
+- **Scheduled Publishing**: Set a future `publish_at` timestamp on any content item. Background scheduler publishes automatically.
+- **Content Locking**: Advisory lock when editing content (30-minute expiry). Warning banner if another user is already editing. Force unlock for admins.
+- **Incremental Static Regeneration**: Template changes now regenerate content in batches of 20 instead of all-at-once, preventing server overload on large sites.
+- **Edge Caching Headers**: ETag, Cache-Control, Last-Modified, and Vary headers on all public pages. Conditional request support (304 Not Modified).
+- **Cloudflare Integration**: Configure Zone ID and API Token to automatically purge Cloudflare cache when content is published or unpublished.
+- **Structured JSON Logging**: All server logs now emit structured JSON with timestamp, level, message, and context fields.
+- **Rate Limit Dashboard**: New tab on the audit log page showing locked IPs, attempt counts, and a clear button.
+- **MCP Prompt Resources**: Three new MCP resources — `lightcms://site/structure`, `lightcms://content/recent`, `lightcms://theme/config` — exposing live site data for AI context.
+
+---
+
 ## v4.2.0 — AI Chat Widget, Security Hardening, Fork MCP Tools & Performance Overhaul
 
 ### AI Chat Widget

@@ -13,6 +13,9 @@ import (
 // API Template endpoints
 
 func (a *APIHandler) APIListTemplates(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermTemplateView) {
+		return
+	}
 	templates, err := a.templateService.ListTemplates(r.Context())
 	if err != nil {
 		a.jsonError(w, http.StatusInternalServerError, err.Error())
@@ -22,6 +25,9 @@ func (a *APIHandler) APIListTemplates(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *APIHandler) APIGetTemplate(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermTemplateView) {
+		return
+	}
 	idStr := mux.Vars(r)["id"]
 
 	// Try as slug first via query param

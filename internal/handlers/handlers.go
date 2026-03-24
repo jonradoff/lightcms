@@ -3,6 +3,7 @@ package handlers
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -81,8 +82,19 @@ type Handler struct {
 	contentService   *services.ContentService
 	analyticsService *services.AnalyticsService
 	forkService      *services.ForkService
+	webhookService   *services.WebhookService
+	lockService      *services.LockService
+	importService    *services.ImportService
+	cfService        *services.CloudflareService
 	proxyConfig      *middleware.TrustedProxyConfig
 	anthropicAPIKey  string
+	commentService   *services.CommentService
+	approvalService  *services.ApprovalService
+}
+
+// SetCloudflareService wires the Cloudflare service into the handler (used for health checks on the config page).
+func (h *Handler) SetCloudflareService(cf *services.CloudflareService) {
+	h.cfService = cf
 }
 
 // SetSearchService sets the search service for end-user search features
@@ -103,6 +115,26 @@ func (h *Handler) SetProxyConfig(pc *middleware.TrustedProxyConfig) {
 // SetContentService sets the content service for lc:query index regeneration
 func (h *Handler) SetContentService(cs *services.ContentService) {
 	h.contentService = cs
+}
+
+// SetWebhookService sets the webhook service
+func (h *Handler) SetWebhookService(ws *services.WebhookService) {
+	h.webhookService = ws
+}
+
+// SetLockService sets the lock service
+func (h *Handler) SetLockService(ls *services.LockService) {
+	h.lockService = ls
+}
+
+// SetCommentService sets the comment service
+func (h *Handler) SetCommentService(cs *services.CommentService) {
+	h.commentService = cs
+}
+
+// SetApprovalService sets the approval service
+func (h *Handler) SetApprovalService(as *services.ApprovalService) {
+	h.approvalService = as
 }
 
 func New(db *database.DB, authManager *auth.Manager, baseURL string, env string, userService *services.UserService, auditService *services.AuditService, snippetService *services.SnippetService) *Handler {
@@ -480,14 +512,28 @@ func (h *Handler) AdminDashboard(w http.ResponseWriter, r *http.Request) {
 		contentToday = h.analyticsService.GetContentCreatedToday(ctx)
 	}
 
+	// Recent comments (for dashboard)
+	var recentComments []services.ContentCommentWithContent
+	if h.commentService != nil {
+		recentComments, _ = h.commentService.ListRecent(ctx, 5)
+	}
+
+	// Pending approvals (for dashboard, only show when > 0)
+	var pendingApprovals []models.ApprovalRequest
+	if h.approvalService != nil {
+		pendingApprovals, _ = h.approvalService.ListPending(ctx)
+	}
+
 	h.renderAdmin(w, r, "dashboard", map[string]interface{}{
-		"ContentCount":         contentCount,
-		"TemplateCount":        templateCount,
-		"CollectionCount":      collectionCount,
-		"RecentContent":        recentContent,
-		"DAU":                  dau,
-		"MAU":                  mau,
-		"ContentCreatedToday":  contentToday,
+		"ContentCount":        contentCount,
+		"TemplateCount":       templateCount,
+		"CollectionCount":     collectionCount,
+		"RecentContent":       recentContent,
+		"DAU":                 dau,
+		"MAU":                 mau,
+		"ContentCreatedToday": contentToday,
+		"RecentComments":      recentComments,
+		"PendingApprovals":    pendingApprovals,
 	})
 }
 
@@ -904,6 +950,17 @@ func (h *Handler) CreateContent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	published := r.FormValue("published") == "on"
+
+	// Contributor intercept: if a contributor attempts to create published content,
+	// create it as a draft and auto-submit for approval.
+	createContributorApproval := false
+	if published {
+		if u, ok := h.auth.GetCurrentUser(r); ok && u.Role == models.RoleContributor {
+			published = false
+			createContributorApproval = true
+		}
+	}
+
 	var publishedAt *time.Time
 	if published {
 		now := time.Now()
@@ -992,6 +1049,7 @@ func (h *Handler) CreateContent(w http.ResponseWriter, r *http.Request) {
 		Data:            data,
 		Published:       published,
 		PublishedAt:     publishedAt,
+		PendingApproval: createContributorApproval,
 		UseHeader:       useHeader,
 		UseFooter:       useFooter,
 		UseTheme:        useTheme,
@@ -1024,6 +1082,18 @@ func (h *Handler) CreateContent(w http.ResponseWriter, r *http.Request) {
 	// Generate static page
 	if published {
 		h.generateStaticPage(ctx, &content, &tmpl)
+	}
+
+	// Submit for approval if contributor attempted to publish
+	if createContributorApproval && h.approvalService != nil {
+		if u, ok := h.auth.GetCurrentUser(r); ok {
+			submitterID, _ := primitive.ObjectIDFromHex(u.ID)
+			go func() {
+				if _, err := h.approvalService.SubmitContentForApproval(context.Background(), &content, submitterID, u.Email); err != nil {
+					fmt.Printf("Warning: Failed to submit for approval: %v\n", err)
+				}
+			}()
+		}
 	}
 
 	// Regenerate sitemap after content creation
@@ -1105,16 +1175,34 @@ func (h *Handler) EditContent(w http.ResponseWriter, r *http.Request) {
 		forkPageID = content.ID.Hex()
 	}
 
+	// Load comments for discussion tab
+	var comments []models.ContentComment
+	if h.commentService != nil {
+		comments, _ = h.commentService.ListForContent(ctx, content.ID)
+	}
+
+	// Current user role for permission checks in template
+	currentUser, _ := h.auth.GetCurrentUser(r)
+	currentUserRole := ""
+	currentUserEmail := ""
+	if currentUser != nil {
+		currentUserRole = currentUser.Role
+		currentUserEmail = currentUser.Email
+	}
+
 	h.renderAdmin(w, r, "content_form", map[string]interface{}{
-		"IsNew":         false,
-		"Template":      tmpl,
-		"Content":       content,
-		"Folders":       folders,
-		"Versions":      versions,
-		"SameSlugPages": sameSlugPages,
-		"AllTemplates":  allTemplates,
-		"Error":         errorMsg,
-		"ForkPageID":    forkPageID,
+		"IsNew":            false,
+		"Template":         tmpl,
+		"Content":          content,
+		"Folders":          folders,
+		"Versions":         versions,
+		"SameSlugPages":    sameSlugPages,
+		"AllTemplates":     allTemplates,
+		"Error":            errorMsg,
+		"ForkPageID":       forkPageID,
+		"Comments":         comments,
+		"CurrentUserRole":  currentUserRole,
+		"CurrentUserEmail": currentUserEmail,
 	})
 }
 
@@ -1219,6 +1307,17 @@ func (h *Handler) UpdateContent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	published := r.FormValue("published") == "on"
+
+	// Contributor intercept: contributors cannot publish directly.
+	// If they attempt to publish, save as draft and submit for approval instead.
+	contributorSubmittedForApproval := false
+	if published {
+		if u, ok := h.auth.GetCurrentUser(r); ok && u.Role == models.RoleContributor {
+			published = false // keep as draft
+			contributorSubmittedForApproval = true
+		}
+	}
+
 	var publishedAt *time.Time
 	if published && existingContent.PublishedAt == nil {
 		now := time.Now()
@@ -1348,6 +1447,7 @@ func (h *Handler) UpdateContent(w http.ResponseWriter, r *http.Request) {
 			"data":             data,
 			"published":        published,
 			"published_at":     publishedAt,
+			"pending_approval": contributorSubmittedForApproval,
 			"use_header":       useHeader,
 			"use_footer":       useFooter,
 			"use_theme":        useTheme,
@@ -1360,6 +1460,23 @@ func (h *Handler) UpdateContent(w http.ResponseWriter, r *http.Request) {
 	if err := h.db.UpdateOne(ctx, "content", bson.M{"_id": id}, update); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// Submit for approval if contributor tried to publish
+	if contributorSubmittedForApproval && h.approvalService != nil {
+		updatedContent := existingContent
+		updatedContent.Title = title
+		updatedContent.FullPath = fullPath
+		updatedContent.FolderPath = folderPath
+		updatedContent.Tags = updatedTags
+		if u, ok := h.auth.GetCurrentUser(r); ok {
+			submitterID, _ := primitive.ObjectIDFromHex(u.ID)
+			go func() {
+				if _, err := h.approvalService.SubmitContentForApproval(context.Background(), &updatedContent, submitterID, u.Email); err != nil {
+					fmt.Printf("Warning: Failed to submit for approval: %v\n", err)
+				}
+			}()
+		}
 	}
 
 	// If full path changed, update all dependent content links
@@ -3139,12 +3256,25 @@ func (h *Handler) SiteConfiguration(w http.ResponseWriter, r *http.Request) {
 		envLabel = "Production"
 	}
 
+	// Run Cloudflare health check if credentials are configured.
+	var cfStatus, cfError string
+	if config.CloudflareZoneID != "" && config.CloudflareAPIToken != "" && h.cfService != nil {
+		if err := h.cfService.TestConnection(ctx); err != nil {
+			cfStatus = "error"
+			cfError = err.Error()
+		} else {
+			cfStatus = "ok"
+		}
+	}
+
 	h.renderAdmin(w, r, "config", map[string]interface{}{
 		"Config":          config,
 		"SiteName":        theme.SiteName,
 		"SoftwareVersion": softwareVersion,
 		"DatabaseVersion": dbVersion,
 		"EnvLabel":        envLabel,
+		"CFStatus":        cfStatus,
+		"CFError":         cfError,
 	})
 }
 
@@ -3167,6 +3297,10 @@ func (h *Handler) UpdateSiteConfiguration(w http.ResponseWriter, r *http.Request
 			config.MaxUploadBytes = v
 		}
 	}
+
+	config.CloudflareZoneID = strings.TrimSpace(r.FormValue("cloudflare_zone_id"))
+	config.CloudflareAPIToken = strings.TrimSpace(r.FormValue("cloudflare_api_token"))
+	config.CFCacheEnabled = r.FormValue("cf_cache_enabled") == "true"
 
 	if err := h.db.SaveSiteConfig(ctx, config); err != nil {
 		theme, _ := h.db.GetThemeSettings(ctx)
@@ -3710,6 +3844,23 @@ func (h *Handler) renderPublicWithSEO(w http.ResponseWriter, r *http.Request, th
 		"OGImage":         ogImage,
 		"CanonicalURL":    canonicalURL,
 	}
+
+	// ETag and caching headers for public pages
+	hash := sha256.Sum256([]byte(content))
+	etag := fmt.Sprintf(`"%x"`, hash)
+	w.Header().Set("ETag", etag)
+	w.Header().Set("Cache-Control", "public, max-age=300, s-maxage=3600")
+	w.Header().Set("Vary", "Accept-Encoding")
+	if theme.UpdatedAt.After(time.Time{}) {
+		w.Header().Set("Last-Modified", theme.UpdatedAt.UTC().Format(http.TimeFormat))
+	}
+
+	// Handle conditional requests
+	if r.Header.Get("If-None-Match") == etag {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	tmpl.Execute(w, data)
 }
@@ -3799,6 +3950,12 @@ func (h *Handler) renderAdmin(w http.ResponseWriter, r *http.Request, name strin
 	// Get unread message count for sidebar badge
 	unreadCount, _ := h.db.Count(ctx, "contact_messages", bson.M{"read": false})
 	data["UnreadMessageCount"] = unreadCount
+
+	// Get pending approval count for sidebar badge (use CountPending, not ListPending,
+	// to avoid loading the full result set on every admin page render)
+	if h.approvalService != nil {
+		data["PendingApprovalCount"] = h.approvalService.CountPending(ctx)
+	}
 
 	initAdminTemplateCache()
 	tmpl := adminTemplateCache[name]
@@ -4547,6 +4704,16 @@ func (h *Handler) DeleteContactMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	http.Redirect(w, r, "/cm/messages", http.StatusSeeOther)
+}
+
+// MarkAllMessagesRead marks all contact messages as read
+func (h *Handler) MarkAllMessagesRead(w http.ResponseWriter, r *http.Request) {
+	if !h.auth.IsAuthenticated(r) {
+		http.Redirect(w, r, "/cm/login", http.StatusSeeOther)
+		return
+	}
+	h.db.Collection("contact_messages").UpdateMany(r.Context(), bson.M{"read": false}, bson.M{"$set": bson.M{"read": true}}) //nolint:errcheck
 	http.Redirect(w, r, "/cm/messages", http.StatusSeeOther)
 }
 
@@ -6182,6 +6349,10 @@ func (h *Handler) UpdateSnippet(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	// Regenerate all published pages — any page may include this snippet.
+	if h.contentService != nil {
+		go h.contentService.RegenerateAllContent(context.Background())
+	}
 	http.Redirect(w, r, "/cm/snippets", http.StatusFound)
 }
 
@@ -6200,5 +6371,55 @@ func (h *Handler) DeleteSnippet(w http.ResponseWriter, r *http.Request) {
 		h.errors.HTTPError(w, err, http.StatusInternalServerError)
 		return
 	}
+	// Regenerate all published pages — any page may have included this snippet.
+	if h.contentService != nil {
+		go h.contentService.RegenerateAllContent(context.Background())
+	}
 	http.Redirect(w, r, "/cm/snippets", http.StatusFound)
+}
+
+// ApprovalsPage renders the approvals dashboard.
+// GET /cm/approvals
+func (h *Handler) ApprovalsPage(w http.ResponseWriter, r *http.Request) {
+	if !h.auth.IsAuthenticated(r) {
+		http.Redirect(w, r, "/cm/login", http.StatusSeeOther)
+		return
+	}
+	if h.approvalService == nil {
+		h.renderAdmin(w, r, "approvals_page", map[string]interface{}{
+			"MyQueue":      nil,
+			"OtherPending": nil,
+			"Workflows":    nil,
+		})
+		return
+	}
+	ctx := r.Context()
+	user, _ := h.auth.GetCurrentUser(r)
+
+	var myQueue, otherPending []models.ApprovalRequest
+	allPending, err := h.approvalService.ListPending(ctx)
+	if err == nil && user != nil {
+		userID, _ := primitive.ObjectIDFromHex(user.ID)
+		mine, _ := h.approvalService.ListMyQueue(ctx, userID)
+		myQueue = mine
+		myIDs := make(map[string]bool)
+		for _, req := range mine {
+			myIDs[req.ID.Hex()] = true
+		}
+		for _, req := range allPending {
+			if !myIDs[req.ID.Hex()] {
+				otherPending = append(otherPending, req)
+			}
+		}
+	} else {
+		otherPending = allPending
+	}
+
+	workflows, _ := h.approvalService.ListWorkflows(ctx)
+
+	h.renderAdmin(w, r, "approvals_page", map[string]interface{}{
+		"MyQueue":      myQueue,
+		"OtherPending": otherPending,
+		"Workflows":    workflows,
+	})
 }

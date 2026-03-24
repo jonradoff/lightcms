@@ -103,8 +103,29 @@ func (a *APIHandler) APIDeleteAPIKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := a.apiKeyService.DeleteAPIKey(r.Context(), id); err != nil {
-		a.jsonError(w, http.StatusInternalServerError, err.Error())
+	user := a.getAPIUser(r)
+	isAdmin := user != nil && auth.HasPermission(user.Role, auth.PermAPIKeyManageAll)
+
+	if isAdmin {
+		// Admins can delete any key
+		if err := a.apiKeyService.DeleteAPIKey(r.Context(), id); err != nil {
+			a.jsonError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	} else if user != nil {
+		// Non-admins can only delete their own keys
+		ownerID, err := primitive.ObjectIDFromHex(user.ID)
+		if err != nil {
+			a.jsonError(w, http.StatusInternalServerError, "invalid user ID")
+			return
+		}
+		if err := a.apiKeyService.DeleteAPIKeyForUser(r.Context(), id, ownerID); err != nil {
+			// DeleteOne returns an error or 0 matched — surface as 403
+			a.jsonError(w, http.StatusForbidden, "API key not found or not owned by you")
+			return
+		}
+	} else {
+		a.jsonError(w, http.StatusForbidden, "cannot determine key ownership")
 		return
 	}
 

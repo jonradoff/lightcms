@@ -98,6 +98,9 @@ func isValidAssetServePath(path string) bool {
 // API Asset endpoints
 
 func (a *APIHandler) APIListAssets(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermAssetView) {
+		return
+	}
 	folder := r.URL.Query().Get("folder")
 
 	assets, err := a.assetService.ListAssets(r.Context(), folder)
@@ -138,6 +141,9 @@ func (a *APIHandler) APIListAssets(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *APIHandler) APIGetAsset(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermAssetView) {
+		return
+	}
 	id, err := primitive.ObjectIDFromHex(mux.Vars(r)["id"])
 	if err != nil {
 		a.jsonError(w, http.StatusBadRequest, "invalid asset ID")
@@ -164,6 +170,9 @@ func (a *APIHandler) APIGetAsset(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *APIHandler) APIGetAssetByPath(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermAssetView) {
+		return
+	}
 	path := r.URL.Query().Get("path")
 	if path == "" {
 		a.jsonError(w, http.StatusBadRequest, "path parameter is required")
@@ -273,6 +282,9 @@ func (a *APIHandler) APIDeleteAsset(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *APIHandler) APIListAssetFolders(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermAssetView) {
+		return
+	}
 	folders, err := a.assetService.ListFolders(r.Context())
 	if err != nil {
 		a.jsonError(w, http.StatusInternalServerError, err.Error())

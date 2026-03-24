@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"log"
 	"net/http"
@@ -24,6 +25,7 @@ import (
 	"github.com/gorilla/csrf"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/sessions"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 func main() {
@@ -135,6 +137,37 @@ func main() {
 	templateService := services.NewTemplateService(db, contentService)
 	assetService := services.NewAssetService(db)
 
+	// Initialize v4.5 services
+	webhookService := services.NewWebhookService(db)
+	lockService := services.NewLockService(db)
+	importService := services.NewImportService(db, contentService)
+	cfService := services.NewCloudflareService(func() (zoneID, apiToken string, enabled bool) {
+		cfg, err := db.GetSiteConfig(context.Background())
+		if err != nil || cfg == nil {
+			return "", "", false
+		}
+		return cfg.CloudflareZoneID, cfg.CloudflareAPIToken, cfg.CFCacheEnabled
+	}, cfg.BaseURL)
+	regenQueue := services.NewRegenQueue(db, contentService)
+	schedulerService := services.NewSchedulerService(db, contentService)
+
+	// Wire services together
+	contentService.SetWebhookService(webhookService)
+	contentService.SetCloudflareService(cfService)
+	templateService.SetRegenQueue(regenQueue)
+
+	// Start background goroutines
+	bgCtx, bgCancel := context.WithCancel(context.Background())
+	defer bgCancel()
+	go schedulerService.Start(bgCtx)
+	regenQueue.Start(bgCtx)
+
+	// Inject new services into handler
+	h.SetWebhookService(webhookService)
+	h.SetLockService(lockService)
+	h.SetImportService(importService)
+	h.SetCloudflareService(cfService)
+
 	// Initialize search service (always available; semantic search requires Voyage API key)
 	searchService := services.NewSearchService(db, cfg.VoyageAPIKey)
 	contentService.SetSearchService(searchService) // Always set — needed for keyword cache rebuild on content changes
@@ -163,6 +196,13 @@ func main() {
 	forkService := services.NewForkService(db, contentService)
 	h.SetForkService(forkService)
 
+	// Initialize comment and approval services (wired into handlers after apiHandler is created below)
+	commentService := services.NewCommentService(db)
+	commentService.SetWebhookService(webhookService)
+	approvalService := services.NewApprovalService(db, contentService, commentService, webhookService)
+	h.SetCommentService(commentService)
+	h.SetApprovalService(approvalService)
+
 	// Wire search service into handlers
 	h.SetSearchService(searchService)
 	h.SetProxyConfig(proxyConfig)
@@ -179,16 +219,10 @@ func main() {
 	r.PathPrefix("/uploads/").Handler(http.StripPrefix("/uploads/", http.FileServer(http.Dir("static/uploads"))))
 
 	// CSRF protection for admin routes
-	// Generate a 32-byte key from session secret for CSRF
-	csrfKey := []byte(cfg.SessionSecret)
-	if len(csrfKey) > 32 {
-		csrfKey = csrfKey[:32]
-	} else if len(csrfKey) < 32 {
-		// Pad with zeros if too short (shouldn't happen with proper secrets)
-		padded := make([]byte, 32)
-		copy(padded, csrfKey)
-		csrfKey = padded
-	}
+	// Derive a 32-byte CSRF key by hashing the session secret with SHA-256.
+	// This avoids zero-padding (which reduces entropy) while remaining deterministic.
+	csrfHash := sha256.Sum256([]byte(cfg.SessionSecret))
+	csrfKey := csrfHash[:]
 
 	csrfMiddleware := csrf.Protect(
 		csrfKey,
@@ -261,6 +295,7 @@ func main() {
 	admin.HandleFunc("/redirects/{id}", h.UpdateRedirect).Methods("POST")
 	admin.HandleFunc("/redirects/{id}/delete", h.DeleteRedirect).Methods("POST")
 	admin.HandleFunc("/messages", h.ListContactMessages).Methods("GET")
+	admin.HandleFunc("/messages/mark-all-read", h.MarkAllMessagesRead).Methods("POST")
 	admin.HandleFunc("/messages/{id}", h.ViewContactMessage).Methods("GET")
 	admin.HandleFunc("/messages/{id}/delete", h.DeleteContactMessage).Methods("POST")
 	admin.HandleFunc("/assets", h.AssetLibrary).Methods("GET")
@@ -271,6 +306,9 @@ func main() {
 	admin.HandleFunc("/api-keys/new", h.NewAPIKeyPage).Methods("GET")
 	admin.HandleFunc("/api-keys/new", h.CreateAPIKey).Methods("POST")
 	admin.HandleFunc("/api-keys/{id}/delete", h.DeleteAPIKey).Methods("POST")
+
+	// Approvals dashboard
+	admin.HandleFunc("/approvals", h.ApprovalsPage).Methods("GET")
 
 	// User management routes (admin only)
 	admin.HandleFunc("/users", h.UsersPage).Methods("GET")
@@ -283,6 +321,37 @@ func main() {
 
 	// Audit log (admin only)
 	admin.HandleFunc("/audit", h.AuditLogPage).Methods("GET")
+	admin.HandleFunc("/audit/ratelimits/{ip}/clear", h.ClearRateLimit).Methods("POST")
+
+	// Webhooks
+	admin.HandleFunc("/webhooks/docs", h.WebhookDocsPage).Methods("GET")
+	admin.HandleFunc("/webhooks/new", h.NewWebhookPage).Methods("GET")
+	admin.HandleFunc("/webhooks", h.WebhooksPage).Methods("GET")
+	admin.HandleFunc("/webhooks", h.CreateWebhook).Methods("POST")
+	admin.HandleFunc("/webhooks/{id}/edit", h.EditWebhookPage).Methods("GET")
+	admin.HandleFunc("/webhooks/{id}/deliveries", h.WebhookDeliveriesPage).Methods("GET")
+	admin.HandleFunc("/webhooks/{id}/regenerate-secret", h.RegenerateWebhookSecret).Methods("POST")
+	admin.HandleFunc("/webhooks/{id}", h.UpdateWebhook).Methods("POST")
+	admin.HandleFunc("/webhooks/{id}/delete", h.DeleteWebhook).Methods("POST")
+
+	// Import Pipeline
+	admin.HandleFunc("/imports", h.ImportsPage).Methods("GET")
+	admin.HandleFunc("/imports/sources/new", h.NewRSSSourcePage).Methods("GET")
+	admin.HandleFunc("/imports/sources", h.CreateRSSSource).Methods("POST")
+	admin.HandleFunc("/imports/sources/{id}/edit", h.EditRSSSourcePage).Methods("GET")
+	admin.HandleFunc("/imports/sources/{id}", h.UpdateRSSSource).Methods("POST")
+	admin.HandleFunc("/imports/sources/{id}/delete", h.DeleteRSSSource).Methods("POST")
+	admin.HandleFunc("/imports/sources/{id}/trigger", h.TriggerRSSSource).Methods("POST")
+	admin.HandleFunc("/imports/markdown", h.ImportMarkdownPage).Methods("GET")
+	admin.HandleFunc("/imports/markdown", h.DoImportMarkdown).Methods("POST")
+	admin.HandleFunc("/imports/csv", h.ImportCSVPage).Methods("GET")
+	admin.HandleFunc("/imports/csv", h.DoImportCSV).Methods("POST")
+	admin.HandleFunc("/imports/{id}/stream", h.ImportJobSSE).Methods("GET")
+	admin.HandleFunc("/imports/{id}", h.ImportJobPage).Methods("GET")
+
+	// Content lock management
+	admin.HandleFunc("/content/{id}/lock/refresh", h.RefreshLock).Methods("POST")
+	admin.HandleFunc("/content/{id}/lock/force", h.ForceUnlock).Methods("POST")
 
 	// Snippets
 	admin.HandleFunc("/snippets", h.ListSnippets).Methods("GET")
@@ -316,9 +385,17 @@ func main() {
 
 	// REST API v1 routes (API key authenticated, JSON only)
 	apiKeyService := services.NewAPIKeyService(db)
+	linkCheckerService := services.NewLinkCheckerService(db)
 	apiHandler := handlers.NewAPIHandler(contentService, templateService, assetService, settingsService, apiKeyService, auditService, snippetService)
 	apiHandler.SetSearchService(searchService)
 	apiHandler.SetForkService(forkService)
+	apiHandler.SetImportService(importService)
+	apiHandler.SetWebhookServiceAPI(webhookService)
+	apiHandler.SetLockServiceAPI(lockService)
+	apiHandler.SetLinkCheckerService(linkCheckerService)
+	apiHandler.SetCommentService(commentService)
+	apiHandler.SetApprovalService(approvalService)
+	apiHandler.SetUserService(userService)
 	apiAuthMiddleware := middleware.NewAPIAuth(func(ctx context.Context, rawKey string) (interface{}, error) {
 		apiKey, err := apiKeyService.ValidateAPIKey(ctx, rawKey)
 		if err != nil {
@@ -342,7 +419,19 @@ func main() {
 
 	// OAuth 2.1 setup for MCP Cowork connector support
 	oauthService := services.NewOAuthService(db)
-	systemAPIKey, err := services.EnsureSystemAPIKey(context.Background(), db, apiKeyService)
+	// Find an admin user to associate with the system API key so OAuth-authenticated
+	// MCP sessions resolve to admin-level permissions (not nil → permission bypass).
+	var systemKeyAdminID *primitive.ObjectID
+	if adminUsers, err := userService.ListUsers(context.Background()); err == nil {
+		for _, u := range adminUsers {
+			if u.Role == models.RoleAdmin && !u.Disabled {
+				id := u.ID
+				systemKeyAdminID = &id
+				break
+			}
+		}
+	}
+	systemAPIKey, err := services.EnsureSystemAPIKey(context.Background(), db, apiKeyService, systemKeyAdminID)
 	if err != nil {
 		log.Fatalf("Failed to create system API key: %v", err)
 	}
@@ -474,6 +563,63 @@ func main() {
 
 	// Regenerate (rate-limited: 2/min — full rebuild is expensive)
 	apiv1.Handle("/regenerate", middleware.RegenerateLimiter()(http.HandlerFunc(apiHandler.APIRegenerateAllContent))).Methods("POST")
+
+	// Webhooks API
+	apiv1.HandleFunc("/webhooks", apiHandler.APIListWebhooks).Methods("GET")
+	apiv1.HandleFunc("/webhooks", apiHandler.APICreateWebhook).Methods("POST")
+	apiv1.HandleFunc("/webhooks/{id}", apiHandler.APIUpdateWebhook).Methods("PUT")
+	apiv1.HandleFunc("/webhooks/{id}", apiHandler.APIDeleteWebhook).Methods("DELETE")
+	apiv1.HandleFunc("/webhooks/{id}/regenerate-secret", apiHandler.APIRegenerateWebhookSecret).Methods("POST")
+	apiv1.HandleFunc("/webhooks/{id}/deliveries", apiHandler.APIListWebhookDeliveries).Methods("GET")
+
+	// Content locks API
+	apiv1.HandleFunc("/content/{id}/lock", apiHandler.APIGetContentLock).Methods("GET")
+	apiv1.HandleFunc("/content/{id}/lock", apiHandler.APIAcquireContentLock).Methods("POST")
+	apiv1.HandleFunc("/content/{id}/lock", apiHandler.APIReleaseContentLock).Methods("DELETE")
+	apiv1.HandleFunc("/content/{id}/lock/force", apiHandler.APIForceUnlockContent).Methods("POST")
+
+	// Scheduled publish API
+	apiv1.HandleFunc("/content/scheduled", apiHandler.APIListScheduledContent).Methods("GET")
+	apiv1.HandleFunc("/content/{id}/schedule", apiHandler.APIScheduleContentPublish).Methods("POST")
+
+	// Audit log API
+	apiv1.HandleFunc("/audit", apiHandler.APIListAuditLogs).Methods("GET")
+
+	// Link check API
+	apiv1.HandleFunc("/link-check", apiHandler.APIStartLinkCheck).Methods("POST")
+	apiv1.HandleFunc("/link-check/{id}", apiHandler.APIGetLinkCheckJob).Methods("GET")
+
+	// Import pipeline
+	apiv1.HandleFunc("/imports/sources", apiHandler.APIListImportSources).Methods("GET")
+	apiv1.HandleFunc("/imports/sources", apiHandler.APICreateImportSource).Methods("POST")
+	apiv1.HandleFunc("/imports/sources/{id}", apiHandler.APIUpdateImportSource).Methods("PUT")
+	apiv1.HandleFunc("/imports/sources/{id}", apiHandler.APIDeleteImportSource).Methods("DELETE")
+	apiv1.HandleFunc("/imports/sources/{id}/trigger", apiHandler.APITriggerImportSource).Methods("POST")
+	apiv1.HandleFunc("/imports/markdown", apiHandler.APIImportMarkdown).Methods("POST")
+	apiv1.HandleFunc("/imports/csv", apiHandler.APIImportCSV).Methods("POST")
+	apiv1.HandleFunc("/imports/jobs", apiHandler.APIListImportJobs).Methods("GET")
+	apiv1.HandleFunc("/imports/jobs/{id}", apiHandler.APIGetImportJob).Methods("GET")
+	apiv1.HandleFunc("/imports/jobs/{id}/cancel", apiHandler.APICancelImportJob).Methods("POST")
+
+	// Comments API
+	apiv1.HandleFunc("/content/{id}/comments", apiHandler.APIListComments).Methods("GET")
+	apiv1.Handle("/content/{id}/comments", middleware.CommentCreateLimiter()(http.HandlerFunc(apiHandler.APICreateComment))).Methods("POST")
+	apiv1.HandleFunc("/content/{id}/comments/{cid}", apiHandler.APIDeleteComment).Methods("DELETE")
+	apiv1.HandleFunc("/content/{id}/submit-approval", apiHandler.APISubmitForApproval).Methods("POST")
+
+	// Approval workflows API
+	apiv1.HandleFunc("/approval-workflows", apiHandler.APIListApprovalWorkflows).Methods("GET")
+	apiv1.HandleFunc("/approval-workflows", apiHandler.APICreateApprovalWorkflow).Methods("POST")
+	apiv1.HandleFunc("/approval-workflows/{id}", apiHandler.APIGetApprovalWorkflow).Methods("GET")
+	apiv1.HandleFunc("/approval-workflows/{id}", apiHandler.APIUpdateApprovalWorkflow).Methods("PUT")
+	apiv1.HandleFunc("/approval-workflows/{id}", apiHandler.APIDeleteApprovalWorkflow).Methods("DELETE")
+
+	// Approval requests API
+	apiv1.HandleFunc("/approval-requests", apiHandler.APIListApprovalRequests).Methods("GET")
+	apiv1.HandleFunc("/approval-requests/{id}", apiHandler.APIGetApprovalRequest).Methods("GET")
+	apiv1.HandleFunc("/approval-requests/{id}/approve", apiHandler.APIApproveRequest).Methods("POST")
+	apiv1.HandleFunc("/approval-requests/{id}/reject", apiHandler.APIRejectRequest).Methods("POST")
+	apiv1.HandleFunc("/approval-requests/{id}/cancel", apiHandler.APICancelRequest).Methods("POST")
 
 	// API routes for AJAX (admin panel internal use)
 	// Note: Most API routes require authentication (checked in handlers)

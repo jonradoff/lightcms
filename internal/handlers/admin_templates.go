@@ -190,6 +190,51 @@ var adminTemplates = map[string]string{
                 </div>
             </div>
             {{end}}
+
+            {{if .PendingApprovals}}
+            <div class="recent-content" style="margin-top:2rem;">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;">
+                    <h2 style="margin:0;">Requiring Approval</h2>
+                    <a href="/cm/approvals" class="btn btn-sm btn-outline">View All</a>
+                </div>
+                <div class="table-container">
+                    <table>
+                        <thead><tr><th>Content</th><th>Submitted By</th><th>Submitted</th></tr></thead>
+                        <tbody>
+                            {{range .PendingApprovals}}
+                            <tr>
+                                <td><a href="/cm/content/{{.ContentID.Hex}}">{{if .ContentTitle}}{{.ContentTitle}}{{else}}{{.ContentID.Hex}}{{end}}</a></td>
+                                <td style="font-size:0.85rem;color:var(--muted);">{{.SubmittedByEmail}}</td>
+                                <td style="font-size:0.85rem;color:var(--muted);">{{.CreatedAt.Format "Jan 2, 3:04 PM"}}</td>
+                            </tr>
+                            {{end}}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            {{end}}
+
+            {{if .RecentComments}}
+            <div class="recent-content" style="margin-top:2rem;">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;">
+                    <h2 style="margin:0;">Recent Comments</h2>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:0.75rem;">
+                    {{range .RecentComments}}
+                    <div style="display:flex;gap:0.75rem;align-items:flex-start;padding:0.75rem;background:var(--bg-card);border-radius:var(--radius);border:1px solid var(--border);">
+                        <div style="flex:1;min-width:0;">
+                            <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.25rem;flex-wrap:wrap;">
+                                <span style="font-weight:600;font-size:0.85rem;">{{.UserDisplayName}}</span>
+                                <span style="color:var(--muted);font-size:0.8rem;">{{.CreatedAt.Format "Jan 2, 3:04 PM"}}</span>
+                                <a href="/cm/content/{{.ContentID.Hex}}" style="margin-left:auto;font-size:0.8rem;color:var(--accent);">View page</a>
+                            </div>
+                            <p style="margin:0;color:var(--text-muted);font-size:0.9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{.Text}}</p>
+                        </div>
+                    </div>
+                    {{end}}
+                </div>
+            </div>
+            {{end}}
         </div>
     ` + adminLayoutEnd,
 
@@ -1603,84 +1648,299 @@ var adminTemplates = map[string]string{
         </div>
         {{end}}
 
-        {{if .Versions}}
-        <div class="form-section" style="margin-top: 2rem;">
-            <h3>Version History</h3>
-            <p style="color: var(--muted); margin-bottom: 1rem;">Previous versions of this page are saved automatically when you update.</p>
-            <div class="table-container">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Version</th>
-                            <th>Title</th>
-                            <th>Comment</th>
-                            <th>By</th>
-                            <th>Saved</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {{range .Versions}}
-                        <tr>
-                            <td>v{{.Version}}</td>
-                            <td>{{.Title}}</td>
-                            <td style="color: var(--muted); font-size: 0.9rem; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{.Comment}}">{{if .Comment}}{{.Comment}}{{else}}-{{end}}</td>
-                            <td style="color: var(--muted); font-size: 0.9rem;">{{if .ModifiedByEmail}}{{.ModifiedByEmail}}{{else}}-{{end}}</td>
-                            <td>{{.CreatedAt.Format "Jan 2, 2006 3:04 PM"}}</td>
-                            <td class="actions">
-                                <a href="/cm/content/{{.ContentID.Hex}}/versions/{{.Version}}/diff" class="btn btn-sm btn-outline">Diff</a>
-                                <a href="/cm/content/{{.ContentID.Hex}}/versions/{{.Version}}/view" target="_blank" class="btn btn-sm btn-outline">Preview</a>
-                                <form method="POST" action="/cm/content/{{.ContentID.Hex}}/versions/{{.Version}}/revert" style="display:inline" onsubmit="return confirmRevert(this, {{.Version}})">
-            {{$.CSRFField}}
-                                    <button type="submit" class="btn btn-sm btn-secondary">Revert</button>
-                                </form>
-                            </td>
-                        </tr>
-                        {{end}}
-                    </tbody>
-                </table>
+        <!-- Bottom tabbed panel: Discussion / Version History / Forks -->
+        <div class="form-section" style="margin-top: 2rem;" id="bottom-tabs-panel">
+            <div style="display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 1.5rem;">
+                <button type="button" class="bottom-tab active" data-tab="discussion" onclick="switchBottomTab('discussion')">💬 Discussion{{if .Comments}} <span style="background: var(--accent); color: white; border-radius: 9999px; font-size: 0.75rem; padding: 0 0.4rem; margin-left: 0.25rem;">{{len .Comments}}</span>{{end}}</button>
+                <button type="button" class="bottom-tab" data-tab="history" onclick="switchBottomTab('history')">🕒 Version History{{if .Versions}} <span style="background: rgba(148,163,184,0.2); color: var(--muted); border-radius: 9999px; font-size: 0.75rem; padding: 0 0.4rem; margin-left: 0.25rem;">{{len .Versions}}</span>{{end}}</button>
+                <button type="button" class="bottom-tab" data-tab="forks" onclick="switchBottomTab('forks')">🌿 Forks</button>
             </div>
-        </div>
-        {{end}}
 
-        {{if .SameSlugPages}}
-        <div class="form-section" style="margin-top: 2rem;">
-            <h3>Historical Pages at This URL</h3>
-            <p style="color: var(--muted); margin-bottom: 1rem;">These are other pages that have used the same slug "{{.Content.Slug}}" (different document IDs).</p>
-            <div class="table-container">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Title</th>
-                            <th>Status</th>
-                            <th>Last Updated</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {{range .SameSlugPages}}
-                        <tr{{if .Deleted}} style="opacity: 0.7;"{{end}}>
-                            <td>{{.Title}}</td>
-                            <td>
-                                {{if .Deleted}}
-                                <span class="status-badge" style="background: var(--danger);">Deleted</span>
-                                {{else if .Published}}
-                                <span class="status-badge published">Published</span>
-                                {{else}}
-                                <span class="status-badge draft">Draft</span>
+            <!-- Discussion tab -->
+            <div id="tab-discussion" class="bottom-tab-content">
+                {{if .Comments}}
+                <div id="comment-thread" style="display: flex; flex-direction: column; gap: 1rem; margin-bottom: 1.5rem;">
+                    {{range .Comments}}
+                    <div class="comment-item" data-comment-id="{{.ID.Hex}}" style="display: flex; gap: 0.75rem; align-items: flex-start;">
+                        <div style="width: 32px; height: 32px; border-radius: 50%; background: var(--bg-tertiary); display: flex; align-items: center; justify-content: center; font-size: 0.8rem; color: var(--muted); flex-shrink: 0;">{{slice .UserDisplayName 0 1}}</div>
+                        <div style="flex: 1; min-width: 0;">
+                            <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem; flex-wrap: wrap;">
+                                <span style="font-weight: 600; font-size: 0.9rem;">{{.UserDisplayName}}</span>
+                                <span style="color: var(--muted); font-size: 0.8rem;">{{.CreatedAt.Format "Jan 2, 2006 3:04 PM"}}</span>
+                                {{if eq $.CurrentUserRole "admin"}}
+                                <button type="button" class="btn btn-sm" style="margin-left: auto; padding: 0.1rem 0.5rem; font-size: 0.75rem; background: transparent; color: var(--danger); border: 1px solid rgba(239,68,68,0.3);" onclick="deleteComment('{{$.Content.ID.Hex}}', '{{.ID.Hex}}', this)">Delete</button>
                                 {{end}}
-                            </td>
-                            <td>{{.UpdatedAt.Format "Jan 2, 2006 3:04 PM"}}</td>
-                            <td class="actions">
-                                <a href="/cm/content/{{.ID.Hex}}" class="btn btn-sm">Edit</a>
-                            </td>
-                        </tr>
-                        {{end}}
-                    </tbody>
-                </table>
+                            </div>
+                            <p style="margin: 0; color: var(--text); font-size: 0.95rem; white-space: pre-wrap; word-break: break-word;">{{.Text}}</p>
+                        </div>
+                    </div>
+                    {{end}}
+                </div>
+                {{else}}
+                <div id="comment-thread" style="display: flex; flex-direction: column; gap: 1rem; margin-bottom: 1.5rem;"></div>
+                <p id="no-comments-msg" style="color: var(--muted); font-size: 0.9rem; margin-bottom: 1.5rem;">No discussion yet. Be the first to comment.</p>
+                {{end}}
+
+                <!-- Post a comment -->
+                <div style="border-top: 1px solid var(--border); padding-top: 1rem;">
+                    <div style="position: relative;">
+                        <textarea id="comment-input" rows="3" placeholder="Write a comment... Use @name to mention someone" style="width: 100%; padding: 0.75rem; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); resize: vertical; font-size: 0.95rem; box-sizing: border-box;"></textarea>
+                        <div id="mention-dropdown" style="display: none; position: absolute; bottom: 100%; left: 0; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); max-height: 160px; overflow-y: auto; z-index: 100; min-width: 200px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);"></div>
+                    </div>
+                    <div style="display: flex; justify-content: flex-end; margin-top: 0.5rem;">
+                        <button type="button" class="btn btn-primary" onclick="postComment('{{.Content.ID.Hex}}')">Post Comment</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Version History tab -->
+            <div id="tab-history" class="bottom-tab-content" style="display: none;">
+                {{if .Versions}}
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Version</th>
+                                <th>Title</th>
+                                <th>Comment</th>
+                                <th>By</th>
+                                <th>Saved</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {{range .Versions}}
+                            <tr>
+                                <td>v{{.Version}}</td>
+                                <td>{{.Title}}</td>
+                                <td style="color: var(--muted); font-size: 0.9rem; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{.Comment}}">{{if .Comment}}{{.Comment}}{{else}}-{{end}}</td>
+                                <td style="color: var(--muted); font-size: 0.9rem;">{{if .ModifiedByEmail}}{{.ModifiedByEmail}}{{else}}-{{end}}</td>
+                                <td>{{.CreatedAt.Format "Jan 2, 2006 3:04 PM"}}</td>
+                                <td class="actions">
+                                    <a href="/cm/content/{{.ContentID.Hex}}/versions/{{.Version}}/diff" class="btn btn-sm btn-outline">Diff</a>
+                                    <a href="/cm/content/{{.ContentID.Hex}}/versions/{{.Version}}/view" target="_blank" class="btn btn-sm btn-outline">Preview</a>
+                                    <form method="POST" action="/cm/content/{{.ContentID.Hex}}/versions/{{.Version}}/revert" style="display:inline" onsubmit="return confirmRevert(this, {{.Version}})">
+                                    {{$.CSRFField}}
+                                        <button type="submit" class="btn btn-sm btn-secondary">Revert</button>
+                                    </form>
+                                </td>
+                            </tr>
+                            {{end}}
+                        </tbody>
+                    </table>
+                </div>
+                {{else}}
+                <p style="color: var(--muted); font-size: 0.9rem;">No version history yet.</p>
+                {{end}}
+
+                {{if .SameSlugPages}}
+                <h4 style="margin: 1.5rem 0 0.75rem; color: var(--muted); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em;">Historical Pages at This URL</h4>
+                <p style="color: var(--muted); margin-bottom: 0.75rem; font-size: 0.9rem;">Other pages that used the same slug "{{.Content.Slug}}".</p>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr><th>Title</th><th>Status</th><th>Last Updated</th><th>Actions</th></tr>
+                        </thead>
+                        <tbody>
+                            {{range .SameSlugPages}}
+                            <tr{{if .Deleted}} style="opacity: 0.7;"{{end}}>
+                                <td>{{.Title}}</td>
+                                <td>
+                                    {{if .Deleted}}<span class="status-badge" style="background: var(--danger);">Deleted</span>
+                                    {{else if .Published}}<span class="status-badge published">Published</span>
+                                    {{else}}<span class="status-badge draft">Draft</span>{{end}}
+                                </td>
+                                <td>{{.UpdatedAt.Format "Jan 2, 2006 3:04 PM"}}</td>
+                                <td class="actions"><a href="/cm/content/{{.ID.Hex}}" class="btn btn-sm">Edit</a></td>
+                            </tr>
+                            {{end}}
+                        </tbody>
+                    </table>
+                </div>
+                {{end}}
+            </div>
+
+            <!-- Forks tab -->
+            <div id="tab-forks" class="bottom-tab-content" style="display: none;">
+                {{if .ForkPageID}}
+                <p style="color: var(--muted); margin-bottom: 1rem; font-size: 0.9rem;">Fork this page into an isolated workspace to draft changes before they go live.</p>
+                <a href="/cm/forks?fork_page={{.ForkPageID}}" class="btn btn-outline">🌿 Add to Fork Workspace</a>
+                {{else}}
+                <p style="color: var(--muted); font-size: 0.9rem;">This page is already inside a fork workspace.</p>
+                {{end}}
             </div>
         </div>
-        {{end}}
+
+        <style>
+            .bottom-tab {
+                padding: 0.6rem 1.25rem;
+                background: transparent;
+                border: none;
+                border-bottom: 2px solid transparent;
+                color: var(--muted);
+                cursor: pointer;
+                font-size: 0.9rem;
+                font-weight: 500;
+                transition: color 0.15s, border-color 0.15s;
+                margin-bottom: -1px;
+            }
+            .bottom-tab:hover { color: var(--text); }
+            .bottom-tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+            #mention-dropdown button {
+                display: block; width: 100%; text-align: left;
+                padding: 0.5rem 0.75rem; background: none; border: none;
+                color: var(--text); cursor: pointer; font-size: 0.9rem;
+            }
+            #mention-dropdown button:hover { background: var(--bg-tertiary); }
+        </style>
+        <script>
+        function switchBottomTab(name) {
+            document.querySelectorAll('.bottom-tab').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.bottom-tab-content').forEach(c => c.style.display = 'none');
+            document.querySelector('[data-tab="'+name+'"]').classList.add('active');
+            document.getElementById('tab-'+name).style.display = 'block';
+        }
+
+        // @mention autocomplete
+        let mentionUsers = null;
+        async function loadMentionUsers() {
+            if (mentionUsers !== null) return mentionUsers;
+            try {
+                const r = await fetch('/api/v1/users', {headers: {'Authorization': 'Bearer '}});
+                if (r.ok) { mentionUsers = await r.json(); }
+            } catch(e) {}
+            return mentionUsers || [];
+        }
+
+        const commentInput = document.getElementById('comment-input');
+        const mentionDropdown = document.getElementById('mention-dropdown');
+        let mentionStart = -1;
+
+        if (commentInput) {
+            commentInput.addEventListener('input', async function() {
+                const val = this.value;
+                const pos = this.selectionStart;
+                const before = val.slice(0, pos);
+                const atIdx = before.lastIndexOf('@');
+                if (atIdx >= 0 && (atIdx === 0 || /\s/.test(before[atIdx-1]))) {
+                    const query = before.slice(atIdx + 1).toLowerCase();
+                    if (!query.includes(' ')) {
+                        mentionStart = atIdx;
+                        const users = await loadMentionUsers();
+                        const matches = users.filter(u => (u.email||'').toLowerCase().includes(query) || (u.display_name||'').toLowerCase().includes(query)).slice(0, 6);
+                        if (matches.length > 0) {
+                            mentionDropdown.innerHTML = matches.map(u => {
+                                var safeName = escHtml(u.display_name || u.email || '');
+                                var safeId = escHtml(u.id || u.ID || '');
+                                var safeNameForAttr = (u.display_name||u.email||'').replace(/["'<>&]/g, '');
+                                return '<button type="button" onclick="insertMention(\'' + safeId + '\',\'' + safeNameForAttr + '\'">' + safeName + '</button>';
+                            }).join('');
+                            mentionDropdown.style.display = 'block';
+                            return;
+                        }
+                    }
+                }
+                mentionStart = -1;
+                mentionDropdown.style.display = 'none';
+            });
+            commentInput.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape') { mentionDropdown.style.display = 'none'; }
+            });
+            document.addEventListener('click', function(e) {
+                if (!mentionDropdown.contains(e.target) && e.target !== commentInput) {
+                    mentionDropdown.style.display = 'none';
+                }
+            });
+        }
+
+        let pendingMentions = [];
+        function insertMention(id, name) {
+            if (mentionStart < 0) return;
+            const val = commentInput.value;
+            const pos = commentInput.selectionStart;
+            commentInput.value = val.slice(0, mentionStart) + '@' + name + ' ' + val.slice(pos);
+            mentionDropdown.style.display = 'none';
+            if (id) pendingMentions.push(id);
+            commentInput.focus();
+        }
+
+        async function postComment(contentId) {
+            const text = commentInput.value.trim();
+            if (!text) return;
+            const btn = document.querySelector('#tab-discussion .btn-primary');
+            btn.disabled = true;
+            btn.textContent = 'Posting...';
+            try {
+                const resp = await fetch('/api/v1/content/' + contentId + '/comments', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({text: text, mentions: pendingMentions})
+                });
+                if (!resp.ok) {
+                    const err = await resp.json().catch(() => ({error: 'Request failed'}));
+                    alert(err.error || 'Failed to post comment');
+                    return;
+                }
+                const comment = await resp.json();
+                commentInput.value = '';
+                pendingMentions = [];
+                document.getElementById('no-comments-msg') && document.getElementById('no-comments-msg').remove();
+                const thread = document.getElementById('comment-thread');
+                const div = document.createElement('div');
+                div.className = 'comment-item';
+                div.dataset.commentId = comment.id;
+                div.style.cssText = 'display:flex;gap:0.75rem;align-items:flex-start;';
+                var adminBtn = currentUserRole === 'admin' ? '<button type="button" class="btn btn-sm" style="margin-left:auto;padding:0.1rem 0.5rem;font-size:0.75rem;background:transparent;color:var(--danger);border:1px solid rgba(239,68,68,0.3);" onclick="deleteComment(\'' + contentId + '\',\'' + comment.id + '\',this)">Delete</button>' : '';
+                var displayName = escHtml(comment.user_display_name || comment.user_email || '?');
+                div.innerHTML = '<div style="width:32px;height:32px;border-radius:50%;background:var(--bg-tertiary);display:flex;align-items:center;justify-content:center;font-size:0.8rem;color:var(--muted);flex-shrink:0;">' + displayName[0] + '</div>' +
+                '<div style="flex:1;min-width:0;"><div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.25rem;flex-wrap:wrap;">' +
+                '<span style="font-weight:600;font-size:0.9rem;">' + displayName + '</span>' +
+                '<span style="color:var(--muted);font-size:0.8rem;">Just now</span>' +
+                adminBtn +
+                '</div><p style="margin:0;color:var(--text);font-size:0.95rem;white-space:pre-wrap;word-break:break-word;">' + escHtml(comment.text) + '</p></div>';
+                thread.appendChild(div);
+                // update badge
+                const tabBtn = document.querySelector('[data-tab="discussion"]');
+                const countEl = tabBtn.querySelector('span');
+                const count = document.querySelectorAll('.comment-item').length;
+                if (countEl) countEl.textContent = count;
+                else tabBtn.innerHTML += ' <span style="background:var(--accent);color:white;border-radius:9999px;font-size:0.75rem;padding:0 0.4rem;margin-left:0.25rem;">' + count + '</span>';
+            } catch(e) {
+                alert('Failed to post comment: ' + e.message);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Post Comment';
+            }
+        }
+
+        async function deleteComment(contentId, commentId, btn) {
+            if (!confirm('Delete this comment?')) return;
+            btn.disabled = true;
+            try {
+                const resp = await fetch('/api/v1/content/' + contentId + '/comments/' + commentId, {method: 'DELETE'});
+                if (!resp.ok) { alert('Failed to delete comment'); btn.disabled = false; return; }
+                btn.closest('.comment-item').remove();
+                const count = document.querySelectorAll('.comment-item').length;
+                const tabBtn = document.querySelector('[data-tab="discussion"]');
+                const countEl = tabBtn.querySelector('span');
+                if (count === 0) {
+                    if (countEl) countEl.remove();
+                    const thread = document.getElementById('comment-thread');
+                    const msg = document.createElement('p');
+                    msg.id = 'no-comments-msg';
+                    msg.style.cssText = 'color:var(--muted);font-size:0.9rem;margin-bottom:1.5rem;';
+                    msg.textContent = 'No discussion yet. Be the first to comment.';
+                    thread.parentNode.insertBefore(msg, thread.nextSibling);
+                } else if (countEl) { countEl.textContent = count; }
+            } catch(e) { alert('Error: ' + e.message); btn.disabled = false; }
+        }
+
+        function escHtml(s) {
+            return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        }
+
+        const currentUserRole = {{printf "%q" .CurrentUserRole}};
+        </script>
         {{end}}
 
         <link href="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.snow.css" rel="stylesheet">
@@ -4269,6 +4529,38 @@ var adminTemplates = map[string]string{
                 </div>
             </div>
 
+            <div class="form-section">
+                <h3>Cloudflare CDN</h3>
+                <p class="help-text">Configure Cloudflare to automatically purge cached pages when content is published or unpublished. Leave blank to disable.</p>
+                {{if .CFStatus}}
+                {{if eq .CFStatus "ok"}}
+                <div style="padding: 0.75rem 1rem; margin-bottom: 1rem; border-radius: 6px; background: rgba(52,199,89,0.12); border: 1px solid var(--success); color: var(--success); font-size: 0.9rem;">
+                    ✓ Cloudflare connected — cache purging is active for this zone
+                </div>
+                {{else}}
+                <div style="padding: 0.75rem 1rem; margin-bottom: 1rem; border-radius: 6px; background: rgba(255,59,48,0.08); border: 1px solid var(--danger); color: var(--danger); font-size: 0.9rem;">
+                    ✗ Cloudflare connection failed: {{.CFError}}
+                </div>
+                {{end}}
+                {{end}}
+                <div class="form-group">
+                    <label for="cf_cache_enabled">
+                        <input type="checkbox" id="cf_cache_enabled" name="cf_cache_enabled" value="true" {{if .Config.CFCacheEnabled}}checked{{end}}>
+                        Enable Cloudflare cache purging
+                    </label>
+                </div>
+                <div class="form-group">
+                    <label for="cloudflare_zone_id">Zone ID</label>
+                    <input type="text" id="cloudflare_zone_id" name="cloudflare_zone_id" value="{{.Config.CloudflareZoneID}}" placeholder="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx">
+                    <p class="help-text">Found in your Cloudflare dashboard under the domain overview.</p>
+                </div>
+                <div class="form-group">
+                    <label for="cloudflare_api_token">API Token</label>
+                    <input type="password" id="cloudflare_api_token" name="cloudflare_api_token" value="{{.Config.CloudflareAPIToken}}" placeholder="API token with Cache Purge permission" autocomplete="new-password">
+                    <p class="help-text">Create a token with <strong>Cache Purge</strong> permission for your zone in the Cloudflare dashboard.</p>
+                </div>
+            </div>
+
             <div class="form-actions">
                 <button type="submit" class="btn btn-primary">Save Configuration</button>
             </div>
@@ -4355,6 +4647,12 @@ var adminTemplates = map[string]string{
 	"contact_messages_list": adminLayoutStart + `
         <div class="page-header">
             <h1>Messages {{if .UnreadCount}}<span class="badge">{{.UnreadCount}} unread</span>{{end}}</h1>
+            {{if .UnreadCount}}
+            <form method="POST" action="/cm/messages/mark-all-read" style="display:inline">
+                <input type="hidden" name="gorilla.csrf.Token" value="{{.CSRFToken}}">
+                <button type="submit" class="btn btn-secondary">Mark All as Read</button>
+            </form>
+            {{end}}
         </div>
         <style>
             .badge { background: var(--primary); color: white; padding: 0.25rem 0.5rem; border-radius: 12px; font-size: 0.8rem; margin-left: 0.5rem; }
@@ -6201,6 +6499,42 @@ async function doSearch(q) {
             {{end}}
         </div>
 
+        <!-- Rate Limits section -->
+        {{if .LoginAttempts}}
+        <div style="margin-top:2rem;">
+            <h2 style="margin-bottom:1rem;">Rate Limits</h2>
+            <div class="table-container">
+                <table style="font-size:0.8125rem;">
+                    <thead>
+                        <tr>
+                            <th>IP Address</th>
+                            <th>Attempts</th>
+                            <th>Last Attempt</th>
+                            <th>Locked Until</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {{range .LoginAttempts}}
+                    <tr>
+                        <td><code>{{.IP}}</code></td>
+                        <td>{{.Attempts}}</td>
+                        <td style="color:var(--text-muted);">{{.LastAttempt.Format "Jan 2 15:04:05"}}</td>
+                        <td>{{if .LockedUntil}}<span class="content-status draft">{{.LockedUntil.Format "15:04:05"}}</span>{{else}}-{{end}}</td>
+                        <td>
+                            <form method="POST" action="/cm/audit/ratelimits/{{.IP}}/clear" style="display:inline;">
+                                {{$.CSRFField}}
+                                <button type="submit" class="btn btn-sm btn-secondary">Clear</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {{end}}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {{end}}
+
         <!-- Details modal -->
         <div id="audit-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:1000; align-items:center; justify-content:center;">
             <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:12px; padding:1.5rem; max-width:560px; width:90%; max-height:80vh; overflow-y:auto; position:relative;">
@@ -6537,6 +6871,732 @@ async function doSearch(q) {
         </div>
         {{end}}
         {{end}}
+    ` + adminLayoutEnd,
+
+	"webhooks_list": adminLayoutStart + `
+        <div class="page-header">
+            <div>
+                <h1>Webhooks</h1>
+                <p class="page-subtitle">Receive HTTP notifications when content events occur.</p>
+            </div>
+            <div style="display:flex;gap:0.75rem;">
+                <a href="/cm/webhooks/docs" class="btn btn-secondary">Docs</a>
+                <a href="/cm/webhooks/new" class="btn btn-primary">+ New Webhook</a>
+            </div>
+        </div>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>URL</th>
+                        <th>Secret</th>
+                        <th>Events</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {{range .Webhooks}}
+                <tr>
+                    <td>{{.Name}}</td>
+                    <td style="font-family:monospace;font-size:0.8rem;max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{.URL}}</td>
+                    <td style="font-family:monospace;font-size:0.85rem;color:var(--text-muted);">••••••••</td>
+                    <td style="font-size:0.8rem;">{{join .Events ", "}}</td>
+                    <td>{{if .Active}}<span class="content-status published">Active</span>{{else}}<span class="content-status draft">Inactive</span>{{end}}</td>
+                    <td class="actions">
+                        <a href="/cm/webhooks/{{.ID.Hex}}/edit" class="btn btn-sm btn-secondary">Edit</a>
+                        <a href="/cm/webhooks/{{.ID.Hex}}/deliveries" class="btn btn-sm btn-secondary">Deliveries</a>
+                        <form method="POST" action="/cm/webhooks/{{.ID.Hex}}/delete" style="display:inline;">
+                            {{$.CSRFField}}
+                            <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Delete this webhook?')">Delete</button>
+                        </form>
+                    </td>
+                </tr>
+                {{else}}
+                <tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:2rem;">No webhooks configured yet. <a href="/cm/webhooks/new">Create one</a>.</td></tr>
+                {{end}}
+                </tbody>
+            </table>
+        </div>
+    ` + adminLayoutEnd,
+
+	"webhook_form": adminLayoutStart + `
+        <div class="page-header">
+            <h1>{{if .IsNew}}New Webhook{{else}}Edit Webhook{{end}}</h1>
+            <a href="/cm/webhooks" class="btn btn-secondary">Back</a>
+        </div>
+        {{if .Error}}<div class="error-message">{{.Error}}</div>{{end}}
+        {{if .Success}}<div class="success-message">{{.Success}}</div>{{end}}
+        {{if .CreatedSecret}}
+        <div style="background:rgba(239,68,68,0.1);border:2px solid rgba(239,68,68,0.4);border-radius:var(--radius);padding:1.25rem;margin-bottom:1.5rem;">
+            <strong style="color:#f87171;">This secret will never be shown again. Save it now.</strong>
+            <div style="margin-top:0.75rem;display:flex;align-items:center;gap:0.75rem;">
+                <code id="webhook-secret-value" style="font-family:monospace;background:rgba(0,0,0,0.3);padding:0.75rem;border-radius:8px;word-break:break-all;font-size:0.9rem;flex:1;">{{.CreatedSecret}}</code>
+                <button type="button" class="btn btn-secondary" onclick="navigator.clipboard.writeText(document.getElementById('webhook-secret-value').textContent)">Copy</button>
+            </div>
+        </div>
+        {{end}}
+        {{if .RegeneratedSecret}}
+        <div style="background:rgba(239,68,68,0.1);border:2px solid rgba(239,68,68,0.4);border-radius:var(--radius);padding:1.25rem;margin-bottom:1.5rem;">
+            <strong style="color:#f87171;">New secret generated — this will never be shown again. Save it now.</strong>
+            <div style="margin-top:0.75rem;display:flex;align-items:center;gap:0.75rem;">
+                <code id="webhook-secret-value" style="font-family:monospace;background:rgba(0,0,0,0.3);padding:0.75rem;border-radius:8px;word-break:break-all;font-size:0.9rem;flex:1;">{{.RegeneratedSecret}}</code>
+                <button type="button" class="btn btn-secondary" onclick="navigator.clipboard.writeText(document.getElementById('webhook-secret-value').textContent)">Copy</button>
+            </div>
+        </div>
+        {{end}}
+        <form method="POST" action="{{if .IsNew}}/cm/webhooks{{else}}/cm/webhooks/{{.Webhook.ID.Hex}}{{end}}">
+            {{.CSRFField}}
+            <div class="form-group">
+                <label>Name</label>
+                <input type="text" name="name" value="{{if .Webhook}}{{.Webhook.Name}}{{end}}" placeholder="My Webhook" required>
+            </div>
+            <div class="form-group">
+                <label>URL</label>
+                <input type="text" name="url" value="{{if .Webhook}}{{.Webhook.URL}}{{end}}" placeholder="https://example.com/webhook" required>
+            </div>
+            {{if .Webhook}}
+            <div class="form-group">
+                <label>Secret (HMAC-SHA256 signing key)</label>
+                <div style="display:flex;align-items:center;gap:0.75rem;">
+                    <input type="text" value="••••••••" readonly style="flex:1;color:var(--text-muted);cursor:default;">
+                    <form method="POST" action="/cm/webhooks/{{.Webhook.ID.Hex}}/regenerate-secret" style="margin:0;">
+                        {{$.CSRFField}}
+                        <button type="submit" class="btn btn-secondary" onclick="return confirm('Regenerate secret? The old secret will stop working immediately.')">Regenerate Secret</button>
+                    </form>
+                </div>
+                <p style="color:var(--text-muted);font-size:0.8rem;margin-top:0.25rem;">The secret is masked for security. Use the Regenerate button to create a new one.</p>
+            </div>
+            {{end}}
+            <div class="form-group">
+                <label>Events</label>
+                <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:0.5rem;margin-top:0.5rem;">
+                {{range split "content.create content.update content.publish content.unpublish content.delete comment.created content.pending_approval asset.pending_review" " "}}
+                <label style="display:flex;align-items:center;gap:0.5rem;font-weight:normal;cursor:pointer;">
+                    <input type="checkbox" name="events" value="{{.}}"
+                        {{if $.Webhook}}{{$ev := .}}{{range $.Webhook.Events}}{{if eq . $ev}}checked{{end}}{{end}}{{end}}>
+                    <code style="font-size:0.8rem;">{{.}}</code>
+                </label>
+                {{end}}
+                </div>
+            </div>
+            <div class="form-group">
+                <label style="display:flex;align-items:center;gap:0.75rem;cursor:pointer;">
+                    <input type="checkbox" name="active" value="on" {{if .IsNew}}checked{{else if .Webhook}}{{if .Webhook.Active}}checked{{end}}{{end}}>
+                    Active
+                </label>
+            </div>
+            <div style="display:flex;gap:0.75rem;margin-top:1.5rem;">
+                <button type="submit" class="btn btn-primary">{{if .IsNew}}Create Webhook{{else}}Save Changes{{end}}</button>
+                <a href="/cm/webhooks" class="btn btn-secondary">Cancel</a>
+            </div>
+        </form>
+    ` + adminLayoutEnd,
+
+	"webhook_deliveries": adminLayoutStart + `
+        <div class="page-header">
+            <div>
+                <h1>Deliveries: {{.Webhook.Name}}</h1>
+                <p class="page-subtitle">{{.Webhook.URL}}</p>
+            </div>
+            <a href="/cm/webhooks" class="btn btn-secondary">Back to Webhooks</a>
+        </div>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>Event</th>
+                        <th>Attempt</th>
+                        <th>Status Code</th>
+                        <th>Result</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {{range .Deliveries}}
+                <tr>
+                    <td style="white-space:nowrap;font-size:0.8rem;color:var(--text-muted);">{{.CreatedAt.Format "Jan 2 15:04:05"}}</td>
+                    <td><code style="font-size:0.8rem;">{{.Event}}</code></td>
+                    <td style="text-align:center;">{{.Attempt}}</td>
+                    <td>{{if .StatusCode}}<code style="font-size:0.8rem;">{{.StatusCode}}</code>{{else}}-{{end}}</td>
+                    <td>{{if .Success}}<span class="content-status published">Success</span>{{else}}<span class="content-status draft">{{if .Error}}{{.Error}}{{else}}Failed{{end}}</span>{{end}}</td>
+                </tr>
+                {{else}}
+                <tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:2rem;">No deliveries recorded yet.</td></tr>
+                {{end}}
+                </tbody>
+            </table>
+        </div>
+    ` + adminLayoutEnd,
+
+	"webhook_docs": adminLayoutStart + `
+        <div class="page-header">
+            <div>
+                <h1>Webhook Documentation</h1>
+                <p class="page-subtitle">Everything you need to receive and verify LightCMS webhook events.</p>
+            </div>
+            <a href="/cm/webhooks" class="btn btn-secondary">Back to Webhooks</a>
+        </div>
+        <div style="max-width:800px;">
+            <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:1.5rem;margin-bottom:1.5rem;">
+                <h2 style="margin-bottom:1rem;">Events</h2>
+                <table>
+                    <thead><tr><th>Event</th><th>When it fires</th></tr></thead>
+                    <tbody>
+                        <tr><td><code>content.create</code></td><td>A new content item is created</td></tr>
+                        <tr><td><code>content.update</code></td><td>An existing content item is updated</td></tr>
+                        <tr><td><code>content.publish</code></td><td>Content is published (goes live)</td></tr>
+                        <tr><td><code>content.unpublish</code></td><td>Content is unpublished (taken down)</td></tr>
+                        <tr><td><code>content.delete</code></td><td>Content is deleted</td></tr>
+                        <tr><td><code>comment.created</code></td><td>A discussion comment is posted on a content item</td></tr>
+                        <tr><td><code>content.pending_approval</code></td><td>A contributor submits content for editorial approval</td></tr>
+                        <tr><td><code>asset.pending_review</code></td><td>A contributor uploads an asset pending review</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:1.5rem;margin-bottom:1.5rem;">
+                <h2 style="margin-bottom:1rem;">Payload Format</h2>
+                <pre style="background:rgba(0,0,0,0.3);padding:1rem;border-radius:8px;font-size:0.85rem;overflow-x:auto;">{
+  "event": "content.publish",
+  "timestamp": "2026-03-24T10:00:00Z",
+  "data": {
+    "id": "60c72b2f9b1d8c001f647c1e",
+    "title": "My Blog Post",
+    "path": "/blog/my-blog-post"
+  }
+}</pre>
+            </div>
+            <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:1.5rem;margin-bottom:1.5rem;">
+                <h2 style="margin-bottom:1rem;">Signature Verification</h2>
+                <p style="margin-bottom:1rem;color:var(--text-muted);">Each request includes an <code>X-LightCMS-Signature</code> header (format: <code>sha256=&lt;hex&gt;</code>). Verify it to ensure the request is authentic.</p>
+                <h3 style="margin:1rem 0 0.5rem;">Go</h3>
+                <pre style="background:rgba(0,0,0,0.3);padding:1rem;border-radius:8px;font-size:0.85rem;overflow-x:auto;">func verify(secret, signature string, body []byte) bool {
+    mac := hmac.New(sha256.New, []byte(secret))
+    mac.Write(body)
+    expected := "sha256=" + hex.EncodeToString(mac.Sum(nil))
+    return hmac.Equal([]byte(expected), []byte(signature))
+}</pre>
+                <h3 style="margin:1rem 0 0.5rem;">Python</h3>
+                <pre style="background:rgba(0,0,0,0.3);padding:1rem;border-radius:8px;font-size:0.85rem;overflow-x:auto;">import hmac, hashlib
+def verify(secret, signature, body):
+    expected = "sha256=" + hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, signature)</pre>
+                <h3 style="margin:1rem 0 0.5rem;">Node.js</h3>
+                <pre style="background:rgba(0,0,0,0.3);padding:1rem;border-radius:8px;font-size:0.85rem;overflow-x:auto;">const crypto = require('crypto');
+function verify(secret, signature, body) {
+    const expected = 'sha256=' + crypto.createHmac('sha256', secret).update(body).digest('hex');
+    return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
+}</pre>
+            </div>
+        </div>
+    ` + adminLayoutEnd,
+
+	// ---------------------------------------------------------------------------
+	// Import Pipeline templates
+	// ---------------------------------------------------------------------------
+
+	"imports": adminLayoutStart + `
+        <div class="page-header">
+            <div>
+                <h1>Import Pipeline</h1>
+                <p class="page-subtitle">Import content from RSS feeds, Markdown files, and CSV spreadsheets.</p>
+            </div>
+        </div>
+
+        <!-- Configured RSS Sources -->
+        <div style="margin-bottom:2rem;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
+                <h2 style="font-size:1.25rem;font-weight:600;">Configured RSS Sources</h2>
+                <a href="/cm/imports/sources/new" class="btn btn-primary">+ Add RSS Source</a>
+            </div>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Feed URL</th>
+                            <th>Schedule</th>
+                            <th>Last Run</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {{range .Sources}}
+                    <tr>
+                        <td>{{.Name}}</td>
+                        <td style="font-family:monospace;font-size:0.8rem;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{.URL}}">{{.URL}}</td>
+                        <td>{{if .Schedule}}{{.Schedule}}{{else}}<span style="color:var(--text-muted)">manual</span>{{end}}</td>
+                        <td>{{if .LastRunAt}}{{.LastRunAt.Format "2006-01-02 15:04"}}{{else}}<span style="color:var(--text-muted)">never</span>{{end}}</td>
+                        <td>
+                            {{if .Active}}<span class="content-status published">Active</span>{{else}}<span class="content-status draft">Inactive</span>{{end}}
+                            {{if .LastRunStatus}}
+                                {{if eq .LastRunStatus "ok"}}<span class="content-status published" style="margin-left:4px;">OK</span>{{else}}<span class="content-status" style="background:rgba(239,68,68,0.15);color:#f87171;margin-left:4px;">Failed</span>{{end}}
+                            {{end}}
+                        </td>
+                        <td class="actions">
+                            <a href="/cm/imports/sources/{{.ID.Hex}}/edit" class="btn btn-sm btn-secondary">Edit</a>
+                            <form method="POST" action="/cm/imports/sources/{{.ID.Hex}}/trigger" style="display:inline;">
+                                {{$.CSRFField}}
+                                <button type="submit" class="btn btn-sm btn-primary">Run Now</button>
+                            </form>
+                            <form method="POST" action="/cm/imports/sources/{{.ID.Hex}}/delete" style="display:inline;">
+                                {{$.CSRFField}}
+                                <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Delete this RSS source?')">Delete</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {{else}}
+                    <tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:2rem;">No RSS sources configured. <a href="/cm/imports/sources/new">Add one</a>.</td></tr>
+                    {{end}}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Recent Import Jobs -->
+        <div>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
+                <h2 style="font-size:1.25rem;font-weight:600;">Recent Import Jobs</h2>
+                <div style="display:flex;gap:0.75rem;">
+                    <a href="/cm/imports/markdown" class="btn btn-secondary">Import Markdown / ZIP</a>
+                    <a href="/cm/imports/csv" class="btn btn-secondary">Import CSV</a>
+                </div>
+            </div>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Started</th>
+                            <th>Name / Type</th>
+                            <th>Status</th>
+                            <th>Created</th>
+                            <th>Updated</th>
+                            <th>Failed</th>
+                            <th>Duration</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {{range .Jobs}}
+                    <tr>
+                        <td style="font-size:0.85rem;white-space:nowrap;">{{.StartedAt.Format "2006-01-02 15:04"}}</td>
+                        <td>
+                            <span style="font-weight:500;">{{.SourceName}}</span>
+                            <span style="font-size:0.75rem;color:var(--text-muted);margin-left:4px;">[{{.Type}}]</span>
+                        </td>
+                        <td>
+                            {{if eq (print .Status) "running"}}<span class="content-status" style="background:rgba(6,182,212,0.15);color:#06b6d4;">Running</span>
+                            {{else if eq (print .Status) "done"}}<span class="content-status published">Done</span>
+                            {{else if eq (print .Status) "failed"}}<span class="content-status" style="background:rgba(239,68,68,0.15);color:#f87171;">Failed</span>
+                            {{else}}<span class="content-status draft">{{.Status}}</span>{{end}}
+                        </td>
+                        <td style="color:var(--success);">{{.Created}}</td>
+                        <td style="color:var(--accent);">{{.Updated}}</td>
+                        <td style="color:var(--danger);">{{.Failed}}</td>
+                        <td style="font-size:0.8rem;color:var(--text-muted);">
+                            {{if .FinishedAt}}{{.FinishedAt.Sub .StartedAt}}{{else}}&#8212;{{end}}
+                        </td>
+                        <td><a href="/cm/imports/{{.ID.Hex}}" class="btn btn-sm btn-secondary">View</a></td>
+                    </tr>
+                    {{else}}
+                    <tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:2rem;">No import jobs yet.</td></tr>
+                    {{end}}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    ` + adminLayoutEnd,
+
+	"import-job": adminLayoutStart + `
+        <div class="page-header">
+            <div>
+                <h1>Import Job</h1>
+                <p class="page-subtitle">{{.Job.SourceName}}</p>
+            </div>
+            <a href="/cm/imports" class="btn btn-secondary">Back to Imports</a>
+        </div>
+
+        <!-- Summary cards -->
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:1rem;margin-bottom:2rem;">
+            <div class="stat-card">
+                <div class="stat-icon">&#9202;</div>
+                <div class="stat-info">
+                    <span class="stat-value" style="font-size:0.85rem;">{{.Job.StartedAt.Format "Jan 02 15:04:05"}}</span>
+                    <span class="stat-label">Started</span>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">&#9654;</div>
+                <div class="stat-info">
+                    <span class="stat-value" style="font-size:0.9rem;
+                        {{if eq (print .Job.Status) "running"}}color:#06b6d4;
+                        {{else if eq (print .Job.Status) "done"}}color:var(--success);
+                        {{else}}color:var(--danger);{{end}}">{{.Job.Status}}</span>
+                    <span class="stat-label">Status</span>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">+</div>
+                <div class="stat-info">
+                    <span class="stat-value" style="color:var(--success);">{{.Job.Created}}</span>
+                    <span class="stat-label">Created</span>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">&#8635;</div>
+                <div class="stat-info">
+                    <span class="stat-value" style="color:var(--accent);">{{.Job.Updated}}</span>
+                    <span class="stat-label">Updated</span>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">!</div>
+                <div class="stat-info">
+                    <span class="stat-value" style="color:var(--danger);">{{.Job.Failed}}</span>
+                    <span class="stat-label">Failed</span>
+                </div>
+            </div>
+        </div>
+
+        {{if .Job.ErrorMsg}}
+        <div style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);color:#f87171;padding:0.75rem 1rem;border-radius:8px;margin-bottom:1.5rem;">
+            Error: {{.Job.ErrorMsg}}
+        </div>
+        {{end}}
+
+        <!-- Log output -->
+        <div style="background:rgba(0,0,0,0.4);border:1px solid var(--border);border-radius:12px;padding:1rem;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;">
+                <h3 style="font-size:1rem;font-weight:600;">Log Output</h3>
+                {{if eq (print .Job.Status) "running"}}
+                <span id="live-badge" style="font-size:0.75rem;background:rgba(6,182,212,0.15);color:#06b6d4;padding:0.2rem 0.6rem;border-radius:9999px;">Live</span>
+                {{end}}
+            </div>
+            <div id="log-output" style="font-family:'JetBrains Mono',monospace;font-size:0.8rem;line-height:1.6;max-height:600px;overflow-y:auto;white-space:pre-wrap;">{{range .Logs}}<span style="{{if eq (print .Level) "warn"}}color:#f59e0b;{{else if eq (print .Level) "error"}}color:#f87171;{{end}}">{{if .Path}}[{{.Path}}] {{end}}{{.Message}}
+</span>{{end}}</div>
+        </div>
+
+        {{if eq (print .Job.Status) "running"}}
+        <script>
+        (function() {
+            var logDiv = document.getElementById('log-output');
+            var liveBadge = document.getElementById('live-badge');
+            var evtSource = new EventSource('/cm/imports/{{.Job.ID.Hex}}/stream');
+
+            function appendLine(level, path, msg) {
+                var span = document.createElement('span');
+                var text = (path ? '[' + path + '] ' : '') + msg + '\n';
+                span.textContent = text;
+                if (level === 'warn')  { span.style.color = '#f59e0b'; }
+                if (level === 'error') { span.style.color = '#f87171'; }
+                if (level === 'done')  { span.style.color = 'var(--success)'; span.style.fontWeight = 'bold'; }
+                logDiv.appendChild(span);
+                logDiv.scrollTop = logDiv.scrollHeight;
+            }
+
+            evtSource.onmessage = function(e) {
+                var parts = e.data.split('|');
+                var level = parts[0] || 'info';
+                var path  = parts[1] || '';
+                var msg   = parts.slice(2).join('|') || '';
+                if (level === 'done') {
+                    appendLine('done', '', 'Import complete (' + path + ')');
+                    if (liveBadge) { liveBadge.style.display = 'none'; }
+                    evtSource.close();
+                    return;
+                }
+                appendLine(level, path, msg);
+            };
+
+            evtSource.onerror = function() {
+                evtSource.close();
+                if (liveBadge) { liveBadge.textContent = 'Disconnected'; }
+            };
+        })();
+        </script>
+        {{end}}
+    ` + adminLayoutEnd,
+
+	"import-source-form": adminLayoutStart + `
+        <div class="page-header">
+            <div>
+                <h1>{{if .IsNew}}New RSS Source{{else}}Edit RSS Source{{end}}</h1>
+                <p class="page-subtitle">Configure a recurring RSS/Atom feed import.</p>
+            </div>
+        </div>
+        {{if .Error}}<div style="background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.3);color:#f87171;padding:0.75rem 1rem;border-radius:8px;margin-bottom:1.5rem;">{{.Error}}</div>{{end}}
+        <div class="form-card" style="max-width:640px;">
+            <form method="POST" action="{{if .IsNew}}/cm/imports/sources{{else}}/cm/imports/sources/{{.Source.ID.Hex}}{{end}}">
+                {{.CSRFField}}
+                <div class="form-group">
+                    <label class="form-label">Name *</label>
+                    <input type="text" name="name" class="form-input" required value="{{if .Source}}{{.Source.Name}}{{end}}" placeholder="e.g. TechCrunch RSS">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Feed URL *</label>
+                    <input type="url" name="url" class="form-input" required value="{{if .Source}}{{.Source.URL}}{{end}}" placeholder="https://example.com/feed.xml">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Default Template</label>
+                    <select name="template_id" class="form-select">
+                        <option value="">&#8212; None &#8212;</option>
+                        {{range .Templates}}
+                        <option value="{{.ID.Hex}}"{{if and $.Source (eq $.Source.TemplateID .ID)}} selected{{end}}>{{.Name}}</option>
+                        {{end}}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Folder Path</label>
+                    <input type="text" name="folder_path" class="form-input" value="{{if .Source}}{{.Source.FolderPath}}{{end}}" placeholder="/imports/rss">
+                    <div class="form-help">Content will be created under this folder. Defaults to /imports.</div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Schedule</label>
+                    <select name="schedule" class="form-select">
+                        <option value="manual"{{if and .Source (eq .Source.Schedule "manual")}} selected{{end}}>Manual only</option>
+                        <option value="hourly"{{if and .Source (eq .Source.Schedule "hourly")}} selected{{end}}>Hourly</option>
+                        <option value="daily"{{if and .Source (eq .Source.Schedule "daily")}} selected{{end}}>Daily</option>
+                        <option value="weekly"{{if and .Source (eq .Source.Schedule "weekly")}} selected{{end}}>Weekly</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;">
+                        <input type="checkbox" name="auto_publish" value="on"{{if and .Source .Source.AutoPublish}} checked{{end}}>
+                        Auto-publish imported pages
+                    </label>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;">
+                        <input type="checkbox" name="active" value="on"{{if or .IsNew (and .Source .Source.Active)}} checked{{end}}>
+                        Active (include in scheduled runs)
+                    </label>
+                </div>
+                <div style="display:flex;gap:0.75rem;margin-top:1.5rem;">
+                    <button type="submit" class="btn btn-primary">{{if .IsNew}}Create Source{{else}}Save Changes{{end}}</button>
+                    <a href="/cm/imports" class="btn btn-secondary">Cancel</a>
+                </div>
+            </form>
+        </div>
+    ` + adminLayoutEnd,
+
+	"import-markdown-form": adminLayoutStart + `
+        <div class="page-header">
+            <div>
+                <h1>Import Markdown / ZIP</h1>
+                <p class="page-subtitle">Upload a .md, .markdown, or .zip file containing Markdown pages.</p>
+            </div>
+            <a href="/cm/imports" class="btn btn-secondary">Back</a>
+        </div>
+        <div class="form-card" style="max-width:600px;">
+            <div style="background:rgba(6,182,212,0.08);border:1px solid rgba(6,182,212,0.2);border-radius:8px;padding:1rem;margin-bottom:1.5rem;font-size:0.88rem;color:var(--text-muted);">
+                <strong style="color:var(--accent);">Supported frontmatter keys:</strong>
+                <code style="display:block;margin-top:0.4rem;line-height:1.8;">title &bull; slug &bull; folder &bull; template &bull; published &bull; publish_at &bull; tags</code>
+                <div style="margin-top:0.5rem;">Frontmatter is delimited by <code>---</code>. Any extra keys become content fields.</div>
+            </div>
+            <form method="POST" action="/cm/imports/markdown" enctype="multipart/form-data">
+                {{.CSRFField}}
+                <div class="form-group">
+                    <label class="form-label">File *</label>
+                    <input type="file" name="file" class="form-input" accept=".md,.markdown,.zip" required>
+                    <div class="form-help">Single .md/.markdown file or a .zip archive containing multiple Markdown files.</div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Default Template</label>
+                    <select name="default_template" class="form-select">
+                        <option value="">&#8212; None &#8212;</option>
+                        {{range .Templates}}
+                        <option value="{{.Name}}">{{.Name}}</option>
+                        {{end}}
+                    </select>
+                    <div class="form-help">Used when a file does not specify a template in frontmatter.</div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Default Folder</label>
+                    <input type="text" name="default_folder" class="form-input" placeholder="/imports/markdown">
+                    <div class="form-help">Used when a file does not specify a folder in frontmatter. Defaults to /imports.</div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;">
+                        <input type="checkbox" name="auto_publish" value="on">
+                        Auto-publish imported pages
+                    </label>
+                </div>
+                <div style="display:flex;gap:0.75rem;margin-top:1.5rem;">
+                    <button type="submit" class="btn btn-primary">Start Import</button>
+                    <a href="/cm/imports" class="btn btn-secondary">Cancel</a>
+                </div>
+            </form>
+        </div>
+    ` + adminLayoutEnd,
+
+	"import-csv-form": adminLayoutStart + `
+        <div class="page-header">
+            <div>
+                <h1>Quick CSV Import</h1>
+                <p class="page-subtitle">Import content rows from a CSV file.</p>
+            </div>
+            <a href="/cm/imports" class="btn btn-secondary">Back</a>
+        </div>
+        <div class="form-card" style="max-width:600px;">
+            <div style="background:rgba(6,182,212,0.08);border:1px solid rgba(6,182,212,0.2);border-radius:8px;padding:1rem;margin-bottom:1.5rem;font-size:0.88rem;color:var(--text-muted);">
+                All CSV columns will be imported as content fields. The title column will be used as the page title and to generate the URL slug.
+            </div>
+            <form method="POST" action="/cm/imports/csv" enctype="multipart/form-data">
+                {{.CSRFField}}
+                <div class="form-group">
+                    <label class="form-label">CSV File *</label>
+                    <input type="file" name="file" class="form-input" accept=".csv" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Template</label>
+                    <select name="template_id" class="form-select">
+                        <option value="">&#8212; None &#8212;</option>
+                        {{range .Templates}}
+                        <option value="{{.ID.Hex}}">{{.Name}}</option>
+                        {{end}}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Folder Path</label>
+                    <input type="text" name="folder_path" class="form-input" placeholder="/imports/csv">
+                    <div class="form-help">Content will be created under this folder. Defaults to /imports.</div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Title Column</label>
+                    <input type="text" name="title_column" class="form-input" value="title" placeholder="title">
+                    <div class="form-help">Name of the CSV column to use as the page title and slug source. Default: "title".</div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label" style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;">
+                        <input type="checkbox" name="auto_publish" value="on">
+                        Auto-publish imported pages
+                    </label>
+                </div>
+                <div style="display:flex;gap:0.75rem;margin-top:1.5rem;">
+                    <button type="submit" class="btn btn-primary">Start Import</button>
+                    <a href="/cm/imports" class="btn btn-secondary">Cancel</a>
+                </div>
+            </form>
+        </div>
+    ` + adminLayoutEnd,
+
+	"approvals_page": adminLayoutStart + `
+        <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;">
+            <h1>Approvals</h1>
+        </div>
+
+        <div class="form-section" style="margin-bottom:2rem;">
+            <h2 style="font-size:1.1rem;margin-bottom:1rem;">My Queue</h2>
+            {{if .MyQueue}}
+            <div class="table-container">
+                <table>
+                    <thead><tr><th>Content</th><th>Path</th><th>Submitted By</th><th>Submitted</th><th>Actions</th></tr></thead>
+                    <tbody>
+                        {{range .MyQueue}}
+                        <tr>
+                            <td><a href="/cm/content/{{.ContentID.Hex}}">{{if .ContentTitle}}{{.ContentTitle}}{{else}}{{.ContentID.Hex}}{{end}}</a></td>
+                            <td style="color:var(--muted);font-size:0.85rem;">{{.ContentPath}}</td>
+                            <td style="font-size:0.9rem;">{{.SubmittedByEmail}}</td>
+                            <td style="font-size:0.85rem;color:var(--muted);">{{.CreatedAt.Format "Jan 2, 3:04 PM"}}</td>
+                            <td class="actions">
+                                <button type="button" class="btn btn-sm btn-primary" onclick="approveRequest('{{.ID.Hex}}')">Approve</button>
+                                <button type="button" class="btn btn-sm btn-secondary" onclick="openRejectModal('{{.ID.Hex}}')">Reject</button>
+                            </td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+            {{else}}
+            <p style="color:var(--muted);">Nothing in your queue.</p>
+            {{end}}
+        </div>
+
+        {{if .OtherPending}}
+        <div class="form-section" style="margin-bottom:2rem;">
+            <h2 style="font-size:1.1rem;margin-bottom:1rem;">Other Pending</h2>
+            <div class="table-container">
+                <table>
+                    <thead><tr><th>Content</th><th>Path</th><th>Submitted By</th><th>Submitted</th></tr></thead>
+                    <tbody>
+                        {{range .OtherPending}}
+                        <tr>
+                            <td><a href="/cm/content/{{.ContentID.Hex}}">{{if .ContentTitle}}{{.ContentTitle}}{{else}}{{.ContentID.Hex}}{{end}}</a></td>
+                            <td style="color:var(--muted);font-size:0.85rem;">{{.ContentPath}}</td>
+                            <td style="font-size:0.9rem;">{{.SubmittedByEmail}}</td>
+                            <td style="font-size:0.85rem;color:var(--muted);">{{.CreatedAt.Format "Jan 2, 3:04 PM"}}</td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {{end}}
+
+        {{if and .CurrentUser (eq .CurrentUser.Role "admin")}}
+        <div class="form-section">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">
+                <h2 style="font-size:1.1rem;margin:0;">Approval Workflows</h2>
+            </div>
+            {{if .Workflows}}
+            <div class="table-container">
+                <table>
+                    <thead><tr><th>Name</th><th>Trigger</th><th>Mode</th><th>Approvers</th><th>Actions</th></tr></thead>
+                    <tbody>
+                        {{range .Workflows}}
+                        <tr>
+                            <td>{{.Name}}</td>
+                            <td style="font-size:0.85rem;color:var(--muted);">{{.Trigger}}{{if .TriggerValue}}: {{.TriggerValue}}{{end}}</td>
+                            <td style="font-size:0.85rem;">{{.Mode}}</td>
+                            <td style="font-size:0.85rem;color:var(--muted);">{{len .Approvers}}</td>
+                            <td class="actions">
+                                <button type="button" class="btn btn-sm btn-outline" onclick="deleteWorkflow('{{.ID.Hex}}')">Delete</button>
+                            </td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+            {{else}}
+            <p style="color:var(--muted);font-size:0.9rem;">No custom workflows configured. By default, any editor can approve contributor submissions.</p>
+            {{end}}
+        </div>
+        {{end}}
+
+        <div id="reject-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:10000;align-items:center;justify-content:center;">
+            <div style="background:var(--bg-card);border-radius:var(--radius);max-width:480px;width:90%;padding:1.5rem;border:1px solid var(--border);">
+                <h3 style="margin:0 0 1rem;">Reject Request</h3>
+                <p style="color:var(--muted);margin-bottom:0.75rem;font-size:0.9rem;">A comment is required and will be posted to the content's discussion thread.</p>
+                <textarea id="reject-comment" rows="4" style="width:100%;padding:0.75rem;background:var(--bg-tertiary);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);resize:vertical;box-sizing:border-box;"></textarea>
+                <div style="display:flex;gap:0.75rem;justify-content:flex-end;margin-top:1rem;">
+                    <button type="button" class="btn btn-outline" onclick="closeRejectModal()">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="submitReject()">Reject</button>
+                </div>
+            </div>
+        </div>
+        <script>
+        var rejectingId = null;
+        async function approveRequest(id) {
+            if (!confirm('Approve this request?')) return;
+            var r = await fetch('/api/v1/approval-requests/'+id+'/approve', {method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+            if (r.ok) location.reload(); else alert('Failed');
+        }
+        function openRejectModal(id) { rejectingId = id; document.getElementById('reject-comment').value=''; document.getElementById('reject-modal').style.display='flex'; }
+        function closeRejectModal() { document.getElementById('reject-modal').style.display='none'; rejectingId=null; }
+        async function submitReject() {
+            var c = document.getElementById('reject-comment').value.trim();
+            if (!c) { alert('Comment required'); return; }
+            var r = await fetch('/api/v1/approval-requests/'+rejectingId+'/reject', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({comment:c})});
+            if (r.ok) { closeRejectModal(); location.reload(); } else alert('Failed');
+        }
+        async function deleteWorkflow(id) {
+            if (!confirm('Delete this workflow?')) return;
+            var r = await fetch('/api/v1/approval-workflows/'+id, {method:'DELETE'});
+            if (r.ok) location.reload(); else alert('Failed');
+        }
+        </script>
     ` + adminLayoutEnd,
 }
 
@@ -7170,6 +8230,7 @@ const adminLayoutStart = `<!DOCTYPE html>
                     <a href="/cm/collections" class="nav-link">📁 Collections</a>
                     <a href="/cm/folders" class="nav-link">🗂️ Folders</a>
                     <a href="/cm/forks" class="nav-link">🌿 Forks</a>
+                    <a href="/cm/imports" class="nav-link">📥 Imports</a>
                 </div>
                 <div class="nav-section">
                     <div class="nav-section-title">Media</div>
@@ -7182,6 +8243,7 @@ const adminLayoutStart = `<!DOCTYPE html>
                     <a href="/cm/config" class="nav-link">⚙️ Configuration</a>
                     <a href="/cm/api-keys" class="nav-link">🔑 API Keys</a>
                     <a href="/cm/security" class="nav-link">🔒 Security</a>
+                    <a href="/cm/webhooks" class="nav-link">🔔 Webhooks</a>
                     {{if and .CurrentUser (eq .CurrentUser.Role "admin")}}
                     <a href="/cm/users" class="nav-link">👥 Users</a>
                     <a href="/cm/audit" class="nav-link">📜 Audit Log</a>
@@ -7196,6 +8258,7 @@ const adminLayoutStart = `<!DOCTYPE html>
                 <div class="nav-section">
                     <div class="nav-section-title">Inbox</div>
                     <a href="/cm/messages" class="nav-link">📬 Messages{{if .UnreadMessageCount}} <span class="nav-badge">{{.UnreadMessageCount}}</span>{{end}}</a>
+                    <a href="/cm/approvals" class="nav-link">✅ Approvals{{if .PendingApprovalCount}} <span class="nav-badge">{{.PendingApprovalCount}}</span>{{end}}</a>
                 </div>
                 <div class="nav-section">
                     <a href="/" target="_blank" class="nav-link">🌐 View Site</a>

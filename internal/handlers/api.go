@@ -23,7 +23,23 @@ type APIHandler struct {
 	auditService    *services.AuditService
 	snippetService  *services.SnippetService
 	forkService     *services.ForkService
+	importService   *services.ImportService
+	webhookService     *services.WebhookService
+	lockService        *services.LockService
+	linkCheckerService *services.LinkCheckerService
+	commentService     *services.CommentService
+	approvalService    *services.ApprovalService
+	userService        *services.UserService
 }
+
+// SetCommentService wires in the comment service.
+func (a *APIHandler) SetCommentService(cs *services.CommentService) { a.commentService = cs }
+
+// SetApprovalService wires in the approval service.
+func (a *APIHandler) SetApprovalService(as *services.ApprovalService) { a.approvalService = as }
+
+// SetUserService wires in the user service (used for approver ID validation).
+func (a *APIHandler) SetUserService(us *services.UserService) { a.userService = us }
 
 // NewAPIHandler creates a new API handler
 func NewAPIHandler(

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 
 	"lightcms/internal/auth"
@@ -10,6 +11,9 @@ import (
 )
 
 func (a *APIHandler) APIListSnippets(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermTemplateView) {
+		return
+	}
 	snippets, err := a.snippetService.ListSnippets(r.Context())
 	if err != nil {
 		a.jsonError(w, http.StatusInternalServerError, err.Error())
@@ -19,6 +23,9 @@ func (a *APIHandler) APIListSnippets(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *APIHandler) APIGetSnippet(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermTemplateView) {
+		return
+	}
 	id, err := primitive.ObjectIDFromHex(mux.Vars(r)["id"])
 	if err != nil {
 		a.jsonError(w, http.StatusBadRequest, "invalid snippet ID")
@@ -76,6 +83,8 @@ func (a *APIHandler) APIUpdateSnippet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.auditLog(r, "snippet.update", "snippet", id.Hex(), map[string]interface{}{"name": snip.Name})
+	// Regenerate all published pages — any page may include this snippet.
+	go a.contentService.RegenerateAllContent(context.Background())
 	a.jsonResponse(w, http.StatusOK, snip)
 }
 
@@ -93,5 +102,7 @@ func (a *APIHandler) APIDeleteSnippet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.auditLog(r, "snippet.delete", "snippet", id.Hex(), nil)
+	// Regenerate all published pages — any page may have included this snippet.
+	go a.contentService.RegenerateAllContent(context.Background())
 	a.jsonResponse(w, http.StatusOK, map[string]interface{}{"success": true})
 }

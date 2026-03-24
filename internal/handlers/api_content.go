@@ -22,6 +22,9 @@ import (
 // API Content endpoints
 
 func (a *APIHandler) APIListContent(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermContentView) {
+		return
+	}
 	includeDeleted, _ := strconv.ParseBool(r.URL.Query().Get("include_deleted"))
 	category := r.URL.Query().Get("category")
 	includeData, _ := strconv.ParseBool(r.URL.Query().Get("include_data"))
@@ -112,6 +115,9 @@ func (a *APIHandler) APIListContent(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *APIHandler) APIGetContent(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermContentView) {
+		return
+	}
 	id, err := primitive.ObjectIDFromHex(mux.Vars(r)["id"])
 	if err != nil {
 		a.jsonError(w, http.StatusBadRequest, "invalid content ID")
@@ -139,6 +145,9 @@ func (a *APIHandler) APIGetContent(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *APIHandler) APIGetContentByPath(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermContentView) {
+		return
+	}
 	path := r.URL.Query().Get("path")
 	if path == "" {
 		a.jsonError(w, http.StatusBadRequest, "path parameter is required")
@@ -155,6 +164,9 @@ func (a *APIHandler) APIGetContentByPath(w http.ResponseWriter, r *http.Request)
 }
 
 func (a *APIHandler) APIGetBacklinks(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermContentView) {
+		return
+	}
 	path := r.URL.Query().Get("path")
 	if path == "" {
 		a.jsonError(w, http.StatusBadRequest, "path parameter is required")
@@ -457,6 +469,9 @@ func (a *APIHandler) APIUnpublishContent(w http.ResponseWriter, r *http.Request)
 }
 
 func (a *APIHandler) APIListContentVersions(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermContentView) {
+		return
+	}
 	id, err := primitive.ObjectIDFromHex(mux.Vars(r)["id"])
 	if err != nil {
 		a.jsonError(w, http.StatusBadRequest, "invalid content ID")
@@ -473,6 +488,9 @@ func (a *APIHandler) APIListContentVersions(w http.ResponseWriter, r *http.Reque
 }
 
 func (a *APIHandler) APIGetContentVersion(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermContentView) {
+		return
+	}
 	id, err := primitive.ObjectIDFromHex(mux.Vars(r)["id"])
 	if err != nil {
 		a.jsonError(w, http.StatusBadRequest, "invalid content ID")
@@ -532,6 +550,9 @@ func (a *APIHandler) APIRevertContentVersion(w http.ResponseWriter, r *http.Requ
 
 // APISearchContent handles content search
 func (a *APIHandler) APISearchContent(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermContentView) {
+		return
+	}
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
 	if query == "" {
 		a.jsonError(w, http.StatusBadRequest, "q parameter is required")
@@ -1010,6 +1031,9 @@ func (a *APIHandler) APIBatchPublishContent(w http.ResponseWriter, r *http.Reque
 // APIPreviewContent renders a content item's HTML without saving or publishing.
 // Returns the rendered body HTML plus any validation warnings.
 func (a *APIHandler) APIPreviewContent(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermContentView) {
+		return
+	}
 	id, err := primitive.ObjectIDFromHex(mux.Vars(r)["id"])
 	if err != nil {
 		a.jsonError(w, http.StatusBadRequest, "invalid content ID")
@@ -1751,6 +1775,9 @@ respond:
 
 // APIExportContent exports content items with their field data.
 func (a *APIHandler) APIExportContent(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermContentEdit) {
+		return
+	}
 	var req struct {
 		TemplateName string   `json:"template_name,omitempty"`
 		Category     string   `json:"category,omitempty"`

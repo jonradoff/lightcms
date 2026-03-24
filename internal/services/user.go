@@ -35,7 +35,8 @@ func (s *UserService) CreateUser(ctx context.Context, email, displayName, role s
 	if email == "" {
 		return nil, "", fmt.Errorf("email is required")
 	}
-	if role != models.RoleAdmin && role != models.RoleEditor && role != models.RoleViewer {
+	if role != models.RoleAdmin && role != models.RoleEditor &&
+		role != models.RoleContributor && role != models.RoleViewer {
 		return nil, "", fmt.Errorf("invalid role: %s", role)
 	}
 
@@ -146,7 +147,8 @@ func (s *UserService) ListUsers(ctx context.Context) ([]models.User, error) {
 
 // UpdateUser updates a user's display name and role
 func (s *UserService) UpdateUser(ctx context.Context, id primitive.ObjectID, displayName, role string) error {
-	if role != models.RoleAdmin && role != models.RoleEditor && role != models.RoleViewer {
+	if role != models.RoleAdmin && role != models.RoleEditor &&
+		role != models.RoleContributor && role != models.RoleViewer {
 		return fmt.Errorf("invalid role: %s", role)
 	}
 	return s.db.UpdateOne(ctx, "users", bson.M{"_id": id}, bson.M{

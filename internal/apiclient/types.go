@@ -371,3 +371,276 @@ type ForkMergeConflict struct {
 	ForkTitle string `json:"fork_title"`
 	LiveTitle string `json:"live_title"`
 }
+
+// Import types
+
+type ImportSource struct {
+	ID           string     `json:"id,omitempty"`
+	Name         string     `json:"name"`
+	URL          string     `json:"url"`
+	TemplateName string     `json:"template_name,omitempty"`
+	FolderPath   string     `json:"folder_path,omitempty"`
+	AutoPublish  bool       `json:"auto_publish"`
+	Schedule     string     `json:"schedule"`
+	Active       bool       `json:"active"`
+	LastRunAt    *time.Time `json:"last_run_at,omitempty"`
+	LastRunStatus string    `json:"last_run_status,omitempty"`
+	CreatedAt    time.Time  `json:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at"`
+}
+
+type ImportJob struct {
+	ID         string     `json:"id,omitempty"`
+	SourceName string     `json:"source_name,omitempty"`
+	Type       string     `json:"type"`
+	Status     string     `json:"status"`
+	TotalPages int        `json:"total_pages"`
+	Created    int        `json:"created"`
+	Updated    int        `json:"updated"`
+	Failed     int        `json:"failed"`
+	Skipped    int        `json:"skipped"`
+	ErrorMsg   string     `json:"error_msg,omitempty"`
+	StartedAt  time.Time  `json:"started_at"`
+	FinishedAt *time.Time `json:"finished_at,omitempty"`
+	CreatedBy  string     `json:"created_by,omitempty"`
+}
+
+type ImportLog struct {
+	ID        string    `json:"id,omitempty"`
+	JobID     string    `json:"job_id"`
+	Seq       int       `json:"seq"`
+	Level     string    `json:"level"`
+	Message   string    `json:"message"`
+	Path      string    `json:"path,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+type ImportJobDetail struct {
+	Job  *ImportJob   `json:"job"`
+	Logs []ImportLog  `json:"logs,omitempty"`
+}
+
+type CreateImportSourceRequest struct {
+	Name         string `json:"name"`
+	URL          string `json:"url"`
+	TemplateName string `json:"template_name,omitempty"`
+	FolderPath   string `json:"folder_path,omitempty"`
+	AutoPublish  bool   `json:"auto_publish,omitempty"`
+	Schedule     string `json:"schedule,omitempty"`
+	Active       *bool  `json:"active,omitempty"`
+}
+
+type UpdateImportSourceRequest struct {
+	Name         *string `json:"name,omitempty"`
+	URL          *string `json:"url,omitempty"`
+	TemplateName *string `json:"template_name,omitempty"`
+	FolderPath   *string `json:"folder_path,omitempty"`
+	AutoPublish  *bool   `json:"auto_publish,omitempty"`
+	Schedule     *string `json:"schedule,omitempty"`
+	Active       *bool   `json:"active,omitempty"`
+}
+
+type ImportMarkdownPage struct {
+	Filename string `json:"filename,omitempty"`
+	Content  string `json:"content"`
+}
+
+type ImportMarkdownRequest struct {
+	Pages           []ImportMarkdownPage `json:"pages"`
+	DefaultTemplate string               `json:"default_template,omitempty"`
+	DefaultFolder   string               `json:"default_folder,omitempty"`
+	AutoPublish     bool                 `json:"auto_publish,omitempty"`
+}
+
+type ImportCSVRequest struct {
+	CSVData      string `json:"csv_data"`
+	TitleColumn  string `json:"title_column"`
+	TemplateName string `json:"template_name,omitempty"`
+	FolderPath   string `json:"folder_path,omitempty"`
+	AutoPublish  bool   `json:"auto_publish,omitempty"`
+	SlugColumn   string `json:"slug_column,omitempty"`
+}
+
+type ImportJobResponse struct {
+	JobID   string `json:"job_id"`
+	Message string `json:"message"`
+}
+
+// Webhook types
+
+type Webhook struct {
+	ID        string   `json:"id"`
+	Name      string   `json:"name"`
+	URL       string   `json:"url"`
+	Events    []string `json:"events"`
+	Active    bool     `json:"active"`
+	CreatedAt string   `json:"created_at"`
+	UpdatedAt string   `json:"updated_at"`
+}
+
+type WebhookCreated struct {
+	ID        string   `json:"id"`
+	Name      string   `json:"name"`
+	URL       string   `json:"url"`
+	Events    []string `json:"events"`
+	Active    bool     `json:"active"`
+	Secret    string   `json:"secret"`
+	CreatedAt string   `json:"created_at"`
+}
+
+type WebhookDelivery struct {
+	ID          string     `json:"id"`
+	WebhookID   string     `json:"webhook_id"`
+	Event       string     `json:"event"`
+	Attempt     int        `json:"attempt"`
+	StatusCode  int        `json:"status_code"`
+	Success     bool       `json:"success"`
+	Error       string     `json:"error,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
+	DeliveredAt *time.Time `json:"delivered_at,omitempty"`
+}
+
+type CreateWebhookRequest struct {
+	Name   string   `json:"name"`
+	URL    string   `json:"url"`
+	Events []string `json:"events"`
+	Active bool     `json:"active"`
+}
+
+type UpdateWebhookRequest struct {
+	Name   *string  `json:"name,omitempty"`
+	URL    *string  `json:"url,omitempty"`
+	Events []string `json:"events,omitempty"`
+	Active *bool    `json:"active,omitempty"`
+}
+
+// Content lock types
+
+type ContentLock struct {
+	Locked     bool   `json:"locked"`
+	UserEmail  string `json:"user_email,omitempty"`
+	AcquiredAt string `json:"acquired_at,omitempty"`
+	ExpiresAt  string `json:"expires_at,omitempty"`
+	Message    string `json:"message,omitempty"`
+}
+
+// Scheduled content types
+
+type ScheduledContent struct {
+	ID        string `json:"id"`
+	Title     string `json:"title"`
+	FullPath  string `json:"full_path"`
+	PublishAt string `json:"publish_at"`
+}
+
+// Audit log types
+
+type AuditLog struct {
+	ID         string                 `json:"id"`
+	UserEmail  string                 `json:"user_email"`
+	Action     string                 `json:"action"`
+	Resource   string                 `json:"resource"`
+	ResourceID string                 `json:"resource_id,omitempty"`
+	Details    map[string]interface{} `json:"details,omitempty"`
+	IPAddress  string                 `json:"ip_address,omitempty"`
+	CreatedAt  time.Time              `json:"created_at"`
+}
+
+type AuditLogList struct {
+	Total int64      `json:"total"`
+	Logs  []AuditLog `json:"logs"`
+}
+
+// Link check types
+
+type LinkCheckJobResponse struct {
+	JobID   string `json:"job_id"`
+	Message string `json:"message"`
+}
+
+type BrokenLink struct {
+	SourcePath string `json:"source_path"`
+	TargetPath string `json:"target_path"`
+	LinkText   string `json:"link_text"`
+}
+
+type LinkCheckJob struct {
+	ID          string      `json:"id"`
+	Status      string      `json:"status"`
+	TotalPages  int         `json:"total_pages"`
+	BrokenLinks []BrokenLink `json:"broken_links"`
+	StartedAt   time.Time   `json:"started_at"`
+	FinishedAt  *time.Time  `json:"finished_at,omitempty"`
+}
+
+// Comment & Approval types
+
+type ContentComment struct {
+	ID              string    `json:"id"`
+	ContentID       string    `json:"content_id"`
+	UserID          string    `json:"user_id"`
+	UserEmail       string    `json:"user_email"`
+	UserDisplayName string    `json:"user_display_name"`
+	Text            string    `json:"text"`
+	Mentions        []string  `json:"mentions,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
+}
+
+type CreateCommentRequest struct {
+	Text     string   `json:"text"`
+	Mentions []string `json:"mentions,omitempty"`
+}
+
+type WorkflowApprover struct {
+	UserID    string `json:"user_id"`
+	UserEmail string `json:"user_email"`
+	Order     int    `json:"order"`
+}
+
+type ApprovalWorkflow struct {
+	ID           string             `json:"id"`
+	Name         string             `json:"name"`
+	Description  string             `json:"description,omitempty"`
+	Trigger      string             `json:"trigger"`
+	TriggerValue string             `json:"trigger_value,omitempty"`
+	Approvers    []WorkflowApprover `json:"approvers"`
+	Mode         string             `json:"mode"`
+	CreatedAt    time.Time          `json:"created_at"`
+}
+
+type CreateWorkflowRequest struct {
+	Name         string             `json:"name"`
+	Description  string             `json:"description,omitempty"`
+	Trigger      string             `json:"trigger"`
+	TriggerValue string             `json:"trigger_value,omitempty"`
+	Approvers    []WorkflowApprover `json:"approvers"`
+	Mode         string             `json:"mode"`
+}
+
+type ApprovalDecision struct {
+	UserID    string    `json:"user_id"`
+	UserEmail string    `json:"user_email"`
+	Decision  string    `json:"decision"`
+	Comment   string    `json:"comment,omitempty"`
+	DecidedAt time.Time `json:"decided_at"`
+}
+
+type ApprovalRequest struct {
+	ID                string             `json:"id"`
+	ContentID         string             `json:"content_id,omitempty"`
+	ContentTitle      string             `json:"content_title"`
+	ContentPath       string             `json:"content_path"`
+	WorkflowID        *string            `json:"workflow_id,omitempty"`
+	SubmittedByID     string             `json:"submitted_by_id"`
+	SubmittedByEmail  string             `json:"submitted_by_email"`
+	Status            string             `json:"status"`
+	Decisions         []ApprovalDecision `json:"decisions,omitempty"`
+	RequiredApprovals int                `json:"required_approvals"`
+	CurrentStep       int                `json:"current_step"`
+	AssetID           *string            `json:"asset_id,omitempty"`
+	CreatedAt         time.Time          `json:"created_at"`
+}
+
+type ApproveRejectRequest struct {
+	Comment string `json:"comment,omitempty"`
+}

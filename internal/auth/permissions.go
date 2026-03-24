@@ -57,6 +57,14 @@ const (
 	// Content forks
 	PermForkCreate = "fork.create" // create + edit fork pages (editor+)
 	PermForkMerge  = "fork.merge"  // merge fork into live (admin only)
+
+	// Approvals & discussions
+	PermContentSubmitApproval   = "content.submit_approval"    // submit content for approval (contributor+)
+	PermApprovalView            = "approval.view"              // view approval requests
+	PermApprovalDecide          = "approval.decide"            // approve or reject requests (editor+)
+	PermApprovalManageWorkflows = "approval.manage_workflows"  // create/edit/delete workflows (editor+)
+	PermDiscussionPost          = "discussion.post"            // post comments (contributor+)
+	PermCommentDelete           = "comment.delete"             // delete any comment (admin only)
 )
 
 // RolePermissions maps each role to its allowed permissions
@@ -67,8 +75,21 @@ var RolePermissions = map[string][]string{
 		PermAssetView,
 		PermSettingsView,
 	},
+	"contributor": {
+		PermContentView, PermContentCreate,
+		PermContentSubmitApproval,
+		PermApprovalView,
+		PermDiscussionPost,
+		PermTemplateView,
+		PermAssetView, PermAssetUpload, // uploads flagged pending_review
+		PermSettingsView,
+		PermAPIKeyManage,
+	},
 	"editor": {
 		PermContentView, PermContentCreate, PermContentEdit, PermContentDelete, PermContentPublish,
+		PermContentSubmitApproval,
+		PermApprovalView, PermApprovalDecide, PermApprovalManageWorkflows,
+		PermDiscussionPost,
 		PermTemplateView,
 		PermAssetView, PermAssetUpload, PermAssetDelete,
 		PermSettingsView,
@@ -77,6 +98,9 @@ var RolePermissions = map[string][]string{
 	},
 	"admin": {
 		PermContentView, PermContentCreate, PermContentEdit, PermContentDelete, PermContentPublish,
+		PermContentSubmitApproval,
+		PermApprovalView, PermApprovalDecide, PermApprovalManageWorkflows,
+		PermDiscussionPost, PermCommentDelete,
 		PermTemplateView, PermTemplateCreate, PermTemplateEdit, PermTemplateDelete,
 		PermAssetView, PermAssetUpload, PermAssetDelete,
 		PermSettingsView, PermSettingsEdit,

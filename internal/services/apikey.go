@@ -102,9 +102,15 @@ func (s *APIKeyService) ListAPIKeysForUser(ctx context.Context, userID primitive
 	return keys, nil
 }
 
-// DeleteAPIKey deletes an API key by ID
+// DeleteAPIKey deletes an API key by ID. Admins may delete any key.
 func (s *APIKeyService) DeleteAPIKey(ctx context.Context, id primitive.ObjectID) error {
 	return s.db.DeleteOne(ctx, "api_keys", bson.M{"_id": id})
+}
+
+// DeleteAPIKeyForUser deletes an API key only if it is owned by the given user.
+// Returns an error if the key does not exist or belongs to a different user.
+func (s *APIKeyService) DeleteAPIKeyForUser(ctx context.Context, id primitive.ObjectID, ownerID primitive.ObjectID) error {
+	return s.db.DeleteOne(ctx, "api_keys", bson.M{"_id": id, "user_id": ownerID})
 }
 
 // ValidateAPIKey checks a raw API key, returns the key record if valid, and updates last_used_at

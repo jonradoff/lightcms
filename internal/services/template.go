@@ -17,11 +17,17 @@ import (
 type TemplateService struct {
 	db             *database.DB
 	contentService *ContentService
+	regenQueue     *RegenQueue
 }
 
 // NewTemplateService creates a new template service
 func NewTemplateService(db *database.DB, contentService *ContentService) *TemplateService {
 	return &TemplateService{db: db, contentService: contentService}
+}
+
+// SetRegenQueue sets the incremental regeneration queue.
+func (s *TemplateService) SetRegenQueue(rq *RegenQueue) {
+	s.regenQueue = rq
 }
 
 // CreateTemplate creates a new template
@@ -67,7 +73,11 @@ func (s *TemplateService) UpdateTemplate(ctx context.Context, tmpl *models.Templ
 
 	// If layout changed, regenerate all content using this template
 	if original.HTMLLayout != tmpl.HTMLLayout {
-		go s.regenerateContentByTemplate(context.Background(), tmpl.ID)
+		if s.regenQueue != nil {
+			s.regenQueue.Enqueue(context.Background(), tmpl.ID, tmpl.Name)
+		} else {
+			go s.regenerateContentByTemplate(context.Background(), tmpl.ID)
+		}
 	}
 
 	return nil
@@ -149,9 +159,13 @@ func (s *TemplateService) regenerateContentByTemplate(ctx context.Context, templ
 		return
 	}
 
+	var purgedPaths []string
 	for _, content := range contents {
 		if err := s.contentService.GenerateStaticPage(ctx, &content); err != nil {
 			fmt.Printf("Warning: failed to regenerate %s: %v\n", content.FullPath, err)
+		} else {
+			purgedPaths = append(purgedPaths, content.FullPath)
 		}
 	}
+	s.contentService.PurgeCloudflareURLs(purgedPaths)
 }
