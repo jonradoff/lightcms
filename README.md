@@ -3,6 +3,7 @@
 [![CI](https://github.com/jonradoff/lightcms/actions/workflows/ci.yml/badge.svg)](https://github.com/jonradoff/lightcms/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/jonradoff/lightcms/branch/main/graph/badge.svg)](https://codecov.io/gh/jonradoff/lightcms)
 [![Go Report Card](https://goreportcard.com/badge/github.com/jonradoff/lightcms)](https://goreportcard.com/report/github.com/jonradoff/lightcms)
+[![lightcms MCP server](https://glama.ai/mcp/servers/jonradoff/lightcms/badges/card.svg)](https://glama.ai/mcp/servers/jonradoff/lightcms)
 
 A lightweight, AI-native content management system for building and managing websites. Built with Go and MongoDB Atlas.
 
@@ -11,7 +12,7 @@ A lightweight, AI-native content management system for building and managing web
 **Lightweight**: A clean, focused codebase (~5K lines of Go) that's easy to understand, modify, and extend. No bloated frameworks or complex abstractions.
 
 **AI-Native**: Built from the ground up for the AI era:
-- **MCP Integration**: Full Model Context Protocol server with 43 tools for website management. Supports both local stdio and HTTP streamable transports — connect from Claude Code, Claude Desktop, or any MCP-compatible client.
+- **MCP Integration**: Full Model Context Protocol server with 72 tools for website management. Supports both local stdio and HTTP streamable transports — connect from Claude Code, Claude Desktop, or any MCP-compatible client.
 - **OAuth 2.1 for Remote Agents**: Sandboxed desktop apps like Claude's Cowork can securely connect over HTTP using OAuth 2.1 with PKCE. No embedded passwords — just authorize once and the agent manages your site.
 - **Fork-Friendly**: Designed to be forked and customized by Claude Code. Ask Claude to add new content types, modify templates, or build custom features — the codebase is structured for AI-assisted development.
 - **Natural Language Website Management**: Skip the admin UI entirely. Create pages, manage assets, customize themes, and publish content through conversation.
@@ -19,7 +20,7 @@ A lightweight, AI-native content management system for building and managing web
 ## Features
 
 ### Content Management
-- **Template System**: Define reusable content structures with custom fields (text, richtext, image, date, select)
+- **Template System**: Define reusable content structures with custom fields (text, richtext, image, date, select, markdown)
 - **Static Page Generation**: Fast page loads from pre-rendered HTML — no runtime templating overhead
 - **Content Versioning**: Full version history with diff comparison and one-click revert
 - **Soft Delete**: Recover deleted content with undelete functionality
@@ -29,7 +30,24 @@ A lightweight, AI-native content management system for building and managing web
 - **Content Collections**: Auto-generated paginated listing pages filtered by category
 - **Folders & URL Organization**: Hierarchical content organization with clean URL paths
 - **Rich Text Editor**: TinyMCE integration for visual content editing
-- **Search & Replace**: Site-wide search and replace with preview before execution
+- **Regex Search & Replace**: Site-wide or scoped search-and-replace with RE2 regex support, capture groups, and mandatory preview step
+- **Bulk Operations**: Update or apply field operations across up to 100 pages in a single API call; export/transform/re-import pipelines
+
+### Content Forks (v4.0+)
+- **Fork Workspaces**: Create named staging workspaces where sets of page edits can be authored, previewed, and reviewed before going live
+- **Sparse Model**: Only edited pages live in a fork — unmodified pages fall through to live content automatically
+- **Fork Preview Mode**: Activate via a floating bar injected into the live site; a cookie routes all page requests through the fork so you see exactly how the site will look after merge
+- **Merge with Conflict Detection**: Admins merge forks into live content; if a live page was changed after the fork was created, the conflict is recorded (fork wins). New pages created in the fork are inserted into live on merge
+- **Full MCP Toolset**: 8 dedicated fork tools — `list_forks`, `create_fork`, `get_fork`, `fork_page`, `remove_fork_page`, `merge_fork`, `archive_fork`, `delete_fork`
+
+### AI Chat Widget (v4.2+)
+- **Embeddable Widget**: Add a floating AI chat bubble to any page with a single `<script>` tag — self-contained, no build step required
+- **Two-Phase Pipeline**: Each visitor query runs hybrid semantic+fulltext search to retrieve relevant content excerpts, then streams those excerpts through Claude Haiku for a conversational synthesized answer
+- **SSE Streaming**: Haiku's token-by-token output is forwarded live to the browser via Server-Sent Events; falls back to plain JSON for non-SSE clients
+- **AI-Optional**: Without an Anthropic API key, the widget works as a search-in-chat experience returning ranked excerpts — no API cost
+- **Fully Configurable**: Admin "Chat Widget" page controls title, welcome message, placeholder text, primary color, position (bottom-left/right), max results, and editable system/user prompt templates
+- **Dedicated Rate Limiting**: Separate per-IP (5/min) and global (30/min) limiters independent from the search and API limiters
+- **Source Attribution**: Every response includes the content pages whose excerpts were used, with titles and paths
 
 ### Multi-User Access Control (v2.0+)
 - **Role-Based Access Control (RBAC)**: Three roles — admin, editor, viewer — with granular permission enforcement on all admin UI pages and REST API endpoints
@@ -49,7 +67,7 @@ A lightweight, AI-native content management system for building and managing web
 
 ### Developer & Integration
 - **REST API**: Full `/api/v1/` JSON API with API key and OAuth token authentication, RBAC-enforced
-- **MCP Server**: 43 tools for agentic website management (stdio + HTTP streamable)
+- **MCP Server**: 72 tools for agentic website management (stdio + HTTP streamable)
 - **OAuth 2.1**: Authorization code flow with PKCE for remote MCP clients — no embedded passwords
 - **CLI Tool**: Command-line interface for all content management operations
 - **URL Redirects**: 301/302 redirect rules managed from the admin panel
@@ -806,7 +824,7 @@ Run `lightcms --help` for full usage.
 
 ## MCP Server (AI-Powered Content Management)
 
-LightCMS includes a full MCP (Model Context Protocol) server with 43 tools for managing your entire website through AI agents. It supports two transport modes:
+LightCMS includes a full MCP (Model Context Protocol) server with 72 tools for managing your entire website through AI agents. It supports two transport modes:
 
 - **Stdio** — for local tools like Claude Code
 - **HTTP Streamable** — for remote/sandboxed clients like Claude's Cowork, Claude Desktop, or any MCP-compatible app
@@ -865,14 +883,15 @@ The MCP HTTP endpoint accepts both authentication methods:
 
 Both methods enforce RBAC based on the authenticated user's role.
 
-### Available Tools
+### Available Tools (72 total)
 
-- **Content** (12): create, read, update, delete, publish, unpublish, versioning, search
+- **Content** (20): create, read, update, delete, publish, unpublish, restore, versioning, revert, preview, bulk update, bulk field operation, export, backlinks, update by path, publish multiple
 - **Templates** (5): create, read, update, delete, list
-- **Assets** (5): upload, read, delete, list files and folders
-- **Settings** (16): theme, site config, redirects, folders, collections
-- **Search** (3): full-text search, search-and-replace with preview
-- **Utility** (2): regenerate all content, server card
+- **Snippets** (5): create, read, update, delete, list
+- **Assets** (6): upload, upload from URL, read, delete, list files and folders
+- **Search** (7): full-text search, end-user search, search-and-replace (global + scoped, preview + execute), reindex embeddings
+- **Settings** (23): theme CRUD + versioning + pinning, site config, redirects, folders, collections, regenerate all content
+- **Forks** (8): list, create, get, fork page, remove page, merge, archive, delete
 
 For detailed API documentation, see [MCP.md](MCP.md).
 
@@ -1257,7 +1276,7 @@ go build -o bin/lightcms ./cmd/cli
 ## Security Notes
 
 For production:
-1. Use a strong `session_secret` (generate with `openssl rand -hex 32`)
+1. Use a strong `session_secret` — **minimum 32 characters** (generate with `openssl rand -hex 32`). The server hard-fails on startup if this requirement isn't met in production.
 2. Set `LIGHTCMS_ADMIN_EMAIL` so the initial admin account uses your real email
 3. Change the default admin password immediately after first login
 4. Use HTTPS (put behind a reverse proxy like nginx or caddy)
@@ -1265,15 +1284,20 @@ For production:
 6. API keys inherit the permissions of their owning user — keep admin keys secure
 7. Review the audit log regularly at `/cm/audit`
 8. Regularly backup your MongoDB database
+9. Configure `max_upload_bytes` in site settings to cap file upload size for your use case
 
 Security features built in:
 - CSRF protection on all `/cm` routes
 - RBAC permission checks on all admin handlers and REST API endpoints
 - Session cookies: SameSite=Strict, 24-hour expiry, Secure in production
-- File uploads: extension whitelist + MIME validation
+- File uploads: extension whitelist + MIME validation + configurable size cap
+- API request body cap: 10 MiB enforced on all `/api/v1/` endpoints
 - Login rate limiting: escalating lockouts (1 min → 5 min → 15 min)
+- Per-endpoint rate limiters: regenerate (2/min), search-replace execute (10/min), bulk-update (5/min), export (5/min), reindex (1/min)
 - Passwords: bcrypt with cost=12
 - Audit logging on all mutations with 365-day retention
+- Fly.io deployments: `Fly-Client-IP` header used for real client IP (unspoofable, unlike `X-Forwarded-For`)
+- Chat widget prompt injection defense: user input wrapped in XML delimiters, `</` sequences escaped
 
 ## Privacy Policy
 
