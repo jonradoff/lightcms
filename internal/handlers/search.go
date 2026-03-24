@@ -268,6 +268,9 @@ func (h *Handler) SearchToolSaveConfig(w http.ResponseWriter, r *http.Request) {
 		TitleBoost:         clampFloat(parseFloat("title_boost", def.TitleBoost), 0, 1),
 		BoostTemplates:     parseLines("boost_templates"),
 		BoostTemplateScore: clampFloat(parseFloat("boost_template_score", def.BoostTemplateScore), -1, 1),
+		BoostPaths:         parseLines("boost_paths"),
+		BoostPathScore:     clampFloat(parseFloat("boost_path_score", def.BoostPathScore), 0, 1),
+		DemotePaths:        parseLines("demote_paths"),
 		DemotePathPrefixes: parseLines("demote_path_prefixes"),
 		DemoteScore:        clampFloat(parseFloat("demote_score", def.DemoteScore), -1, 1),
 	}

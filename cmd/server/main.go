@@ -42,17 +42,18 @@ func main() {
 	if cfg.SessionSecret == "" {
 		log.Fatal("session_secret is required in config file")
 	}
-	// Enforce minimum SESSION_SECRET entropy: 16 bytes minimum, 32 recommended.
-	// Fail hard in production; log a warning in development so local dev still works.
-	if len(cfg.SessionSecret) < 16 {
-		msg := "session_secret is too short (minimum 16 characters; 32+ recommended)"
-		if cfg.Env == "production" {
-			log.Fatal(msg)
-		} else {
-			log.Printf("WARNING: %s", msg)
+	// Enforce minimum SESSION_SECRET entropy.
+	// Production requires 32+ characters; development warns below 16.
+	if cfg.Env == "production" || cfg.Env == "prod" {
+		if len(cfg.SessionSecret) < 32 {
+			log.Fatalf("session_secret is too short for production (minimum 32 characters, got %d)", len(cfg.SessionSecret))
 		}
-	} else if len(cfg.SessionSecret) < 32 {
-		log.Printf("WARNING: session_secret should be at least 32 characters for production use")
+	} else {
+		if len(cfg.SessionSecret) < 16 {
+			log.Printf("WARNING: session_secret is too short (minimum 16 characters; 32+ recommended)")
+		} else if len(cfg.SessionSecret) < 32 {
+			log.Printf("WARNING: session_secret should be at least 32 characters for production use")
+		}
 	}
 
 	// Connect to MongoDB
@@ -165,6 +166,7 @@ func main() {
 	// Wire search service into handlers
 	h.SetSearchService(searchService)
 	h.SetProxyConfig(proxyConfig)
+	h.SetAnthropicAPIKey(cfg.AnthropicAPIKey)
 
 	// Setup router
 	r := mux.NewRouter()
@@ -296,6 +298,8 @@ func main() {
 	admin.HandleFunc("/tools/search/test", h.SearchToolTest).Methods("GET")
 	admin.HandleFunc("/tools/search/reindex", h.SearchToolReindex).Methods("POST")
 	admin.HandleFunc("/tools/search/config", h.SearchToolSaveConfig).Methods("POST")
+	admin.HandleFunc("/tools/chat", h.ChatWidgetPage).Methods("GET")
+	admin.HandleFunc("/tools/chat/config", h.ChatWidgetSaveConfig).Methods("POST")
 
 	// Content fork routes (editor+: create/preview; admin: merge/archive/delete)
 	admin.HandleFunc("/forks", h.ListForks).Methods("GET")
@@ -314,6 +318,7 @@ func main() {
 	apiKeyService := services.NewAPIKeyService(db)
 	apiHandler := handlers.NewAPIHandler(contentService, templateService, assetService, settingsService, apiKeyService, auditService, snippetService)
 	apiHandler.SetSearchService(searchService)
+	apiHandler.SetForkService(forkService)
 	apiAuthMiddleware := middleware.NewAPIAuth(func(ctx context.Context, rawKey string) (interface{}, error) {
 		apiKey, err := apiKeyService.ValidateAPIKey(ctx, rawKey)
 		if err != nil {
@@ -359,7 +364,8 @@ func main() {
 
 	apiv1 := r.PathPrefix("/api/v1").Subrouter()
 	apiv1.Use(apiAuthMiddleware.Middleware)
-	apiv1.Use(middleware.APIRateLimit) // per-token sliding-window rate limit (300 req/min)
+	apiv1.Use(middleware.APIRateLimit)      // per-token sliding-window rate limit (300 req/min)
+	apiv1.Use(middleware.APIBodySizeLimit)  // cap request body at 10 MiB to prevent memory exhaustion
 
 	// Content
 	apiv1.HandleFunc("/content", apiHandler.APIListContent).Methods("GET")
@@ -368,9 +374,9 @@ func main() {
 	apiv1.HandleFunc("/content/by-path", apiHandler.APIUpdateContentByPath).Methods("PUT")
 	apiv1.HandleFunc("/content/backlinks", apiHandler.APIGetBacklinks).Methods("GET")
 	apiv1.HandleFunc("/content/batch-publish", apiHandler.APIBatchPublishContent).Methods("POST")
-	apiv1.HandleFunc("/content/bulk-update", apiHandler.APIBulkUpdateContent).Methods("POST")
-	apiv1.HandleFunc("/content/bulk-field-op", apiHandler.APIBulkFieldOperation).Methods("POST")
-	apiv1.HandleFunc("/content/export", apiHandler.APIExportContent).Methods("POST")
+	apiv1.Handle("/content/bulk-update", middleware.BulkUpdateLimiter()(http.HandlerFunc(apiHandler.APIBulkUpdateContent))).Methods("POST")
+	apiv1.Handle("/content/bulk-field-op", middleware.BulkUpdateLimiter()(http.HandlerFunc(apiHandler.APIBulkFieldOperation))).Methods("POST")
+	apiv1.Handle("/content/export", middleware.ExportLimiter()(http.HandlerFunc(apiHandler.APIExportContent))).Methods("POST")
 	apiv1.HandleFunc("/content/{id}", apiHandler.APIGetContent).Methods("GET")
 	apiv1.HandleFunc("/content/{id}", apiHandler.APIUpdateContent).Methods("PUT")
 	apiv1.HandleFunc("/content/{id}", apiHandler.APIDeleteContent).Methods("DELETE")
@@ -392,7 +398,7 @@ func main() {
 	// Assets
 	apiv1.HandleFunc("/assets", apiHandler.APIListAssets).Methods("GET")
 	apiv1.HandleFunc("/assets", apiHandler.APIUploadAsset).Methods("POST")
-	apiv1.HandleFunc("/assets/from-url", apiHandler.APIUploadAssetFromURL).Methods("POST")
+	apiv1.Handle("/assets/from-url", middleware.AssetFromURLLimiter()(http.HandlerFunc(apiHandler.APIUploadAssetFromURL))).Methods("POST")
 	apiv1.HandleFunc("/assets/folders", apiHandler.APIListAssetFolders).Methods("GET")
 	apiv1.HandleFunc("/assets/by-path", apiHandler.APIGetAssetByPath).Methods("GET")
 	apiv1.HandleFunc("/assets/{id}", apiHandler.APIGetAsset).Methods("GET")
@@ -434,14 +440,14 @@ func main() {
 	// Search
 	apiv1.HandleFunc("/search", apiHandler.APISearchContent).Methods("GET")
 	apiv1.HandleFunc("/search-replace/preview", apiHandler.APISearchReplacePreview).Methods("POST")
-	apiv1.HandleFunc("/search-replace/execute", apiHandler.APISearchReplaceExecute).Methods("POST")
+	apiv1.Handle("/search-replace/execute", middleware.SearchReplaceExecuteLimiter()(http.HandlerFunc(apiHandler.APISearchReplaceExecute))).Methods("POST")
 	apiv1.HandleFunc("/search-replace/scoped/preview", apiHandler.APIScopedSearchReplacePreview).Methods("POST")
-	apiv1.HandleFunc("/search-replace/scoped/execute", apiHandler.APIScopedSearchReplaceExecute).Methods("POST")
+	apiv1.Handle("/search-replace/scoped/execute", middleware.SearchReplaceExecuteLimiter()(http.HandlerFunc(apiHandler.APIScopedSearchReplaceExecute))).Methods("POST")
 
 	// End-user search (authenticated API)
 	apiv1.HandleFunc("/end-user-search", apiHandler.APIEndUserSearch).Methods("GET")
 	apiv1.HandleFunc("/end-user-search/suggest", apiHandler.APIEndUserSearchSuggest).Methods("GET")
-	apiv1.HandleFunc("/reindex-embeddings", apiHandler.APIReindexEmbeddings).Methods("POST")
+	apiv1.Handle("/reindex-embeddings", middleware.ReindexLimiter()(http.HandlerFunc(apiHandler.APIReindexEmbeddings))).Methods("POST")
 
 	// API Keys
 	apiv1.HandleFunc("/api-keys", apiHandler.APIListAPIKeys).Methods("GET")
@@ -455,8 +461,19 @@ func main() {
 	apiv1.HandleFunc("/snippets/{id}", apiHandler.APIUpdateSnippet).Methods("PUT")
 	apiv1.HandleFunc("/snippets/{id}", apiHandler.APIDeleteSnippet).Methods("DELETE")
 
-	// Regenerate
-	apiv1.HandleFunc("/regenerate", apiHandler.APIRegenerateAllContent).Methods("POST")
+	// Forks
+	apiv1.HandleFunc("/forks", apiHandler.APIListForks).Methods("GET")
+	apiv1.HandleFunc("/forks", apiHandler.APICreateFork).Methods("POST")
+	apiv1.HandleFunc("/forks/{id}", apiHandler.APIGetFork).Methods("GET")
+	apiv1.HandleFunc("/forks/{id}", apiHandler.APIDeleteFork).Methods("DELETE")
+	apiv1.HandleFunc("/forks/{id}/fork-page", apiHandler.APIForkPage).Methods("POST")
+	apiv1.HandleFunc("/forks/{id}/pages", apiHandler.APIListForkPages).Methods("GET")
+	apiv1.HandleFunc("/forks/{id}/pages/{pageID}", apiHandler.APIRemoveForkPage).Methods("DELETE")
+	apiv1.HandleFunc("/forks/{id}/merge", apiHandler.APIMergeFork).Methods("POST")
+	apiv1.HandleFunc("/forks/{id}/archive", apiHandler.APIArchiveFork).Methods("POST")
+
+	// Regenerate (rate-limited: 2/min — full rebuild is expensive)
+	apiv1.Handle("/regenerate", middleware.RegenerateLimiter()(http.HandlerFunc(apiHandler.APIRegenerateAllContent))).Methods("POST")
 
 	// API routes for AJAX (admin panel internal use)
 	// Note: Most API routes require authentication (checked in handlers)
@@ -474,6 +491,8 @@ func main() {
 	api.HandleFunc("/tools/fix-link", h.FixBrokenLink).Methods("POST")             // Auth checked in handler
 	api.HandleFunc("/search", h.EndUserSearch).Methods("GET")                       // Public end-user search
 	api.HandleFunc("/search/suggest", h.EndUserSearchSuggest).Methods("GET")       // Public typeahead suggestions
+	api.HandleFunc("/chat", h.ChatWidgetQuery).Methods("GET", "OPTIONS")            // Public chat widget query
+	api.HandleFunc("/chat/config", h.ChatWidgetConfigPublic).Methods("GET")         // Public chat widget config (for JS widget)
 
 	// OAuth 2.1 endpoints (no auth middleware — these implement their own auth)
 	r.HandleFunc("/oauth/register", oauthHandler.Register).Methods("POST")

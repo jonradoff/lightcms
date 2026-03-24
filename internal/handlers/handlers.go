@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"lightcms/internal/auth"
@@ -32,6 +33,40 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
+// adminTemplateFuncMap is built once and shared across all cached templates.
+var adminTemplateFuncMap = template.FuncMap{
+	"split": func(s, sep string) []string { return strings.Split(s, sep) },
+	"join":  func(items []string, sep string) string { return strings.Join(items, sep) },
+	"multiply": func(a, b int) int { return a * b },
+	"divide": func(a, b int64) int64 {
+		if b == 0 {
+			return 0
+		}
+		return a / b
+	},
+	"safeHTML":  func(s string) template.HTML { return template.HTML(s) },
+	"subtract":  func(a, b interface{}) int64 { return templateToInt64(a) - templateToInt64(b) },
+	"add":       func(a, b interface{}) int64 { return templateToInt64(a) + templateToInt64(b) },
+	"formatBytes": func(n interface{}) string { return formatBytes(templateToInt64(n)) },
+}
+
+// adminTemplateCache holds pre-compiled admin templates. Built once on first use.
+var (
+	adminTemplateCache     map[string]*template.Template
+	adminTemplateCacheOnce sync.Once
+)
+
+func initAdminTemplateCache() {
+	adminTemplateCacheOnce.Do(func() {
+		adminTemplateCache = make(map[string]*template.Template, len(adminTemplates))
+		for name, src := range adminTemplates {
+			adminTemplateCache[name] = template.Must(
+				template.New("admin").Funcs(adminTemplateFuncMap).Parse(src),
+			)
+		}
+	})
+}
+
 type Handler struct {
 	db               *database.DB
 	auth             *auth.Manager
@@ -47,11 +82,17 @@ type Handler struct {
 	analyticsService *services.AnalyticsService
 	forkService      *services.ForkService
 	proxyConfig      *middleware.TrustedProxyConfig
+	anthropicAPIKey  string
 }
 
 // SetSearchService sets the search service for end-user search features
 func (h *Handler) SetSearchService(ss *services.SearchService) {
 	h.searchService = ss
+}
+
+// SetAnthropicAPIKey sets the Anthropic API key for chat widget answer synthesis
+func (h *Handler) SetAnthropicAPIKey(key string) {
+	h.anthropicAPIKey = key
 }
 
 // SetProxyConfig sets the trusted proxy configuration used for client IP extraction
@@ -82,6 +123,27 @@ func New(db *database.DB, authManager *auth.Manager, baseURL string, env string,
 // IsDev returns true if running in development mode
 func (h *Handler) IsDev() bool {
 	return h.env == "development" || h.env == "dev"
+}
+
+// uploadMaxBytes returns the configured max upload size in bytes.
+// Falls back to 1 MiB if the config is unavailable.
+func (h *Handler) uploadMaxBytes(ctx context.Context) int64 {
+	if cfg, err := h.db.GetSiteConfig(ctx); err == nil && cfg.MaxUploadBytes > 0 {
+		return cfg.MaxUploadBytes
+	}
+	return 1 << 20 // 1 MiB fallback
+}
+
+// formatBytes formats a byte count as a human-readable string (e.g. "1.0 MB").
+func formatBytes(n int64) string {
+	switch {
+	case n >= 1<<20:
+		return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
+	case n >= 1<<10:
+		return fmt.Sprintf("%.1f KB", float64(n)/(1<<10))
+	default:
+		return fmt.Sprintf("%d B", n)
+	}
 }
 
 // SeedDefaults creates default templates and hello world page if they don't exist
@@ -333,9 +395,14 @@ func (h *Handler) LoginHandler(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 
-		// Record activity for DAU/MAU
+		// Record activity for DAU/MAU (bounded goroutine with 5s timeout)
 		if h.analyticsService != nil {
-			go h.analyticsService.RecordActivity(context.Background(), user.ID.Hex())
+			userIDHex := user.ID.Hex()
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				h.analyticsService.RecordActivity(ctx, userIDHex)
+			}()
 		}
 
 		// Force password change if needed
@@ -655,7 +722,24 @@ func (h *Handler) ListContent(w http.ResponseWriter, r *http.Request) {
 		filter["$and"] = conditions
 	}
 
-	cursor, err := h.db.FindMany(ctx, "content", filter, options.Find().SetSort(bson.D{{Key: "updated_at", Value: -1}}))
+	// Pagination
+	const pageSize = 100
+	page := 1
+	if p, err := strconv.Atoi(r.URL.Query().Get("page")); err == nil && p > 1 {
+		page = p
+	}
+	skip := int64((page - 1) * pageSize)
+
+	total, _ := h.db.Count(ctx, "content", filter)
+	totalPages := int((total + pageSize - 1) / pageSize)
+	if totalPages < 1 {
+		totalPages = 1
+	}
+
+	cursor, err := h.db.FindMany(ctx, "content", filter, options.Find().
+		SetSort(bson.D{{Key: "updated_at", Value: -1}}).
+		SetSkip(skip).
+		SetLimit(pageSize))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -667,12 +751,13 @@ func (h *Handler) ListContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Pin the homepage to the top of the list.
-	// The homepage is stored with empty slug and empty full_path (displayed as "/" in the UI).
-	for i, c := range content {
-		if c.FullPath == "/" || (c.FullPath == "" && c.Slug == "") {
-			content = append([]models.Content{content[i]}, append(content[:i], content[i+1:]...)...)
-			break
+	// Pin the homepage to the top of the list (first page only).
+	if page == 1 {
+		for i, c := range content {
+			if c.FullPath == "/" || (c.FullPath == "" && c.Slug == "") {
+				content = append([]models.Content{content[i]}, append(content[:i], content[i+1:]...)...)
+				break
+			}
 		}
 	}
 
@@ -690,6 +775,9 @@ func (h *Handler) ListContent(w http.ResponseWriter, r *http.Request) {
 		"Folders":      folders,
 		"ShowDeleted":  showDeleted,
 		"FolderFilter": folderFilter,
+		"CurrentPage":  page,
+		"TotalPages":   totalPages,
+		"Total":        total,
 	})
 }
 
@@ -3074,6 +3162,12 @@ func (h *Handler) UpdateSiteConfiguration(w http.ResponseWriter, r *http.Request
 	config.TitleTemplate = r.FormValue("title_template")
 	config.TitleTemplateNoTitle = r.FormValue("title_template_no_title")
 
+	if s := strings.TrimSpace(r.FormValue("max_upload_bytes")); s != "" {
+		if v, err := strconv.ParseInt(s, 10, 64); err == nil && v > 0 {
+			config.MaxUploadBytes = v
+		}
+	}
+
 	if err := h.db.SaveSiteConfig(ctx, config); err != nil {
 		theme, _ := h.db.GetThemeSettings(ctx)
 		h.renderAdmin(w, r, "config", map[string]interface{}{
@@ -3099,7 +3193,9 @@ func (h *Handler) UploadFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	r.ParseMultipartForm(32 << 20)
+	maxBytes := h.uploadMaxBytes(r.Context())
+	r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+	r.ParseMultipartForm(maxBytes)
 	file, header, err := r.FormFile("file")
 	if err != nil {
 		http.Error(w, "No file uploaded", http.StatusBadRequest)
@@ -3114,8 +3210,8 @@ func (h *Handler) UploadFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Read file data to validate MIME type
-	data, err := io.ReadAll(file)
+	// Read file data (bounded to configured max upload size)
+	data, err := io.ReadAll(io.LimitReader(file, maxBytes))
 	if err != nil {
 		h.errors.HTTPError(w, err, http.StatusInternalServerError)
 		return
@@ -3315,10 +3411,14 @@ func (h *Handler) ServePage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Record visitor activity for DAU/MAU metrics
+	// Record visitor activity for DAU/MAU metrics (bounded goroutine with 5s timeout)
 	if h.analyticsService != nil {
 		visitorID := middleware.GetClientIP(r, h.proxyConfig)
-		go h.analyticsService.RecordActivity(context.Background(), visitorID)
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			h.analyticsService.RecordActivity(ctx, visitorID)
+		}()
 	}
 
 	h.servePageContent(w, r, &content, theme, activeFork)
@@ -3700,34 +3800,12 @@ func (h *Handler) renderAdmin(w http.ResponseWriter, r *http.Request, name strin
 	unreadCount, _ := h.db.Count(ctx, "contact_messages", bson.M{"read": false})
 	data["UnreadMessageCount"] = unreadCount
 
-	funcMap := template.FuncMap{
-		"split": func(s, sep string) []string {
-			return strings.Split(s, sep)
-		},
-		"join": func(items []string, sep string) string {
-			return strings.Join(items, sep)
-		},
-		"multiply": func(a, b int) int {
-			return a * b
-		},
-		"divide": func(a, b int64) int64 {
-			if b == 0 {
-				return 0
-			}
-			return a / b
-		},
-		"safeHTML": func(s string) template.HTML {
-			return template.HTML(s)
-		},
-		"subtract": func(a, b interface{}) int64 {
-			return templateToInt64(a) - templateToInt64(b)
-		},
-		"add": func(a, b interface{}) int64 {
-			return templateToInt64(a) + templateToInt64(b)
-		},
+	initAdminTemplateCache()
+	tmpl := adminTemplateCache[name]
+	if tmpl == nil {
+		http.Error(w, "unknown template: "+name, http.StatusInternalServerError)
+		return
 	}
-
-	tmpl := template.Must(template.New("admin").Funcs(funcMap).Parse(adminTemplates[name]))
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	// Prevent caching of admin pages
 	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
@@ -4535,9 +4613,10 @@ func (h *Handler) AssetUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse multipart form - max 32MB
-	if err := r.ParseMultipartForm(32 << 20); err != nil {
-		http.Error(w, "File too large", http.StatusBadRequest)
+	maxBytes := h.uploadMaxBytes(r.Context())
+	r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+	if err := r.ParseMultipartForm(maxBytes); err != nil {
+		http.Error(w, fmt.Sprintf("File too large (max %s)", formatBytes(maxBytes)), http.StatusBadRequest)
 		return
 	}
 
@@ -4555,8 +4634,8 @@ func (h *Handler) AssetUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Read file data
-	data, err := io.ReadAll(file)
+	// Read file data (bounded to configured max upload size)
+	data, err := io.ReadAll(io.LimitReader(file, maxBytes))
 	if err != nil {
 		h.errors.HTTPError(w, err, http.StatusInternalServerError)
 		return
@@ -4698,16 +4777,18 @@ func (h *Handler) ServeAsset(w http.ResponseWriter, r *http.Request) {
 	// uploaded before the prefix-stripping normalization was added)
 	staticFilePath := filepath.Join("content/generated", assetPath)
 	if info, err := os.Stat(staticFilePath); err == nil && !info.IsDir() {
+		w.Header().Set("Cache-Control", "no-cache")
 		http.ServeFile(w, r, staticFilePath)
 		return
 	}
 	staticFilePathFull := filepath.Join("content/generated", fullPath)
 	if info, err := os.Stat(staticFilePathFull); err == nil && !info.IsDir() {
+		w.Header().Set("Cache-Control", "no-cache")
 		http.ServeFile(w, r, staticFilePathFull)
 		return
 	}
 
-	// Fall back to database
+	// Fall back to database (legacy: assets stored with binary data in DB)
 	ctx := r.Context()
 	// Try lookup with stripped path first, then with full URL path
 	// (handles both old assets stored without /assets prefix and
@@ -4721,10 +4802,16 @@ func (h *Handler) ServeAsset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Legacy assets stored binary data in the DB; modern assets are on disk only.
+	if len(asset.Data) == 0 {
+		http.NotFound(w, r)
+		return
+	}
+
 	// Set headers
 	w.Header().Set("Content-Type", asset.MimeType)
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", asset.Size))
-	w.Header().Set("Cache-Control", "public, max-age=31536000") // Cache for 1 year
+	w.Header().Set("Cache-Control", "no-cache")
 
 	w.Write(asset.Data)
 }

@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -176,6 +177,19 @@ func (s *SearchService) getSearchConfig(ctx context.Context) *database.SearchCon
 	if err != nil || loaded == nil {
 		loaded = database.DefaultSearchConfig()
 	}
+	// Pre-normalize path/template lists so per-query comparisons skip redundant ToLower/TrimSpace calls.
+	for i, p := range loaded.BoostPaths {
+		loaded.BoostPaths[i] = strings.ToLower(strings.TrimSpace(p))
+	}
+	for i, p := range loaded.DemotePaths {
+		loaded.DemotePaths[i] = strings.ToLower(strings.TrimSpace(p))
+	}
+	for i, p := range loaded.DemotePathPrefixes {
+		loaded.DemotePathPrefixes[i] = strings.ToLower(strings.TrimSpace(p))
+	}
+	for i, t := range loaded.BoostTemplates {
+		loaded.BoostTemplates[i] = strings.ToLower(strings.TrimSpace(t))
+	}
 	s.searchConfigMu.Lock()
 	s.cachedSearchConfig = loaded
 	s.searchConfigCachedAt = time.Now()
@@ -197,15 +211,28 @@ func pathBoost(fullPath, templateName string, navPaths map[string]bool, cfg *dat
 	if navPaths[fullPath] {
 		return cfg.NavBoost
 	}
+	// cfg paths/templates are pre-lowercased by getSearchConfig, so only lowercase the inputs.
 	lower := strings.ToLower(fullPath)
+	// Explicitly boosted pages (exact path match)
+	for _, p := range cfg.BoostPaths {
+		if lower == p {
+			return cfg.BoostPathScore
+		}
+	}
+	// Explicitly demoted pages (exact path match)
+	for _, p := range cfg.DemotePaths {
+		if lower == p {
+			return cfg.DemoteScore
+		}
+	}
 	for _, prefix := range cfg.DemotePathPrefixes {
-		if strings.HasPrefix(lower, strings.ToLower(prefix)) {
+		if strings.HasPrefix(lower, prefix) {
 			return cfg.DemoteScore
 		}
 	}
 	lowerTemplate := strings.ToLower(templateName)
 	for _, tmpl := range cfg.BoostTemplates {
-		if strings.Contains(lowerTemplate, strings.ToLower(tmpl)) {
+		if strings.Contains(lowerTemplate, tmpl) {
 			return cfg.BoostTemplateScore
 		}
 	}
@@ -216,7 +243,7 @@ func pathBoost(fullPath, templateName string, navPaths map[string]bool, cfg *dat
 func isDemotedPath(fullPath string, cfg *database.SearchConfig) bool {
 	lower := strings.ToLower(fullPath)
 	for _, prefix := range cfg.DemotePathPrefixes {
-		if strings.HasPrefix(lower, strings.ToLower(prefix)) {
+		if strings.HasPrefix(lower, prefix) {
 			return true
 		}
 	}
@@ -227,7 +254,7 @@ func isDemotedPath(fullPath string, cfg *database.SearchConfig) bool {
 func isBoostedTemplate(templateName string, cfg *database.SearchConfig) bool {
 	lower := strings.ToLower(templateName)
 	for _, tmpl := range cfg.BoostTemplates {
-		if strings.Contains(lower, strings.ToLower(tmpl)) {
+		if strings.Contains(lower, tmpl) {
 			return true
 		}
 	}
@@ -326,12 +353,10 @@ func (s *SearchService) SearchFullText(ctx context.Context, query string, limit 
 		})
 	}
 
-	// Stable insertion sort by tier (lower = better)
-	for i := 1; i < len(ranked); i++ {
-		for j := i; j > 0 && ranked[j].tier < ranked[j-1].tier; j-- {
-			ranked[j], ranked[j-1] = ranked[j-1], ranked[j]
-		}
-	}
+	// Sort by tier (lower = better), stable
+	sort.SliceStable(ranked, func(i, j int) bool {
+		return ranked[i].tier < ranked[j].tier
+	})
 
 	results := make([]SearchResult, 0, limit)
 	for i, r := range ranked {
@@ -417,8 +442,26 @@ func (s *SearchService) SearchSemantic(ctx context.Context, query string, limit 
 
 // SearchHybrid merges exact and semantic results using reciprocal rank fusion
 func (s *SearchService) SearchHybrid(ctx context.Context, query string, limit int) ([]SearchResult, error) {
-	exactResults, exactErr := s.SearchFullText(ctx, query, limit)
-	semanticResults, semanticErr := s.SearchSemantic(ctx, query, limit)
+	type searchOutcome struct {
+		results []SearchResult
+		err     error
+	}
+	exactCh := make(chan searchOutcome, 1)
+	semanticCh := make(chan searchOutcome, 1)
+
+	go func() {
+		r, e := s.SearchFullText(ctx, query, limit*2)
+		exactCh <- searchOutcome{r, e}
+	}()
+	go func() {
+		r, e := s.SearchSemantic(ctx, query, limit*2)
+		semanticCh <- searchOutcome{r, e}
+	}()
+
+	exactOut := <-exactCh
+	semanticOut := <-semanticCh
+	exactResults, exactErr := exactOut.results, exactOut.err
+	semanticResults, semanticErr := semanticOut.results, semanticOut.err
 
 	// If both fail, return the first error
 	if exactErr != nil && semanticErr != nil {
@@ -466,12 +509,9 @@ func (s *SearchService) SearchHybrid(ctx context.Context, query string, limit in
 	for id, score := range scores {
 		sortable = append(sortable, scored{id, score})
 	}
-	// Simple insertion sort (small lists)
-	for i := 1; i < len(sortable); i++ {
-		for j := i; j > 0 && sortable[j].score > sortable[j-1].score; j-- {
-			sortable[j], sortable[j-1] = sortable[j-1], sortable[j]
-		}
-	}
+	sort.Slice(sortable, func(i, j int) bool {
+		return sortable[i].score > sortable[j].score
+	})
 
 	results := make([]SearchResult, 0, limit)
 	for _, s := range sortable {
@@ -664,12 +704,10 @@ func (s *SearchService) Suggest(ctx context.Context, prefix string, limit int) (
 			rank: rank,
 		})
 	}
-	// Stable sort by rank
-	for i := 1; i < len(scored); i++ {
-		for j := i; j > 0 && scored[j].rank < scored[j-1].rank; j-- {
-			scored[j], scored[j-1] = scored[j-1], scored[j]
-		}
-	}
+	// Stable sort by rank (lower = better)
+	sort.SliceStable(scored, func(i, j int) bool {
+		return scored[i].rank < scored[j].rank
+	})
 	var pages []SuggestPage
 	for i, sp := range scored {
 		if i >= limit {
@@ -717,12 +755,12 @@ func (s *SearchService) RebuildKeywords(ctx context.Context) error {
 		}
 	}
 	// Sort by frequency desc, then alphabetically
-	for i := 1; i < len(sorted); i++ {
-		for j := i; j > 0 && (sorted[j].count > sorted[j-1].count ||
-			(sorted[j].count == sorted[j-1].count && sorted[j].keyword < sorted[j-1].keyword)); j-- {
-			sorted[j], sorted[j-1] = sorted[j-1], sorted[j]
+	sort.Slice(sorted, func(i, j int) bool {
+		if sorted[i].count != sorted[j].count {
+			return sorted[i].count > sorted[j].count
 		}
-	}
+		return sorted[i].keyword < sorted[j].keyword
+	})
 
 	keywords := make([]string, 0, len(sorted))
 	for _, kv := range sorted {

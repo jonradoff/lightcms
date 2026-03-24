@@ -15,7 +15,8 @@ type Config struct {
 	SessionSecret string `json:"session_secret"`
 	BaseURL       string `json:"base_url"`       // Public URL of the site (e.g., "https://example.com")
 	SecureCookies bool   `json:"secure_cookies"` // Set to true in production (requires HTTPS)
-	VoyageAPIKey  string `json:"voyage_api_key"` // Voyage AI API key for semantic search embeddings
+	VoyageAPIKey    string `json:"voyage_api_key"`    // Voyage AI API key for semantic search embeddings
+	AnthropicAPIKey string `json:"anthropic_api_key"` // Anthropic API key for chat widget answer synthesis
 }
 
 // DefaultDev returns default development configuration
@@ -115,6 +116,7 @@ func loadFromEnv() (*Config, error) {
 	}
 
 	cfg.VoyageAPIKey = os.Getenv("VOYAGE_API_KEY")
+	cfg.AnthropicAPIKey = os.Getenv("ANTHROPIC_API_KEY")
 
 	return cfg, nil
 }

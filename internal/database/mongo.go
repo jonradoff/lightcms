@@ -332,6 +332,64 @@ func (db *DB) createIndexes(ctx context.Context) error {
 		}
 	}
 
+	// Settings type index — speeds up all settings lookups by type field
+	_, err = db.database.Collection("settings").Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: bson.D{{Key: "type", Value: 1}}, Options: options.Index().SetName("settings_type"),
+	})
+	if err != nil {
+		return err
+	}
+
+	// Login attempts IP index — needed for rate limiting lookups
+	_, err = db.database.Collection("login_attempts").Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: bson.D{{Key: "ip", Value: 1}}, Options: options.Index().SetName("login_attempts_ip"),
+	})
+	if err != nil {
+		return err
+	}
+
+	// Theme versions version index — used for sorting and point lookups
+	_, err = db.database.Collection("theme_versions").Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: bson.D{{Key: "version", Value: 1}}, Options: options.Index().SetName("theme_versions_version"),
+	})
+	if err != nil {
+		return err
+	}
+
+	// Content updated_at index — used by admin content list and dashboard (sort by updated_at desc).
+	// Without this, MongoDB must sort the entire collection in memory, hitting the 32 MiB limit.
+	_, err = db.database.Collection("content").Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: bson.D{{Key: "updated_at", Value: -1}},
+	})
+	if err != nil {
+		return err
+	}
+
+	// Compound index for admin content list: always filters fork_id ($exists false) + deleted,
+	// then sorts by updated_at. This covers the most expensive query in the admin UI.
+	_, err = db.database.Collection("content").Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: bson.D{
+			{Key: "fork_id", Value: 1},
+			{Key: "deleted", Value: 1},
+			{Key: "updated_at", Value: -1},
+		},
+	})
+	if err != nil {
+		return err
+	}
+
+	// Content plain_text text index — enables full-text search on plain_text field.
+	// A collection can only have one text index; create with ignore-existing logic.
+	_, err = db.database.Collection("content").Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys: bson.D{{Key: "plain_text", Value: "text"}}, Options: options.Index().SetName("content_plain_text_search"),
+	})
+	if err != nil {
+		// Ignore conflicts with an existing text index (codes 85, 86, 68)
+		if cmdErr, ok := err.(mongo.CommandError); !ok || (cmdErr.Code != 68 && cmdErr.Code != 85 && cmdErr.Code != 86) {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -604,6 +662,7 @@ type SiteConfig struct {
 	TitleTemplate        string             `bson:"title_template"`          // Template when page has title, e.g. "{{title}} | {{site_name}}"
 	TitleTemplateNoTitle string             `bson:"title_template_no_title"` // Template when page has no title, e.g. "{{site_name}}"
 	MarkdownScriptPolicy string             `bson:"markdown_script_policy" json:"markdown_script_policy"` // Values: "all" (default), "admin_only", "none"
+	MaxUploadBytes       int64              `bson:"max_upload_bytes" json:"max_upload_bytes"` // Max file upload size in bytes (default: 1 MiB)
 	UpdatedAt            time.Time          `bson:"updated_at"`
 }
 
@@ -617,7 +676,11 @@ func (db *DB) GetSiteConfig(ctx context.Context) (*SiteConfig, error) {
 			TitleTemplate:        "{{title}} - {{site_name}}",
 			TitleTemplateNoTitle: "{{site_name}}",
 			MarkdownScriptPolicy: "all",
+			MaxUploadBytes:       1 << 20, // 1 MiB — 2× largest current asset (metavert-bg.js, 517 KB)
 		}, nil
+	}
+	if err == nil && config.MaxUploadBytes == 0 {
+		config.MaxUploadBytes = 1 << 20
 	}
 	return &config, err
 }
@@ -641,6 +704,9 @@ type SearchConfig struct {
 	TitleBoost          float64            `bson:"title_boost"`           // Score bonus when query appears in title (default 0.20)
 	BoostTemplates      []string           `bson:"boost_templates"`       // Template name substrings that get a boost (default ["concept"])
 	BoostTemplateScore  float64            `bson:"boost_template_score"`  // Score bonus for boosted templates (default 0.05)
+	BoostPaths          []string           `bson:"boost_paths"`           // Specific page paths to always boost (exact match, default [])
+	BoostPathScore      float64            `bson:"boost_path_score"`      // Score bonus for boosted pages (default 0.15)
+	DemotePaths         []string           `bson:"demote_paths"`          // Specific page paths to always demote (exact match, default [])
 	DemotePathPrefixes  []string           `bson:"demote_path_prefixes"`  // URL path prefixes to deprioritise (default ["/videos/", "/video/"])
 	DemoteScore         float64            `bson:"demote_score"`          // Score penalty for demoted pages (default -0.05)
 	UpdatedAt           time.Time          `bson:"updated_at"`
@@ -653,6 +719,9 @@ func DefaultSearchConfig() *SearchConfig {
 		TitleBoost:         0.20,
 		BoostTemplates:     []string{"concept"},
 		BoostTemplateScore: 0.05,
+		BoostPaths:         []string{},
+		BoostPathScore:     0.15,
+		DemotePaths:        []string{},
 		DemotePathPrefixes: []string{"/videos/", "/video/"},
 		DemoteScore:        -0.05,
 	}
@@ -682,6 +751,76 @@ func (db *DB) SaveSearchConfig(ctx context.Context, cfg *SearchConfig) error {
 		ctx,
 		bson.M{"type": "search_config"},
 		bson.M{"$set": cfg, "$setOnInsert": bson.M{"type": "search_config"}},
+		options.Update().SetUpsert(true),
+	)
+	return err
+}
+
+// DefaultChatSystemPrompt is the default system prompt for the chat widget.
+// Use {siteName} as a placeholder — it is replaced at request time.
+const DefaultChatSystemPrompt = `You are a friendly, knowledgeable assistant for {siteName}. Use the provided page excerpts to answer questions conversationally and helpfully. Synthesize a clear, direct answer — don't just describe what the pages say. Keep answers concise (2-4 sentences). If the excerpts don't contain enough to answer confidently, say so briefly and naturally.`
+
+// DefaultChatUserPromptTemplate is the default template for the user-turn message sent to the model.
+// Use {excerpts} for the numbered excerpt block and {question} for the user's query.
+const DefaultChatUserPromptTemplate = `Here are relevant excerpts from the site:
+
+{excerpts}
+Question: {question}`
+
+// ChatWidgetConfig stores configuration for the public-facing chat widget
+type ChatWidgetConfig struct {
+	ID                 primitive.ObjectID `bson:"_id,omitempty"`
+	Enabled            bool               `bson:"enabled"`
+	WidgetTitle        string             `bson:"widget_title"`
+	WelcomeMessage     string             `bson:"welcome_message"`
+	Placeholder        string             `bson:"placeholder"`
+	PrimaryColor       string             `bson:"primary_color"`
+	Position           string             `bson:"position"` // "bottom-right" | "bottom-left"
+	MaxResults         int                `bson:"max_results"`
+	RateLimitPerIP     int                `bson:"rate_limit_per_ip"`      // max queries/minute per IP (default 5)
+	RateLimitGlobal    int                `bson:"rate_limit_global"`      // max queries/minute total (default 30)
+	SystemPrompt       string             `bson:"system_prompt"`          // editable system prompt; {siteName} replaced at runtime
+	UserPromptTemplate string             `bson:"user_prompt_template"`   // editable user prompt; {excerpts} and {question} replaced at runtime
+	UpdatedAt          time.Time          `bson:"updated_at"`
+}
+
+// DefaultChatWidgetConfig returns sensible defaults for the chat widget
+func DefaultChatWidgetConfig() *ChatWidgetConfig {
+	return &ChatWidgetConfig{
+		Enabled:            false,
+		WidgetTitle:        "Chat with Site",
+		WelcomeMessage:     "Hi! Ask me anything and I'll find the most relevant pages for you.",
+		Placeholder:        "Ask a question...",
+		PrimaryColor:       "#6366f1",
+		Position:           "bottom-right",
+		MaxResults:         3,
+		RateLimitPerIP:     5,
+		RateLimitGlobal:    30,
+		SystemPrompt:       DefaultChatSystemPrompt,
+		UserPromptTemplate: DefaultChatUserPromptTemplate,
+	}
+}
+
+// GetChatWidgetConfig retrieves the chat widget configuration
+func (db *DB) GetChatWidgetConfig(ctx context.Context) (*ChatWidgetConfig, error) {
+	var cfg ChatWidgetConfig
+	err := db.Settings().FindOne(ctx, bson.M{"type": "chat_widget"}).Decode(&cfg)
+	if err == mongo.ErrNoDocuments {
+		return DefaultChatWidgetConfig(), nil
+	}
+	if err != nil {
+		return DefaultChatWidgetConfig(), err
+	}
+	return &cfg, nil
+}
+
+// SaveChatWidgetConfig persists the chat widget configuration
+func (db *DB) SaveChatWidgetConfig(ctx context.Context, cfg *ChatWidgetConfig) error {
+	cfg.UpdatedAt = time.Now()
+	_, err := db.Settings().UpdateOne(
+		ctx,
+		bson.M{"type": "chat_widget"},
+		bson.M{"$set": cfg, "$setOnInsert": bson.M{"type": "chat_widget"}},
 		options.Update().SetUpsert(true),
 	)
 	return err
@@ -729,39 +868,64 @@ func (db *DB) GetLoginAttempts(ctx context.Context, ip string) (*LoginAttempt, e
 	return &attempt, err
 }
 
-// RecordFailedLogin increments failed login counter
+// RecordFailedLogin increments failed login counter atomically using FindOneAndUpdate.
+// If no record exists or the last attempt was over 15 minutes ago, the counter is reset to 1.
+// Lockout thresholds: 10 attempts → 1 min, 15 attempts → 5 min, 20+ attempts → 15 min.
 func (db *DB) RecordFailedLogin(ctx context.Context, ip string) error {
 	now := time.Now()
-	attempt, _ := db.GetLoginAttempts(ctx, ip)
+	cutoff := now.Add(-15 * time.Minute)
 
-	// Reset counter if last attempt was more than 15 minutes ago
-	if time.Since(attempt.LastAttempt) > 15*time.Minute {
-		attempt.Attempts = 0
-	}
-
-	attempt.Attempts++
-	attempt.LastAttempt = now
-
-	// Lock for increasing duration based on attempts
-	// 10 attempts: 1 min, 15 attempts: 5 min, 20+ attempts: 15 min
-	if attempt.Attempts >= 20 {
-		lockUntil := now.Add(15 * time.Minute)
-		attempt.LockedUntil = &lockUntil
-	} else if attempt.Attempts >= 15 {
-		lockUntil := now.Add(5 * time.Minute)
-		attempt.LockedUntil = &lockUntil
-	} else if attempt.Attempts >= 10 {
-		lockUntil := now.Add(1 * time.Minute)
-		attempt.LockedUntil = &lockUntil
-	}
-
-	_, err := db.database.Collection("login_attempts").UpdateOne(
+	// Attempt an atomic $inc on documents that are still within the 15-minute window.
+	var updated LoginAttempt
+	err := db.database.Collection("login_attempts").FindOneAndUpdate(
 		ctx,
-		bson.M{"ip": ip},
-		bson.M{"$set": attempt},
-		options.Update().SetUpsert(true),
-	)
-	return err
+		bson.M{"ip": ip, "last_attempt": bson.M{"$gte": cutoff}},
+		bson.M{
+			"$inc": bson.M{"attempts": 1},
+			"$set": bson.M{"last_attempt": now},
+		},
+		options.FindOneAndUpdate().SetReturnDocument(options.After),
+	).Decode(&updated)
+
+	if err == mongo.ErrNoDocuments {
+		// No recent record — either first attempt or window expired; reset to 1.
+		updated = LoginAttempt{IP: ip, Attempts: 1, LastAttempt: now}
+		_, upsertErr := db.database.Collection("login_attempts").UpdateOne(
+			ctx,
+			bson.M{"ip": ip},
+			bson.M{"$set": bson.M{"ip": ip, "attempts": 1, "last_attempt": now, "locked_until": nil}},
+			options.Update().SetUpsert(true),
+		)
+		if upsertErr != nil {
+			return upsertErr
+		}
+	} else if err != nil {
+		return err
+	}
+
+	// Apply lockout thresholds based on the updated attempt count.
+	var lockUntil *time.Time
+	switch {
+	case updated.Attempts >= 20:
+		t := now.Add(15 * time.Minute)
+		lockUntil = &t
+	case updated.Attempts >= 15:
+		t := now.Add(5 * time.Minute)
+		lockUntil = &t
+	case updated.Attempts >= 10:
+		t := now.Add(1 * time.Minute)
+		lockUntil = &t
+	}
+
+	if lockUntil != nil {
+		_, err = db.database.Collection("login_attempts").UpdateOne(
+			ctx,
+			bson.M{"ip": ip},
+			bson.M{"$set": bson.M{"locked_until": lockUntil}},
+		)
+		return err
+	}
+	return nil
 }
 
 // ClearLoginAttempts resets the login attempt counter (on successful login)
@@ -870,7 +1034,7 @@ func (db *DB) ListAssets(ctx context.Context, folder string) ([]*Asset, error) {
 		filter["folder"] = folder
 	}
 
-	opts := options.Find().SetSort(bson.D{{Key: "folder", Value: 1}, {Key: "filename", Value: 1}})
+	opts := options.Find().SetSort(bson.D{{Key: "folder", Value: 1}, {Key: "filename", Value: 1}}).SetProjection(bson.M{"data": 0})
 	cursor, err := db.Assets().Find(ctx, filter, opts)
 	if err != nil {
 		return nil, err

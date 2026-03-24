@@ -672,11 +672,14 @@ func (a *APIHandler) APISearchReplacePreview(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	contents, err := a.contentService.ListContent(r.Context(), false, "", nil)
+	// Stream the cursor document-by-document to avoid loading the entire collection
+	// into memory. All matching pages are returned — nothing is truncated.
+	cursor, err := a.contentService.StreamContent(r.Context(), false)
 	if err != nil {
 		a.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	defer cursor.Close(r.Context())
 
 	type MatchDetail struct {
 		ID           string         `json:"id"`
@@ -690,26 +693,26 @@ func (a *APIHandler) APISearchReplacePreview(w http.ResponseWriter, r *http.Requ
 	var matches []MatchDetail
 	totalMatchCount := 0
 
-	for _, content := range contents {
+	for cursor.Next(r.Context()) {
+		var content models.Content
+		if cursor.Decode(&content) != nil {
+			continue
+		}
 		matchCount := 0
 		fieldMatches := make(map[string]int)
-
 		for fieldName, value := range content.Data {
 			if strVal, ok := value.(string); ok {
-				count := srh.count(strVal)
-				if count > 0 {
+				if count := srh.count(strVal); count > 0 {
 					matchCount += count
 					fieldMatches[fieldName] = count
 				}
 			}
 		}
-
 		if srh.contains(content.Title) {
-			titleCount := srh.count(content.Title)
-			matchCount += titleCount
-			fieldMatches["title"] = titleCount
+			n := srh.count(content.Title)
+			matchCount += n
+			fieldMatches["title"] = n
 		}
-
 		if matchCount > 0 {
 			matches = append(matches, MatchDetail{
 				ID:           content.ID.Hex(),
@@ -765,11 +768,13 @@ func (a *APIHandler) APISearchReplaceExecute(w http.ResponseWriter, r *http.Requ
 		versionComment = fmt.Sprintf("Bulk search and replace: '%s' → '%s'", req.Search, req.Replace)
 	}
 
-	contents, err := a.contentService.ListContent(r.Context(), false, "", nil)
+	// Stream documents one-by-one — avoids loading the full collection into memory.
+	cursor, err := a.contentService.StreamContent(r.Context(), false)
 	if err != nil {
 		a.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	defer cursor.Close(r.Context())
 
 	type UpdatedPage struct {
 		ID            string   `json:"id"`
@@ -823,16 +828,13 @@ func (a *APIHandler) APISearchReplaceExecute(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
-	// Process concurrently with a bounded worker pool.
+	// Process concurrently with a bounded worker pool fed by the streaming cursor.
+	// Channel buffer = workers*4 provides backpressure without unbounded buffering.
 	type srResult struct{ page *UpdatedPage }
-	resultCh := make(chan srResult, len(contents))
-	jobs := make(chan models.Content, len(contents))
+	jobs := make(chan models.Content, bulkConcurrency*4)
+	resultCh := make(chan srResult, bulkConcurrency*4)
 	var wg sync.WaitGroup
-	workers := bulkConcurrency
-	if len(contents) < workers {
-		workers = len(contents)
-	}
-	for range workers {
+	for range bulkConcurrency {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -841,10 +843,15 @@ func (a *APIHandler) APISearchReplaceExecute(w http.ResponseWriter, r *http.Requ
 			}
 		}()
 	}
-	for _, c := range contents {
-		jobs <- c
-	}
-	close(jobs)
+	go func() {
+		for cursor.Next(r.Context()) {
+			var c models.Content
+			if cursor.Decode(&c) == nil {
+				jobs <- c
+			}
+		}
+		close(jobs)
+	}()
 	wg.Wait()
 	close(resultCh)
 
@@ -1175,11 +1182,13 @@ func (a *APIHandler) APIScopedSearchReplacePreview(w http.ResponseWriter, r *htt
 		return
 	}
 
-	contents, err := a.contentService.ListContent(r.Context(), false, "", nil)
+	// Push scope filters to MongoDB, then stream the cursor document-by-document.
+	cursor, err := a.contentService.StreamContentScoped(r.Context(), scopeToContentScope(req.Scope))
 	if err != nil {
 		a.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	defer cursor.Close(r.Context())
 
 	type MatchDetail struct {
 		ID           string         `json:"id"`
@@ -1193,16 +1202,16 @@ func (a *APIHandler) APIScopedSearchReplacePreview(w http.ResponseWriter, r *htt
 	var matches []MatchDetail
 	totalMatchCount := 0
 
-	for _, content := range contents {
-		if !req.Scope.matches(content) {
+	for cursor.Next(r.Context()) {
+		var content models.Content
+		if cursor.Decode(&content) != nil {
 			continue
 		}
 		matchCount := 0
 		fieldMatches := make(map[string]int)
 		for fieldName, value := range content.Data {
 			if strVal, ok := value.(string); ok {
-				count := srh.count(strVal)
-				if count > 0 {
+				if count := srh.count(strVal); count > 0 {
 					matchCount += count
 					fieldMatches[fieldName] = count
 				}
@@ -1267,12 +1276,14 @@ func (a *APIHandler) APIScopedSearchReplaceExecute(w http.ResponseWriter, r *htt
 		versionComment = fmt.Sprintf("Scoped search and replace: '%s' → '%s'", req.Search, req.Replace)
 	}
 
-	// Push scope filters to MongoDB — avoids full-collection load + app-level filter.
-	contents, err := a.contentService.ListContentScoped(r.Context(), scopeToContentScope(req.Scope))
+	// Push scope filters to MongoDB and stream results to avoid loading the full
+	// scoped set into memory before processing starts.
+	cursor2, err := a.contentService.StreamContentScoped(r.Context(), scopeToContentScope(req.Scope))
 	if err != nil {
 		a.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	defer cursor2.Close(r.Context())
 
 	type UpdatedPage struct {
 		ID            string   `json:"id"`
@@ -1325,14 +1336,10 @@ func (a *APIHandler) APIScopedSearchReplaceExecute(w http.ResponseWriter, r *htt
 	}
 
 	type scopedSRResult struct{ page *UpdatedPage }
-	resultCh2 := make(chan scopedSRResult, len(contents))
-	jobs2 := make(chan models.Content, len(contents))
+	jobs2 := make(chan models.Content, bulkConcurrency*4)
+	resultCh2 := make(chan scopedSRResult, bulkConcurrency*4)
 	var wg2 sync.WaitGroup
-	workers2 := bulkConcurrency
-	if len(contents) < workers2 {
-		workers2 = len(contents)
-	}
-	for range workers2 {
+	for range bulkConcurrency {
 		wg2.Add(1)
 		go func() {
 			defer wg2.Done()
@@ -1341,10 +1348,15 @@ func (a *APIHandler) APIScopedSearchReplaceExecute(w http.ResponseWriter, r *htt
 			}
 		}()
 	}
-	for _, c := range contents {
-		jobs2 <- c
-	}
-	close(jobs2)
+	go func() {
+		for cursor2.Next(r.Context()) {
+			var c models.Content
+			if cursor2.Decode(&c) == nil {
+				jobs2 <- c
+			}
+		}
+		close(jobs2)
+	}()
 	wg2.Wait()
 	close(resultCh2)
 
@@ -1753,17 +1765,18 @@ func (a *APIHandler) APIExportContent(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	contents, err := a.contentService.ListContent(r.Context(), false, req.Category, nil)
-	if err != nil {
-		a.jsonError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	scope := scopeFilter{
+	// Push all scope filters to MongoDB via ListContentScoped to avoid loading the
+	// full collection into memory when only a subset is needed.
+	exportScope := scopeFilter{
 		ContentIDs:   req.ContentIDs,
 		FolderPath:   req.FolderPath,
 		TemplateName: req.TemplateName,
 		Category:     req.Category,
+	}
+	contents, err := a.contentService.ListContentScoped(r.Context(), scopeToContentScope(exportScope))
+	if err != nil {
+		a.jsonError(w, http.StatusInternalServerError, err.Error())
+		return
 	}
 
 	fieldFilter := make(map[string]bool)
@@ -1786,9 +1799,6 @@ func (a *APIHandler) APIExportContent(w http.ResponseWriter, r *http.Request) {
 
 	var items []ExportItem
 	for _, c := range contents {
-		if !scope.matches(c) {
-			continue
-		}
 		data := c.Data
 		if len(fieldFilter) > 0 {
 			data = make(map[string]interface{})

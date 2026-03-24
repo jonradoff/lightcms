@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -197,14 +198,19 @@ func (a *APIHandler) APIUploadAsset(w http.ResponseWriter, r *http.Request) {
 		Filename    string `json:"filename"`
 		ServePath   string `json:"serve_path"`
 		DataBase64  string `json:"data_base64"`
+		FilePath    string `json:"file_path"`
 		Description string `json:"description"`
 	}
 	if err := a.decodeJSON(r, &req); err != nil {
 		a.jsonError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if req.Filename == "" || req.ServePath == "" || req.DataBase64 == "" {
-		a.jsonError(w, http.StatusBadRequest, "filename, serve_path, and data_base64 are required")
+	if req.Filename == "" || req.ServePath == "" {
+		a.jsonError(w, http.StatusBadRequest, "filename and serve_path are required")
+		return
+	}
+	if req.DataBase64 == "" && req.FilePath == "" {
+		a.jsonError(w, http.StatusBadRequest, "either data_base64 or file_path is required")
 		return
 	}
 	if !isValidAssetServePath(req.ServePath) {
@@ -212,10 +218,22 @@ func (a *APIHandler) APIUploadAsset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data, err := base64.StdEncoding.DecodeString(req.DataBase64)
-	if err != nil {
-		a.jsonError(w, http.StatusBadRequest, "invalid base64 data")
-		return
+	var data []byte
+	if req.FilePath != "" {
+		// Read file directly from local filesystem (avoids base64 size limits in MCP transport)
+		var err error
+		data, err = os.ReadFile(req.FilePath)
+		if err != nil {
+			a.jsonError(w, http.StatusBadRequest, fmt.Sprintf("failed to read file_path: %v", err))
+			return
+		}
+	} else {
+		var err error
+		data, err = base64.StdEncoding.DecodeString(req.DataBase64)
+		if err != nil {
+			a.jsonError(w, http.StatusBadRequest, "invalid base64 data")
+			return
+		}
 	}
 
 	asset, err := a.assetService.UploadAsset(r.Context(), data, req.Filename, req.ServePath, req.Description)

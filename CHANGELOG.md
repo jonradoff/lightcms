@@ -4,6 +4,28 @@ All notable changes to LightCMS are documented here, organized by version.
 
 ---
 
+## v4.2.0 — Performance Improvements
+
+### Database
+
+- **New indexes**: Added `settings.type`, `login_attempts.ip`, `theme_versions.version`, and `content.plain_text` (text index) to eliminate collection scans on hot query paths.
+- **`ListAssets` projection**: Excludes the binary `data` field from asset listing queries, dramatically reducing wire transfer for asset list operations.
+- **Atomic login rate limiting**: `RecordFailedLogin` replaced a read-then-write pattern with `FindOneAndUpdate` + `$inc`, eliminating a race condition under concurrent login attempts.
+
+### Search
+
+- **Parallel hybrid search**: `SearchHybrid` now runs `SearchFullText` and `SearchSemantic` concurrently via goroutines, halving latency when both sources are available.
+- **`sort.Slice` everywhere**: All ranking insertion sorts in `SearchFullText`, `Suggest`, and `RebuildKeywords` replaced with `sort.Slice` / `sort.SliceStable` for O(n log n) behaviour on larger result sets.
+- **Pre-normalized search config**: `getSearchConfig` lowercases and trims all path/template lists once on cache load, removing redundant per-query `strings.ToLower`/`strings.TrimSpace` calls in `pathBoost`, `isDemotedPath`, and `isBoostedTemplate`.
+
+### Content Regeneration
+
+- **Parallel `RegenerateAllContent`**: Sequential per-page loop replaced with a semaphore-bounded goroutine pool (6 workers), enabling concurrent static page generation.
+- **Single wikilink index per bulk regen**: `buildWikilinkIndex` is called once before the worker pool starts and the result is shared across all workers, instead of once per page.
+- **Targeted `UpdateWikilinksOnRename`**: Added a `$regex` pre-filter so only documents likely referencing the old title/path are loaded, avoiding a full collection scan on rename.
+
+---
+
 ## v4.1.0 — Bug Fixes
 
 ### Bug Fixes

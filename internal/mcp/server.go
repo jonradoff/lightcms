@@ -40,6 +40,7 @@ func NewServer(client *apiclient.Client) *Server {
 	s.registerSettingsTools()
 	s.registerSearchTools()
 	s.registerSnippetTools()
+	s.registerForkTools()
 
 	return s
 }
@@ -114,7 +115,7 @@ func ServerCard(baseURL string) ([]byte, error) {
 	card := map[string]interface{}{
 		"serverInfo": map[string]string{
 			"name":    "LightCMS",
-			"version": "4.0.0",
+			"version": "4.2.0",
 		},
 		"endpoint":  "/mcp",
 		"transport": []string{"streamable-http", "stdio"},

@@ -89,7 +89,7 @@ Once connected, you can ask Claude to manage your content naturally:
 Binary: `bin/lightcms-mcp`
 Config: Uses same `config.dev.json` or environment variables as main server
 
-### Available MCP Tools (63 total):
+### Available MCP Tools (71 total):
 
 **Content (22 tools):** list_content, get_content, create_content, update_content, update_content_by_path, publish_content, publish_multiple, unpublish_content, delete_content, restore_content, preview_content, get_content_versions, get_content_version, revert_to_version, bulk_update_content, bulk_field_operation, export_content, get_backlinks
 
@@ -102,6 +102,8 @@ Config: Uses same `config.dev.json` or environment variables as main server
 **Search (7 tools):** search_content, search_replace_preview, search_replace_execute, scoped_search_replace_preview, scoped_search_replace_execute, end_user_search, reindex_embeddings
 
 **Settings (18 tools):** get_theme, update_theme, get_theme_versions, get_theme_version, revert_theme_to_version, pin_theme_version, unpin_theme_version, get_site_config, update_site_config, list_redirects, create_redirect, update_redirect, delete_redirect, list_folders, create_folder, get_folder, delete_folder, list_collections, create_collection, get_collection, update_collection, delete_collection, regenerate_all_content
+
+**Forks (8 tools):** list_forks, create_fork, get_fork, fork_page, remove_fork_page, merge_fork, archive_fork, delete_fork
 
 ### ⚠️ CRITICAL: Search & Replace Safety
 
@@ -359,7 +361,7 @@ Deployed to Fly.io (`metavert-cms` app, machine `d890122a371528`). Uses environm
 ./deploy.sh
 ```
 
-The script runs a build check, deploys via `fly deploy --app metavert-cms`, and polls `/health` until the server is ready. `deploy.sh` is gitignored (local only). `fly.toml` uses `strategy = "immediate"` to avoid stuck machines (the app has a single volume — rolling deploy would try to start a new machine before stopping the old one, creating a volume conflict).
+The script builds the image via `fly deploy --detach`, extracts the image ref, destroys any stuck new machines, then updates the actual running machine directly via `fly machines update`. This is necessary because the running machine (`d890122a371528`) is a legacy non-Launch machine — `fly deploy` doesn't see it as a managed machine and creates new stuck orphan machines instead of updating it. The machine ID is hardcoded in `deploy.sh`.
 
 ## Testing Locally
 

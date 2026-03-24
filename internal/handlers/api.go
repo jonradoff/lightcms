@@ -22,6 +22,7 @@ type APIHandler struct {
 	searchService   *services.SearchService
 	auditService    *services.AuditService
 	snippetService  *services.SnippetService
+	forkService     *services.ForkService
 }
 
 // NewAPIHandler creates a new API handler

@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"lightcms/internal/database"
@@ -22,6 +23,7 @@ import (
 	goldmarkhtml "github.com/yuin/goldmark/renderer/html"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
@@ -41,11 +43,20 @@ func EditorEmailFromContext(ctx context.Context) string {
 
 // ContentService centralizes all content operations with automatic versioning
 type ContentService struct {
-	db              *database.DB
-	searchService   *SearchService
-	indexRegenCh    chan struct{} // coalescing trigger for RegenerateIndexPages
+	db               *database.DB
+	searchService    *SearchService
+	indexRegenCh     chan struct{} // coalescing trigger for RegenerateIndexPages
 	keywordRebuildCh chan struct{} // coalescing trigger for RebuildKeywords
+
+	// Cached wikilink index (title→path / path→title).
+	// Rebuilt at most once per wikilinkCacheTTL to avoid a full collection scan
+	// on every page publish/regenerate.
+	wikilinkCacheMu  sync.RWMutex
+	wikilinkCache    *wikilinkIndex
+	wikilinkCacheExp time.Time
 }
+
+const wikilinkCacheTTL = 60 * time.Second
 
 // NewContentService creates a new content service
 func NewContentService(db *database.DB) *ContentService {
@@ -249,6 +260,11 @@ func (s *ContentService) UpdateContent(ctx context.Context, content *models.Cont
 		return fmt.Errorf("failed to save version: %w", err)
 	}
 
+	// Invalidate wikilink cache: title/path/publish-status changes all affect the index.
+	if original.Title != content.Title || original.FullPath != content.FullPath || original.Published != content.Published {
+		s.invalidateWikilinkCache()
+	}
+
 	// Generate or remove static page based on publish status
 	if content.Published {
 		if err := s.GenerateStaticPage(ctx, content); err != nil {
@@ -445,6 +461,40 @@ func (s *ContentService) ListContentScoped(ctx context.Context, scope ContentSco
 		return nil, fmt.Errorf("failed to decode content: %w", err)
 	}
 	return contents, nil
+}
+
+// StreamContent returns a raw MongoDB cursor over all non-deleted content,
+// sorted by updated_at desc. The caller is responsible for closing the cursor.
+// Use this instead of ListContent when processing large result sets to avoid
+// loading the entire collection into memory.
+func (s *ContentService) StreamContent(ctx context.Context, includeDeleted bool) (*mongo.Cursor, error) {
+	filter := bson.M{}
+	if !includeDeleted {
+		filter["deleted"] = bson.M{"$ne": true}
+	}
+	return s.db.FindMany(ctx, "content", filter, options.Find().SetSort(bson.D{{Key: "updated_at", Value: -1}}))
+}
+
+// StreamContentScoped returns a raw MongoDB cursor with scope filters pushed down
+// to MongoDB. The caller is responsible for closing the cursor.
+func (s *ContentService) StreamContentScoped(ctx context.Context, scope ContentScope) (*mongo.Cursor, error) {
+	filter := bson.M{}
+	if !scope.IncludeDeleted {
+		filter["deleted"] = bson.M{"$ne": true}
+	}
+	if scope.TemplateName != "" {
+		filter["template_name"] = scope.TemplateName
+	}
+	if scope.Category != "" {
+		filter["category"] = scope.Category
+	}
+	if scope.FolderPath != "" {
+		filter["full_path"] = bson.M{"$regex": "^" + regexp.QuoteMeta(scope.FolderPath) + "(/|$)"}
+	}
+	if len(scope.ContentIDs) > 0 {
+		filter["_id"] = bson.M{"$in": scope.ContentIDs}
+	}
+	return s.db.FindMany(ctx, "content", filter, options.Find().SetSort(bson.D{{Key: "updated_at", Value: -1}}))
 }
 
 // GetContentByIDs fetches multiple content items in a single query.
@@ -666,6 +716,12 @@ func (s *ContentService) getContentAuthorRole(ctx context.Context, content *mode
 
 // GenerateStaticPage renders and saves the content as a static HTML file
 func (s *ContentService) GenerateStaticPage(ctx context.Context, content *models.Content) error {
+	return s.generateStaticPageWithWikilinkIndex(ctx, content, nil)
+}
+
+// generateStaticPageWithWikilinkIndex renders and saves the content as a static HTML file,
+// optionally using a pre-built wikilink index (pass nil to build one on demand).
+func (s *ContentService) generateStaticPageWithWikilinkIndex(ctx context.Context, content *models.Content, prebuiltIdx *wikilinkIndex) error {
 	// Get template
 	var tmpl models.Template
 	if err := s.db.FindOne(ctx, "templates", bson.M{"_id": content.TemplateID}, &tmpl); err != nil {
@@ -721,7 +777,10 @@ func (s *ContentService) GenerateStaticPage(ctx context.Context, content *models
 
 	// Resolve [[wikilinks]] in the rendered output
 	if strings.Contains(html, "[[") {
-		idx := s.buildWikilinkIndex(ctx)
+		idx := prebuiltIdx
+		if idx == nil {
+			idx = s.buildWikilinkIndex(ctx)
+		}
 		html = processWikiLinks(idx, html)
 	}
 
@@ -840,12 +899,18 @@ func (s *ContentService) QueryContentForDirective(ctx context.Context, filter ma
 		q["folder_path"] = bson.M{"$regex": "^" + regexp.QuoteMeta(v)}
 	}
 
-	var contents []models.Content
-	if err := s.db.FindAll(ctx, "content", q, &contents); err != nil {
+	// Cap at 10 000 items — lc:query is for rendering index pages, not bulk exports.
+	// Prevents a single directive from loading the entire content collection into memory.
+	cursor, err := s.db.FindMany(ctx, "content", q, options.Find().SetLimit(10000))
+	if err != nil {
 		return nil, fmt.Errorf("lc:query failed: %w", err)
 	}
+	var contents []models.Content
+	if err := cursor.All(ctx, &contents); err != nil {
+		return nil, fmt.Errorf("lc:query decode: %w", err)
+	}
 
-	// Sort in Go (avoids mongo index requirements for arbitrary fields)
+	// Sort in Go (avoids mongo index requirements for arbitrary sort fields)
 	dir := 1
 	if sortDir == "desc" {
 		dir = -1
@@ -1135,26 +1200,58 @@ type wikilinkIndex struct {
 	pathToTitle map[string]string // full_path → canonical title
 }
 
-// buildWikilinkIndex fetches all published content and builds lookup maps.
+// buildWikilinkIndex returns a cached wikilink index, rebuilding it at most
+// once per wikilinkCacheTTL. This prevents a full collection scan on every
+// page publish/regenerate when many pages are updated in sequence.
 func (s *ContentService) buildWikilinkIndex(ctx context.Context) *wikilinkIndex {
+	s.wikilinkCacheMu.RLock()
+	if s.wikilinkCache != nil && time.Now().Before(s.wikilinkCacheExp) {
+		cached := s.wikilinkCache
+		s.wikilinkCacheMu.RUnlock()
+		return cached
+	}
+	s.wikilinkCacheMu.RUnlock()
+
+	// Rebuild the index
 	idx := &wikilinkIndex{
 		titleToPath: make(map[string]string),
 		pathToTitle: make(map[string]string),
 	}
-	var all []models.Content
-	if err := s.db.FindAll(ctx, "content", bson.M{
+	cursor, err := s.db.FindMany(ctx, "content", bson.M{
 		"published": true,
 		"deleted":   bson.M{"$ne": true},
-	}, &all); err != nil {
-		return idx
-	}
-	for _, c := range all {
-		if c.FullPath != "" {
-			idx.titleToPath[strings.ToLower(c.Title)] = c.FullPath
-			idx.pathToTitle[c.FullPath] = c.Title
+	}, options.Find().SetProjection(bson.D{
+		{Key: "title", Value: 1},
+		{Key: "full_path", Value: 1},
+	}))
+	if err == nil {
+		for cursor.Next(ctx) {
+			var c struct {
+				Title    string `bson:"title"`
+				FullPath string `bson:"full_path"`
+			}
+			if cursor.Decode(&c) == nil && c.FullPath != "" {
+				idx.titleToPath[strings.ToLower(c.Title)] = c.FullPath
+				idx.pathToTitle[c.FullPath] = c.Title
+			}
 		}
+		cursor.Close(ctx)
 	}
+
+	s.wikilinkCacheMu.Lock()
+	s.wikilinkCache = idx
+	s.wikilinkCacheExp = time.Now().Add(wikilinkCacheTTL)
+	s.wikilinkCacheMu.Unlock()
+
 	return idx
+}
+
+// invalidateWikilinkCache forces the next buildWikilinkIndex call to rebuild.
+// Called after any publish/title/path change.
+func (s *ContentService) invalidateWikilinkCache() {
+	s.wikilinkCacheMu.Lock()
+	s.wikilinkCacheExp = time.Time{}
+	s.wikilinkCacheMu.Unlock()
 }
 
 // processWikiLinks resolves [[wikilink]] and [[wikilink|display]] patterns in html.
@@ -1216,12 +1313,34 @@ func (s *ContentService) UpdateWikilinksOnRename(ctx context.Context, oldTitle, 
 	if oldTitle == newTitle && oldPath == newPath {
 		return
 	}
-	var all []models.Content
-	if err := s.db.FindAll(ctx, "content", bson.M{"deleted": bson.M{"$ne": true}}, &all); err != nil {
-		log.Printf("Warning: UpdateWikilinksOnRename: load error: %v", err)
+
+	// Build a $regex pre-filter to only scan documents that are likely to contain the old reference.
+	// This avoids a full collection scan when only a small fraction of pages reference the renamed item.
+	var orConditions []bson.M
+	if oldTitle != "" && oldTitle != newTitle {
+		orConditions = append(orConditions, bson.M{"data": bson.M{"$regex": regexp.QuoteMeta("[[" + oldTitle)}})
+	}
+	if oldPath != "" && oldPath != newPath {
+		orConditions = append(orConditions, bson.M{"data": bson.M{"$regex": regexp.QuoteMeta("[[" + oldPath)}})
+	}
+	filter := bson.M{"deleted": bson.M{"$ne": true}}
+	if len(orConditions) > 0 {
+		filter["$or"] = orConditions
+	}
+
+	// Stream documents one-by-one to avoid loading the entire collection into memory.
+	cursor, err := s.db.FindMany(ctx, "content", filter)
+	if err != nil {
+		log.Printf("Warning: UpdateWikilinksOnRename: query error: %v", err)
 		return
 	}
-	for _, c := range all {
+	defer cursor.Close(ctx)
+
+	for cursor.Next(ctx) {
+		var c models.Content
+		if err := cursor.Decode(&c); err != nil {
+			continue
+		}
 		updated := false
 		newData := make(map[string]interface{})
 		for k, v := range c.Data {
@@ -1416,11 +1535,26 @@ func (s *ContentService) RegenerateAllContent(ctx context.Context) error {
 		return fmt.Errorf("failed to decode content: %w", err)
 	}
 
-	for _, content := range contents {
-		if err := s.GenerateStaticPage(ctx, &content); err != nil {
-			fmt.Printf("Warning: failed to regenerate %s: %v\n", content.FullPath, err)
-		}
+	// Build the wikilink index once for all pages rather than once per page.
+	wikilinkIdx := s.buildWikilinkIndex(ctx)
+
+	// Parallel regeneration with a bounded worker pool.
+	const maxWorkers = 6
+	sem := make(chan struct{}, maxWorkers)
+	var wg sync.WaitGroup
+
+	for i := range contents {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(c models.Content) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			if err := s.generateStaticPageWithWikilinkIndex(ctx, &c, wikilinkIdx); err != nil {
+				fmt.Printf("Warning: failed to generate page %s: %v\n", c.FullPath, err)
+			}
+		}(contents[i])
 	}
+	wg.Wait()
 
 	return nil
 }

@@ -149,7 +149,8 @@ type AssetSummary struct {
 type UploadAssetRequest struct {
 	Filename    string `json:"filename"`
 	ServePath   string `json:"serve_path"`
-	DataBase64  string `json:"data_base64"`
+	DataBase64  string `json:"data_base64,omitempty"`
+	FilePath    string `json:"file_path,omitempty"`
 	Description string `json:"description,omitempty"`
 }
 
@@ -315,4 +316,58 @@ type APIKeyCreated struct {
 	Description string    `json:"description"`
 	Prefix      string    `json:"prefix"`
 	CreatedAt   time.Time `json:"created_at"`
+}
+
+// Fork types
+
+type Fork struct {
+	ID             string  `json:"id"`
+	Name           string  `json:"name"`
+	Description    string  `json:"description"`
+	Status         string  `json:"status"`
+	PageCount      int64   `json:"page_count"`
+	CreatedByEmail string  `json:"created_by_email"`
+	CreatedAt      string  `json:"created_at"`
+	MergedAt       *string `json:"merged_at,omitempty"`
+	MergedByEmail  string  `json:"merged_by_email,omitempty"`
+	ArchivedAt     *string `json:"archived_at,omitempty"`
+}
+
+type ForkDetail struct {
+	ID             string        `json:"id"`
+	Name           string        `json:"name"`
+	Description    string        `json:"description"`
+	Status         string        `json:"status"`
+	CreatedByEmail string        `json:"created_by_email"`
+	CreatedAt      string        `json:"created_at"`
+	PageCount      int           `json:"page_count"`
+	Pages          []ForkPageRef `json:"pages"`
+}
+
+type ForkPageRef struct {
+	ID        string `json:"id"`
+	Title     string `json:"title"`
+	FullPath  string `json:"full_path"`
+	UpdatedAt string `json:"updated_at"`
+}
+
+type ForkPageResult struct {
+	ID       string `json:"id"`
+	FullPath string `json:"full_path"`
+	Title    string `json:"title"`
+	Message  string `json:"message"`
+}
+
+type ForkMergeResult struct {
+	Success   bool                `json:"success"`
+	Updated   int                 `json:"updated"`
+	Created   int                 `json:"created"`
+	Conflicts []ForkMergeConflict `json:"conflicts"`
+	Message   string              `json:"message"`
+}
+
+type ForkMergeConflict struct {
+	Path      string `json:"path"`
+	ForkTitle string `json:"fork_title"`
+	LiveTitle string `json:"live_title"`
 }

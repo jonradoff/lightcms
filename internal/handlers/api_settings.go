@@ -219,6 +219,7 @@ func (a *APIHandler) APIUpdateSiteConfig(w http.ResponseWriter, r *http.Request)
 		TitleTemplate        *string `json:"title_template"`
 		TitleTemplateNoTitle *string `json:"title_template_no_title"`
 		MarkdownScriptPolicy *string `json:"markdown_script_policy"`
+		MaxUploadBytes       *int64  `json:"max_upload_bytes"`
 	}
 	if err := a.decodeJSON(r, &req); err != nil {
 		a.jsonError(w, http.StatusBadRequest, "invalid request body")
@@ -245,6 +246,13 @@ func (a *APIHandler) APIUpdateSiteConfig(w http.ResponseWriter, r *http.Request)
 			a.jsonError(w, http.StatusBadRequest, "markdown_script_policy must be 'all', 'admin_only', or 'none'")
 			return
 		}
+	}
+	if req.MaxUploadBytes != nil {
+		if *req.MaxUploadBytes <= 0 {
+			a.jsonError(w, http.StatusBadRequest, "max_upload_bytes must be a positive integer")
+			return
+		}
+		config.MaxUploadBytes = *req.MaxUploadBytes
 	}
 
 	if err := a.settingsService.UpdateSiteConfig(r.Context(), config); err != nil {

@@ -403,6 +403,17 @@ var adminTemplates = map[string]string{
                 </tbody>
             </table>
         </div>
+
+        {{if gt .TotalPages 1}}
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 1rem; padding: 0.75rem 0;">
+            <span style="color: var(--text-muted); font-size: 0.9rem;">{{.Total}} pages &middot; page {{.CurrentPage}} of {{.TotalPages}}</span>
+            <div style="display: flex; gap: 0.5rem;">
+                {{if gt .CurrentPage 1}}<a href="?page={{subtract .CurrentPage 1}}{{if .FolderFilter}}&folder={{.FolderFilter}}{{end}}{{if .ShowDeleted}}&deleted=true{{end}}" class="btn btn-outline">← Previous</a>{{end}}
+                {{if lt .CurrentPage .TotalPages}}<a href="?page={{add .CurrentPage 1}}{{if .FolderFilter}}&folder={{.FolderFilter}}{{end}}{{if .ShowDeleted}}&deleted=true{{end}}" class="btn btn-outline">Next →</a>{{end}}
+            </div>
+        </div>
+        {{end}}
+
         <!-- Search Modal -->
         <div id="search-modal" class="modal-overlay" style="display: none;">
             <div class="modal-content" style="max-width: 500px;">
@@ -697,6 +708,10 @@ var adminTemplates = map[string]string{
                     } else {
                         html += '<a href="' + item.full_path + '" target="_blank" class="btn btn-sm btn-outline">View</a>';
                         html += '<a href="/cm/content/' + item.id + '" class="btn btn-sm">Edit</a>';
+                        html += '<form method="POST" action="/cm/content/' + item.id + '/delete" style="display:inline" onsubmit="return confirmDelete(this, \'Are you sure you want to delete this content?\')">';
+                        html += '<input type="hidden" name="gorilla.csrf.Token" value="' + csrfToken + '">';
+                        html += '<button type="submit" class="btn btn-sm btn-danger">Delete</button>';
+                        html += '</form>';
                     }
                     html += '</td>';
                     html += '</tr>';
@@ -1490,12 +1505,20 @@ var adminTemplates = map[string]string{
                 {{end}}
             </div>
 
-            <div class="form-actions">
-                <a href="/cm/content" class="btn btn-outline">Cancel</a>
-                {{if .ForkPageID}}
-                <a href="/cm/forks?fork_page={{.ForkPageID}}" class="btn btn-outline" title="Copy this page into a fork workspace for staged editing">🌿 Fork to workspace</a>
+            <div class="form-actions" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
+                <div style="display: flex; gap: 0.5rem; align-items: center;">
+                    <a href="/cm/content" class="btn btn-outline">Cancel</a>
+                    {{if .ForkPageID}}
+                    <a href="/cm/forks?fork_page={{.ForkPageID}}" class="btn btn-outline" title="Copy this page into a fork workspace for staged editing">🌿 Fork to workspace</a>
+                    {{end}}
+                    <button type="submit" class="btn btn-primary">{{if .IsNew}}Create{{else}}Update{{end}}</button>
+                </div>
+                {{if not .IsNew}}
+                <form method="POST" action="/cm/content/{{.Content.ID.Hex}}/delete" onsubmit="return confirmDelete(this, 'Are you sure you want to delete this page? This cannot be undone.')">
+                    {{$.CSRFField}}
+                    <button type="submit" class="btn btn-danger">Delete Page</button>
+                </form>
                 {{end}}
-                <button type="submit" class="btn btn-primary">{{if .IsNew}}Create{{else}}Update{{end}}</button>
             </div>
         </form>
 
@@ -4236,6 +4259,16 @@ var adminTemplates = map[string]string{
                 </div>
             </div>
 
+            <div class="form-section">
+                <h3>File Uploads</h3>
+                <p class="help-text">Maximum allowed size for uploaded assets. Requests larger than this limit are rejected before reading the body.</p>
+                <div class="form-group">
+                    <label for="max_upload_bytes">Maximum Upload Size (bytes)</label>
+                    <input type="number" id="max_upload_bytes" name="max_upload_bytes" value="{{.Config.MaxUploadBytes}}" min="1024" step="1024">
+                    <p class="help-text">Current: {{formatBytes .Config.MaxUploadBytes}}. Default is 1 MiB (1048576 bytes).</p>
+                </div>
+            </div>
+
             <div class="form-actions">
                 <button type="submit" class="btn btn-primary">Save Configuration</button>
             </div>
@@ -5101,6 +5134,31 @@ var adminTemplates = map[string]string{
                         <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">URL path prefixes to rank lower (e.g. /videos/)</div>
                     </div>
                 </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin-bottom: 1.25rem;">
+                    <div>
+                        <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.375rem;">Boosted Pages <span style="font-weight: normal;">(one exact path per line)</span></label>
+                        <textarea name="boost_paths" rows="4"
+                            style="width: 100%; padding: 0.5rem 0.75rem; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-family: monospace; font-size: 0.875rem; resize: vertical;">{{range .SearchRankingConfig.BoostPaths}}{{.}}
+{{end}}</textarea>
+                        <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">Exact page paths to always rank higher (e.g. /about)</div>
+                    </div>
+                    <div>
+                        <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.375rem;">Boost Score for Pages</label>
+                        <input type="number" name="boost_path_score" step="0.01" min="0" max="1"
+                            value="{{.SearchRankingConfig.BoostPathScore}}"
+                            style="width: 100%; padding: 0.5rem 0.75rem; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 6px; color: var(--text);">
+                        <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">Score bonus for boosted pages (default 0.15)</div>
+                    </div>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin-bottom: 1.25rem;">
+                    <div>
+                        <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.375rem;">Demoted Pages <span style="font-weight: normal;">(one exact path per line)</span></label>
+                        <textarea name="demote_paths" rows="4"
+                            style="width: 100%; padding: 0.5rem 0.75rem; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-family: monospace; font-size: 0.875rem; resize: vertical;">{{range .SearchRankingConfig.DemotePaths}}{{.}}
+{{end}}</textarea>
+                        <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">Exact page paths to always rank lower (e.g. /thank-you). Uses the Demotion Score above.</div>
+                    </div>
+                </div>
                 <button type="submit" class="btn btn-primary">Save Ranking Config</button>
             </form>
         </div>
@@ -5430,6 +5488,431 @@ async function doSearch(q) {
         </script>
     ` + adminLayoutEnd,
 
+	"chat_widget_tool": adminLayoutStart + `
+        <div class="page-header">
+            <h1>💬 Chat Widget</h1>
+        </div>
+
+        <!-- AI status -->
+        <div style="display: flex; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap;">
+            <div style="display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.875rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; font-size: 0.8125rem;">
+                {{if .SemanticEnabled}}
+                <span style="width: 8px; height: 8px; border-radius: 50%; background: #4ade80; flex-shrink: 0;"></span>
+                <span style="color: var(--text-muted);">Semantic search <strong style="color: var(--text);">enabled</strong></span>
+                {{else}}
+                <span style="width: 8px; height: 8px; border-radius: 50%; background: #f87171; flex-shrink: 0;"></span>
+                <span style="color: var(--text-muted);">Semantic search <strong style="color: var(--text);">disabled</strong> — set <code>VOYAGE_API_KEY</code></span>
+                {{end}}
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.875rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; font-size: 0.8125rem;">
+                {{if .HaikuEnabled}}
+                <span style="width: 8px; height: 8px; border-radius: 50%; background: #4ade80; flex-shrink: 0;"></span>
+                <span style="color: var(--text-muted);">AI answers <strong style="color: var(--text);">enabled</strong> (Claude Haiku)</span>
+                {{else}}
+                <span style="width: 8px; height: 8px; border-radius: 50%; background: #fbbf24; flex-shrink: 0;"></span>
+                <span style="color: var(--text-muted);">AI answers <strong style="color: var(--text);">disabled</strong> — set <code>ANTHROPIC_API_KEY</code></span>
+                {{end}}
+            </div>
+        </div>
+
+        {{if .Saved}}<div style="margin-bottom: 1.25rem; padding: 0.625rem 1rem; background: rgba(34,197,94,0.1); border: 1px solid rgba(34,197,94,0.3); border-radius: 8px; color: var(--success); font-size: 0.875rem;">Settings saved.</div>{{end}}
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; align-items: start;">
+
+            <!-- Left: Configuration -->
+            <div>
+                <div class="info-card" style="margin-bottom: 1.5rem;">
+                    <h2 style="margin-top: 0; font-size: 1.25rem;">Configuration</h2>
+                    <form method="POST" action="/cm/tools/chat/config">
+                        {{.CSRFField}}
+
+                        <!-- Enable/disable -->
+                        <div style="margin-bottom: 1.25rem; display: flex; align-items: center; gap: 0.75rem;">
+                            <label style="display: flex; align-items: center; gap: 0.625rem; cursor: pointer; font-size: 0.9375rem; color: var(--text);">
+                                <input type="hidden" name="enabled" value="0">
+                                <input type="checkbox" name="enabled" value="1" {{if .ChatConfig.Enabled}}checked{{end}}
+                                    style="width: 18px; height: 18px; accent-color: var(--primary); cursor: pointer;">
+                                Enable chat widget on public site
+                            </label>
+                        </div>
+
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+                            <div>
+                                <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.375rem;">Widget Title</label>
+                                <input type="text" name="widget_title" value="{{.ChatConfig.WidgetTitle}}"
+                                    style="width: 100%; padding: 0.5rem 0.75rem; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 6px; color: var(--text);">
+                            </div>
+                            <div>
+                                <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.375rem;">Position</label>
+                                <select name="position" style="width: 100%; padding: 0.5rem 0.75rem; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 6px; color: var(--text);">
+                                    <option value="bottom-right" {{if eq .ChatConfig.Position "bottom-right"}}selected{{end}}>Bottom Right</option>
+                                    <option value="bottom-left" {{if eq .ChatConfig.Position "bottom-left"}}selected{{end}}>Bottom Left</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div style="margin-bottom: 1rem;">
+                            <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.375rem;">Welcome Message</label>
+                            <textarea name="welcome_message" rows="2"
+                                style="width: 100%; padding: 0.5rem 0.75rem; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 6px; color: var(--text); resize: vertical;">{{.ChatConfig.WelcomeMessage}}</textarea>
+                        </div>
+
+                        <div style="margin-bottom: 1rem;">
+                            <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.375rem;">Input Placeholder</label>
+                            <input type="text" name="placeholder" value="{{.ChatConfig.Placeholder}}"
+                                style="width: 100%; padding: 0.5rem 0.75rem; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 6px; color: var(--text);">
+                        </div>
+
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+                            <div>
+                                <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.375rem;">Primary Color</label>
+                                <div style="display: flex; gap: 0.5rem; align-items: center;">
+                                    <input type="color" name="primary_color" value="{{.ChatConfig.PrimaryColor}}" id="color-picker"
+                                        style="width: 44px; height: 36px; padding: 2px; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 6px; cursor: pointer;">
+                                    <input type="text" id="color-text" value="{{.ChatConfig.PrimaryColor}}"
+                                        style="flex: 1; padding: 0.5rem 0.75rem; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-family: monospace; font-size: 0.875rem;"
+                                        placeholder="#6366f1" maxlength="7">
+                                </div>
+                            </div>
+                            <div>
+                                <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.375rem;">Max Results</label>
+                                <input type="number" name="max_results" value="{{.ChatConfig.MaxResults}}" min="1" max="10"
+                                    style="width: 100%; padding: 0.5rem 0.75rem; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 6px; color: var(--text);">
+                                <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">Results per query (1–10)</div>
+                            </div>
+                        </div>
+
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.25rem;">
+                            <div>
+                                <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.375rem;">Rate Limit (per IP)</label>
+                                <input type="number" name="rate_limit_per_ip" value="{{.ChatConfig.RateLimitPerIP}}" min="1" max="60"
+                                    style="width: 100%; padding: 0.5rem 0.75rem; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 6px; color: var(--text);">
+                                <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">Queries/min per visitor</div>
+                            </div>
+                            <div>
+                                <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.375rem;">Rate Limit (global)</label>
+                                <input type="number" name="rate_limit_global" value="{{.ChatConfig.RateLimitGlobal}}" min="1" max="300"
+                                    style="width: 100%; padding: 0.5rem 0.75rem; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 6px; color: var(--text);">
+                                <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">Total queries/min site-wide</div>
+                            </div>
+                        </div>
+
+                        <button type="submit" class="btn btn-primary">Save Configuration</button>
+                    </form>
+                </div>
+
+                <!-- AI Prompts -->
+                {{if .HaikuEnabled}}
+                <div class="info-card" style="margin-bottom: 1.5rem;">
+                    <h2 style="margin-top: 0; font-size: 1.25rem;">AI Prompts</h2>
+                    <p style="color: var(--text-muted); font-size: 0.875rem; margin-bottom: 1rem;">
+                        Customize what the AI is told. Use <code>{siteName}</code> in either field.
+                        In the user prompt template, use <code>{excerpts}</code> for the retrieved page snippets and <code>{question}</code> for the visitor's query.
+                    </p>
+                    <form method="POST" action="/cm/tools/chat/config">
+                        {{.CSRFField}}
+                        <!-- hidden fields to preserve all other settings -->
+                        <input type="hidden" name="enabled" value="{{if .ChatConfig.Enabled}}1{{else}}0{{end}}">
+                        <input type="hidden" name="widget_title" value="{{.ChatConfig.WidgetTitle}}">
+                        <input type="hidden" name="welcome_message" value="{{.ChatConfig.WelcomeMessage}}">
+                        <input type="hidden" name="placeholder" value="{{.ChatConfig.Placeholder}}">
+                        <input type="hidden" name="primary_color" value="{{.ChatConfig.PrimaryColor}}">
+                        <input type="hidden" name="position" value="{{.ChatConfig.Position}}">
+                        <input type="hidden" name="max_results" value="{{.ChatConfig.MaxResults}}">
+                        <input type="hidden" name="rate_limit_per_ip" value="{{.ChatConfig.RateLimitPerIP}}">
+                        <input type="hidden" name="rate_limit_global" value="{{.ChatConfig.RateLimitGlobal}}">
+
+                        <div style="margin-bottom: 1rem;">
+                            <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.375rem;">System Prompt</label>
+                            <textarea name="system_prompt" rows="8"
+                                style="width: 100%; padding: 0.5rem 0.75rem; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 6px; color: var(--text); resize: vertical; font-size: 0.8125rem; line-height: 1.5; font-family: inherit;">{{.ChatConfig.SystemPrompt}}</textarea>
+                        </div>
+
+                        <div style="margin-bottom: 1.25rem;">
+                            <label style="display: block; font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.375rem;">User Prompt Template</label>
+                            <textarea name="user_prompt_template" rows="6"
+                                style="width: 100%; padding: 0.5rem 0.75rem; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 6px; color: var(--text); resize: vertical; font-size: 0.8125rem; line-height: 1.5; font-family: monospace;">{{.ChatConfig.UserPromptTemplate}}</textarea>
+                        </div>
+
+                        <div style="display: flex; align-items: center; gap: 1rem;">
+                            <button type="submit" class="btn btn-primary">Save Prompts</button>
+                            <button type="button" class="btn btn-outline btn-sm" id="reset-prompts-btn">Reset to defaults</button>
+                        </div>
+                    </form>
+                </div>
+                {{end}}
+
+                <!-- Embed Code -->
+                <div class="info-card">
+                    <h2 style="margin-top: 0; font-size: 1.25rem;">Embed Code</h2>
+                    <p style="color: var(--text-muted); font-size: 0.875rem; margin-bottom: 1rem;">
+                        Add this to your site's <code>&lt;head&gt;</code> or just before <code>&lt;/body&gt;</code>.
+                        The widget loads asynchronously and won't block page rendering.
+                    </p>
+                    <pre id="embed-code" style="background: var(--bg-dark); padding: 1rem; border-radius: 8px; overflow-x: auto; font-size: 0.8125rem; margin-bottom: 0.75rem; white-space: pre-wrap; word-break: break-all;"><code>&lt;script src="{{.BaseURL}}/static/js/chat-widget.js" async&gt;&lt;/script&gt;</code></pre>
+                    <button type="button" class="btn btn-outline btn-sm" id="copy-embed-btn" style="font-size: 0.8125rem;">Copy</button>
+
+                    <div style="margin-top: 1.25rem; padding-top: 1.25rem; border-top: 1px solid var(--border);">
+                        <h3 style="font-size: 0.9375rem; margin-bottom: 0.5rem;">API Endpoints</h3>
+                        <p style="color: var(--text-muted); font-size: 0.8125rem; margin-bottom: 0.75rem;">
+                            Use these directly to build custom search UIs or integrations.
+                        </p>
+                        <div style="display: flex; flex-direction: column; gap: 0.5rem;">
+                            <div style="background: var(--bg-dark); border-radius: 6px; padding: 0.5rem 0.75rem; font-size: 0.8125rem; font-family: monospace;">
+                                <span style="color: var(--success);">GET</span>
+                                <span style="color: var(--text); margin-left: 0.5rem;">{{.BaseURL}}/api/chat?q={query}</span>
+                            </div>
+                            <div style="background: var(--bg-dark); border-radius: 6px; padding: 0.5rem 0.75rem; font-size: 0.8125rem; font-family: monospace;">
+                                <span style="color: var(--success);">GET</span>
+                                <span style="color: var(--text); margin-left: 0.5rem;">{{.BaseURL}}/api/chat/config</span>
+                            </div>
+                        </div>
+                        <p style="color: var(--text-muted); font-size: 0.8125rem; margin-top: 0.75rem;">
+                            Both endpoints return JSON and include <code>Access-Control-Allow-Origin: *</code> for cross-origin use.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right: Live Test -->
+            <div>
+                <div class="info-card" style="position: sticky; top: 1.5rem;">
+                    <h2 style="margin-top: 0; font-size: 1.25rem;">Live Test</h2>
+                    <p style="color: var(--text-muted); font-size: 0.875rem; margin-bottom: 1rem;">
+                        Try the widget here. This calls the same <code>/api/chat</code> endpoint visitors will use.
+                        Works even when the widget is disabled on the public site.
+                    </p>
+
+                    <!-- Inline chat panel (same look as floating widget) -->
+                    <div id="admin-chat-preview" style="border: 1px solid var(--border); border-radius: 14px; overflow: hidden; background: #fff; display: flex; flex-direction: column; max-height: 480px;">
+                        <div id="admin-chat-header" style="padding: 0.875rem 1rem; display: flex; align-items: center; justify-content: space-between;">
+                            <span id="admin-chat-title" style="font-weight: 600; font-size: 0.9375rem; color: #fff;">{{.ChatConfig.WidgetTitle}}</span>
+                        </div>
+                        <div id="admin-chat-body" style="flex: 1; overflow-y: auto; padding: 1rem; min-height: 140px; display: flex; flex-direction: column; gap: 0.75rem; background: #fff;">
+                            <p style="color: #64748b; font-size: 0.875rem; line-height: 1.5; margin: 0;">{{.ChatConfig.WelcomeMessage}}</p>
+                        </div>
+                        <div style="padding: 0.75rem; border-top: 1px solid #f1f5f9; display: flex; gap: 0.5rem; background: #fff;">
+                            <input id="admin-chat-input" type="text" placeholder="{{.ChatConfig.Placeholder}}" autocomplete="off" maxlength="200"
+                                style="flex: 1; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.5rem 0.75rem; font-size: 0.875rem; outline: none; color: #1e293b; background: #f8fafc; transition: border-color 0.15s;">
+                            <button id="admin-chat-send"
+                                style="color: #fff; border: none; border-radius: 8px; padding: 0.5rem 0.875rem; cursor: pointer; font-size: 0.875rem; font-weight: 500; white-space: nowrap; transition: opacity 0.15s;">
+                                Ask
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <script>
+        (function() {
+            // Sync color picker ↔ text input ↔ live preview
+            var colorPicker = document.getElementById('color-picker');
+            var colorText = document.getElementById('color-text');
+            var header = document.getElementById('admin-chat-header');
+            var sendBtn = document.getElementById('admin-chat-send');
+
+            function applyColor(hex) {
+                if (!/^#[0-9a-fA-F]{6}$/.test(hex)) return;
+                header.style.background = hex;
+                sendBtn.style.background = hex;
+            }
+            applyColor(colorPicker.value);
+
+            colorPicker.addEventListener('input', function() {
+                colorText.value = colorPicker.value;
+                applyColor(colorPicker.value);
+            });
+            colorText.addEventListener('input', function() {
+                var v = colorText.value.trim();
+                if (/^#[0-9a-fA-F]{6}$/.test(v)) {
+                    colorPicker.value = v;
+                    // sync hidden primary_color field
+                    document.querySelector('input[name="primary_color"]').value = v;
+                    applyColor(v);
+                }
+            });
+            colorPicker.addEventListener('change', function() {
+                document.querySelector('input[name="primary_color"]').value = colorPicker.value;
+            });
+
+            // Widget title live update
+            var titleInput = document.querySelector('input[name="widget_title"]');
+            var chatTitle = document.getElementById('admin-chat-title');
+            if (titleInput) {
+                titleInput.addEventListener('input', function() {
+                    chatTitle.textContent = titleInput.value || 'Chat with Site';
+                });
+            }
+
+            // Placeholder live update
+            var placeholderInput = document.querySelector('input[name="placeholder"]');
+            var chatInput = document.getElementById('admin-chat-input');
+            if (placeholderInput) {
+                placeholderInput.addEventListener('input', function() {
+                    chatInput.placeholder = placeholderInput.value || 'Ask a question...';
+                });
+            }
+
+            // Reset prompts to defaults
+            var resetBtn = document.getElementById('reset-prompts-btn');
+            if (resetBtn) {
+                var defaultSystemPrompt = "You are a friendly, knowledgeable assistant for {siteName}. Use the provided page excerpts to answer questions conversationally and helpfully. Synthesize a clear, direct answer — don't just describe what the pages say. Keep answers concise (2-4 sentences). If the excerpts don't contain enough to answer confidently, say so briefly and naturally.";
+                var defaultUserPrompt = 'Here are relevant excerpts from the site:\n\n{excerpts}\nQuestion: {question}';
+                resetBtn.addEventListener('click', function() {
+                    var sp = document.querySelector('textarea[name="system_prompt"]');
+                    var up = document.querySelector('textarea[name="user_prompt_template"]');
+                    if (sp) sp.value = defaultSystemPrompt;
+                    if (up) up.value = defaultUserPrompt;
+                });
+            }
+
+            // Copy embed code button
+            var copyBtn = document.getElementById('copy-embed-btn');
+            copyBtn.addEventListener('click', function() {
+                var code = document.querySelector('#embed-code code').textContent;
+                navigator.clipboard.writeText(code).then(function() {
+                    copyBtn.textContent = 'Copied!';
+                    setTimeout(function() { copyBtn.textContent = 'Copy'; }, 2000);
+                });
+            });
+
+            // Live test chat
+            var body = document.getElementById('admin-chat-body');
+
+            function escHtml(str) {
+                return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+            }
+
+            function renderMarkdown(text) {
+                var s = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                s = s.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+                s = s.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
+                s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+                s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+                s = s.replace(/(?<!href=")(https?:\/\/[^\s<>")\]]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
+                s = s.replace(/(?<![="<\/])(\/[a-zA-Z][a-zA-Z0-9\-_\/]*)/g, '<a href="$1">$1</a>');
+                s = s.replace(/\n/g, '<br>');
+                return s;
+            }
+
+            function renderSources(results, color) {
+                var el = document.createElement('div');
+                var html = '<div style="font-size:0.75rem;font-weight:600;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.375rem;">Sources</div>';
+                results.forEach(function(r) {
+                    html += '<a href="' + escHtml(r.url) + '" target="_blank" style="font-size:0.8125rem;text-decoration:none;display:flex;align-items:center;gap:0.375rem;padding:0.3rem 0;border-bottom:1px solid #f1f5f9;line-height:1.3;">' +
+                        '<span style="opacity:0.5;flex-shrink:0;font-size:0.7rem;">&#8599;</span>' +
+                        '<span style="font-weight:500;color:#1e293b;" onmouseover="this.style.color=\'' + color + '\'" onmouseout="this.style.color=\'#1e293b\'">' + escHtml(r.title) + '</span>' +
+                        '</a>';
+                });
+                el.innerHTML = html;
+                el.lastElementChild && (el.lastElementChild.style.borderBottom = 'none');
+                return el;
+            }
+
+            function doQuery() {
+                var q = chatInput.value.trim();
+                if (!q) return;
+                sendBtn.disabled = true;
+
+                var dotColor = colorPicker.value;
+                body.innerHTML = '<div id="acq-loading" style="display:flex;gap:4px;justify-content:center;align-items:center;padding:1rem 0;">' +
+                    '<div style="width:8px;height:8px;border-radius:50%;background:' + dotColor + ';animation:lca-bounce 0.9s infinite"></div>' +
+                    '<div style="width:8px;height:8px;border-radius:50%;background:' + dotColor + ';animation:lca-bounce 0.9s 0.15s infinite"></div>' +
+                    '<div style="width:8px;height:8px;border-radius:50%;background:' + dotColor + ';animation:lca-bounce 0.9s 0.3s infinite"></div>' +
+                    '</div><style>@keyframes lca-bounce{0%,80%,100%{transform:scale(0.7);opacity:.5}40%{transform:scale(1);opacity:1}}</style>';
+
+                var loadingRemoved = false;
+                var answerEl = null;
+                var rawAnswer = '';
+
+                function removeLoading() {
+                    if (!loadingRemoved) {
+                        var l = document.getElementById('acq-loading');
+                        if (l) l.remove();
+                        loadingRemoved = true;
+                    }
+                }
+
+                function ensureAnswer() {
+                    if (!answerEl) {
+                        removeLoading();
+                        answerEl = document.createElement('div');
+                        answerEl.style.cssText = 'font-size:0.875rem;line-height:1.6;color:#1e293b;background:#f8fafc;border-radius:10px;padding:0.75rem;word-break:break-word;';
+                        body.appendChild(answerEl);
+                    }
+                    return answerEl;
+                }
+
+                function handleEvent(evt) {
+                    if (evt.type === 'token' && evt.text) {
+                        rawAnswer += evt.text;
+                        ensureAnswer().innerHTML = renderMarkdown(rawAnswer);
+                        body.scrollTop = body.scrollHeight;
+                    } else if (evt.type === 'sources') {
+                        removeLoading();
+                        var results = evt.results || [];
+                        if (results.length === 0 && !answerEl) {
+                            body.innerHTML = '<p style="color:#94a3b8;font-size:0.875rem;text-align:center;padding:1rem 0;margin:0;">No results found. Try rephrasing your question.</p>';
+                            return;
+                        }
+                        if (results.length > 0) {
+                            body.appendChild(renderSources(results, colorPicker.value));
+                            body.scrollTop = body.scrollHeight;
+                        }
+                    } else if (evt.type === 'done') {
+                        sendBtn.disabled = false;
+                        chatInput.value = '';
+                        chatInput.focus();
+                    }
+                }
+
+                fetch('/api/chat?q=' + encodeURIComponent(q))
+                    .then(function(res) {
+                        if (!res.ok || !res.body) throw new Error('HTTP ' + res.status);
+                        var reader = res.body.getReader();
+                        var decoder = new TextDecoder();
+                        var buf = '';
+                        function pump() {
+                            return reader.read().then(function(result) {
+                                if (result.done) { sendBtn.disabled = false; return; }
+                                buf += decoder.decode(result.value, {stream: true});
+                                var parts = buf.split('\n\n');
+                                buf = parts.pop();
+                                for (var i = 0; i < parts.length; i++) {
+                                    var p = parts[i].trim();
+                                    if (p.indexOf('data: ') === 0) {
+                                        try { handleEvent(JSON.parse(p.slice(6))); } catch(e) {}
+                                    }
+                                }
+                                return pump();
+                            });
+                        }
+                        return pump();
+                    })
+                    .catch(function() {
+                        sendBtn.disabled = false;
+                        body.innerHTML = '<p style="color:#f87171;font-size:0.875rem;text-align:center;padding:1rem 0;margin:0;">Request failed. Check that the server is running.</p>';
+                    });
+            }
+
+            sendBtn.addEventListener('click', doQuery);
+            chatInput.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') doQuery();
+            });
+            chatInput.addEventListener('focus', function() {
+                chatInput.style.borderColor = colorPicker.value;
+                chatInput.style.background = '#fff';
+            });
+            chatInput.addEventListener('blur', function() {
+                chatInput.style.borderColor = '#e2e8f0';
+                chatInput.style.background = '#f8fafc';
+            });
+        })();
+        </script>
+    ` + adminLayoutEnd,
+
 	"force_change_password": `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -5668,6 +6151,7 @@ async function doSearch(q) {
                             <option value="content.create">Content Created</option>
                             <option value="content.update">Content Updated</option>
                             <option value="content.delete">Content Deleted</option>
+                            <option value="chat.query">Chat Query</option>
                         </select>
                     </div>
                     <div>
@@ -6706,6 +7190,7 @@ const adminLayoutStart = `<!DOCTYPE html>
                 <div class="nav-section">
                     <div class="nav-section-title">Tools</div>
                     <a href="/cm/tools/search" class="nav-link">🔍 End User Search</a>
+                    <a href="/cm/tools/chat" class="nav-link">💬 Chat Widget</a>
                     <a href="/cm/tools/broken-links" class="nav-link">🔗 Broken Link Finder</a>
                 </div>
                 <div class="nav-section">

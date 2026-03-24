@@ -770,3 +770,81 @@ func (c *Client) UpdateSnippet(ctx context.Context, id string, req UpdateSnippet
 func (c *Client) DeleteSnippet(ctx context.Context, id string) error {
 	return c.do(ctx, "DELETE", "/snippets/"+id, nil, nil)
 }
+
+// Fork operations
+
+// ListForks returns all fork workspaces.
+func (c *Client) ListForks(ctx context.Context) ([]Fork, error) {
+	var forks []Fork
+	if err := c.do(ctx, "GET", "/forks", nil, &forks); err != nil {
+		return nil, err
+	}
+	return forks, nil
+}
+
+// CreateFork creates a new fork workspace.
+func (c *Client) CreateFork(ctx context.Context, name, description string) (map[string]interface{}, error) {
+	body := map[string]string{"name": name, "description": description}
+	var result map[string]interface{}
+	if err := c.do(ctx, "POST", "/forks", body, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// GetFork returns a fork with its page list.
+func (c *Client) GetFork(ctx context.Context, id string) (*ForkDetail, error) {
+	var detail ForkDetail
+	if err := c.do(ctx, "GET", "/forks/"+id, nil, &detail); err != nil {
+		return nil, err
+	}
+	return &detail, nil
+}
+
+// ForkPage copies a live page into a fork by content ID.
+func (c *Client) ForkPage(ctx context.Context, forkID, contentID, path string) (*ForkPageResult, error) {
+	body := map[string]string{}
+	if contentID != "" {
+		body["content_id"] = contentID
+	} else {
+		body["path"] = path
+	}
+	var result ForkPageResult
+	if err := c.do(ctx, "POST", "/forks/"+forkID+"/fork-page", body, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// ListForkPages returns all pages in a fork.
+func (c *Client) ListForkPages(ctx context.Context, forkID string) ([]ForkPageRef, error) {
+	var pages []ForkPageRef
+	if err := c.do(ctx, "GET", "/forks/"+forkID+"/pages", nil, &pages); err != nil {
+		return nil, err
+	}
+	return pages, nil
+}
+
+// RemoveForkPage removes a page from a fork.
+func (c *Client) RemoveForkPage(ctx context.Context, forkID, pageID string) error {
+	return c.do(ctx, "DELETE", "/forks/"+forkID+"/pages/"+pageID, nil, nil)
+}
+
+// MergeFork merges all fork pages into live content.
+func (c *Client) MergeFork(ctx context.Context, forkID string) (*ForkMergeResult, error) {
+	var result ForkMergeResult
+	if err := c.do(ctx, "POST", "/forks/"+forkID+"/merge", nil, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// ArchiveFork archives a fork without merging.
+func (c *Client) ArchiveFork(ctx context.Context, forkID string) error {
+	return c.do(ctx, "POST", "/forks/"+forkID+"/archive", nil, nil)
+}
+
+// DeleteFork permanently deletes a fork and all its pages.
+func (c *Client) DeleteFork(ctx context.Context, forkID string) error {
+	return c.do(ctx, "DELETE", "/forks/"+forkID, nil, nil)
+}

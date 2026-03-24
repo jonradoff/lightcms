@@ -2,7 +2,10 @@ package mcp
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"lightcms/internal/apiclient"
 
@@ -23,7 +26,8 @@ type UploadAssetInput struct {
 	Filename    string `json:"filename" jsonschema:"Original filename with extension,required"`
 	ServePath   string `json:"serve_path" jsonschema:"URL path where file will be served (e.g., /images/logo.png),required"`
 	Description string `json:"description,omitempty" jsonschema:"Optional description of the asset"`
-	DataBase64  string `json:"data_base64" jsonschema:"Base64-encoded file content,required"`
+	FilePath    string `json:"file_path,omitempty" jsonschema:"Absolute local filesystem path to read the file from. Preferred over data_base64 for large files — avoids MCP transport size limits."`
+	DataBase64  string `json:"data_base64,omitempty" jsonschema:"Base64-encoded file content. Use for small files (<100KB). For larger files, prefer file_path."`
 }
 
 type AssetIDInput struct {
@@ -102,9 +106,15 @@ func (s *Server) registerAssetTools() {
 
 	// Upload asset
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name:        "upload_asset",
-		Title:       "Upload Asset",
-		Description: "Upload a new asset to the asset library. Provide file content as base64. Validates file type and MIME type for security.",
+		Name: "upload_asset",
+		Title: "Upload Asset",
+		Description: `Upload or replace an asset in the asset library. Re-uploading to the same serve_path replaces the existing file in place — no need to delete first.
+
+Provide file content via one of:
+- file_path: Absolute local path to the file (preferred for files >100KB — avoids MCP transport size limits)
+- data_base64: Base64-encoded file content (fine for small files)
+
+Validates file type and MIME type for security.`,
 		Annotations: &mcp.ToolAnnotations{
 			Title:           "Upload Asset",
 			ReadOnlyHint:    false,
@@ -113,11 +123,29 @@ func (s *Server) registerAssetTools() {
 			OpenWorldHint:   boolPtr(false),
 		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args UploadAssetInput) (*mcp.CallToolResult, any, error) {
+		if args.FilePath == "" && args.DataBase64 == "" {
+			return errorResult(fmt.Errorf("either file_path or data_base64 is required")), nil, nil
+		}
+
 		uploadReq := apiclient.UploadAssetRequest{
 			Filename:    args.Filename,
 			ServePath:   args.ServePath,
-			DataBase64:  args.DataBase64,
 			Description: args.Description,
+		}
+
+		if args.FilePath != "" {
+			// Read file locally and base64-encode it — avoids MCP transport size limits
+			fileData, err := os.ReadFile(args.FilePath)
+			if err != nil {
+				return errorResult(fmt.Errorf("failed to read file_path %q: %w", args.FilePath, err)), nil, nil
+			}
+			uploadReq.DataBase64 = base64.StdEncoding.EncodeToString(fileData)
+			// Auto-derive filename from path if not provided
+			if uploadReq.Filename == "" {
+				uploadReq.Filename = filepath.Base(args.FilePath)
+			}
+		} else {
+			uploadReq.DataBase64 = args.DataBase64
 		}
 
 		asset, err := s.client.UploadAsset(ctx, uploadReq)
@@ -131,7 +159,7 @@ func (s *Server) registerAssetTools() {
 			"serve_path": asset.ServePath,
 			"mime_type":  asset.MimeType,
 			"size":       asset.Size,
-			"message":    fmt.Sprintf("Asset '%s' uploaded successfully", args.Filename),
+			"message":    fmt.Sprintf("Asset '%s' uploaded successfully", uploadReq.Filename),
 		}), nil, nil
 	})
 

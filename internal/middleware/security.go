@@ -61,24 +61,42 @@ type TrustedProxyConfig struct {
 	// TrustedProxies is a list of trusted proxy CIDRs
 	// If empty, X-Forwarded-For is not trusted
 	TrustedProxies []string
-	// TrustAllProxies trusts any proxy (use with caution, mainly for cloud deployments)
+	// TrustAllProxies trusts any proxy — DEPRECATED, do not use in production.
+	// Use TrustFlyProxy or TrustedProxies instead.
 	TrustAllProxies bool
+	// TrustFlyProxy enables Fly.io-specific IP extraction. When true, the
+	// Fly-Client-IP header (set by Fly.io's edge proxy and not spoofable by
+	// clients) is used as the authoritative client IP. Falls back to RemoteAddr.
+	TrustFlyProxy bool
 }
 
-// DefaultCloudConfig returns a config that trusts common cloud provider proxies
+// DefaultCloudConfig returns a config that trusts Fly.io's edge proxy.
+// Uses the Fly-Client-IP header which is set by the Fly.io edge and cannot
+// be spoofed by end-users, preventing rate-limit and audit-log bypass.
 func DefaultCloudConfig() *TrustedProxyConfig {
 	return &TrustedProxyConfig{
-		// For cloud deployments (Fly.io, AWS, GCP, etc.), we trust their load balancers
-		// The load balancer is the first hop and sets X-Forwarded-For correctly
-		TrustAllProxies: true,
+		TrustFlyProxy: true,
 	}
 }
 
 // GetClientIP extracts the real client IP from a request
 // It properly handles X-Forwarded-For based on trusted proxy configuration
 func GetClientIP(r *http.Request, config *TrustedProxyConfig) string {
-	// If no config or no trusted proxies, use RemoteAddr directly
-	if config == nil || (!config.TrustAllProxies && len(config.TrustedProxies) == 0) {
+	if config == nil {
+		return extractIP(r.RemoteAddr)
+	}
+
+	// Fly.io sets Fly-Client-IP at the edge; it cannot be spoofed by clients.
+	// Prefer it over X-Forwarded-For which can be set by anyone.
+	if config.TrustFlyProxy {
+		if flyIP := r.Header.Get("Fly-Client-IP"); flyIP != "" && isValidIP(strings.TrimSpace(flyIP)) {
+			return strings.TrimSpace(flyIP)
+		}
+		return extractIP(r.RemoteAddr)
+	}
+
+	// No trusted proxies configured: use direct connection IP
+	if !config.TrustAllProxies && len(config.TrustedProxies) == 0 {
 		return extractIP(r.RemoteAddr)
 	}
 
@@ -87,7 +105,6 @@ func GetClientIP(r *http.Request, config *TrustedProxyConfig) string {
 
 	// Check if the immediate connection is from a trusted proxy
 	if !config.TrustAllProxies && !isTrustedProxy(remoteIP, config.TrustedProxies) {
-		// Not from a trusted proxy, don't trust X-Forwarded-For
 		return remoteIP
 	}
 
@@ -98,11 +115,10 @@ func GetClientIP(r *http.Request, config *TrustedProxyConfig) string {
 	}
 
 	// X-Forwarded-For is a comma-separated list: client, proxy1, proxy2, ...
-	// The leftmost non-trusted IP is the real client
 	ips := strings.Split(xff, ",")
 
 	if config.TrustAllProxies {
-		// In cloud deployments, trust the first IP (set by the edge load balancer)
+		// Last resort: trust the first IP from X-Forwarded-For
 		if len(ips) > 0 {
 			clientIP := strings.TrimSpace(ips[0])
 			if clientIP != "" && isValidIP(clientIP) {
