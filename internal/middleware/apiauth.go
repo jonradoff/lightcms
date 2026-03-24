@@ -29,6 +29,12 @@ func APIUserFromContext(ctx context.Context) (interface{}, bool) {
 	return user, user != nil
 }
 
+// InjectAPIUser returns a context with the given user injected as the API user.
+// Intended for use in tests only.
+func InjectAPIUser(ctx context.Context, user interface{}) context.Context {
+	return context.WithValue(ctx, apiUserContextKey, user)
+}
+
 // SessionValidateFunc validates a session cookie and returns the authenticated user (as interface{}).
 // It receives the full HTTP request so it can read cookies.
 type SessionValidateFunc func(r *http.Request) interface{}

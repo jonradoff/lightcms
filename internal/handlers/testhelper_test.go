@@ -89,8 +89,11 @@ func testDB(t *testing.T) *database.DB {
 	return sharedTestDB
 }
 
-// cleanupCollections removes all documents from test collections for isolation.
-// Deletes are issued in parallel to minimise Atlas round-trip overhead.
+// cleanupCollections drops test collections for isolation.
+// Dropping (rather than just deleting documents) ensures indexes are also cleared,
+// preventing duplicate key errors on re-creation and avoiding Atlas collection
+// accumulation when tests use unique indexes (e.g. users.email).
+// Drops are issued in parallel to minimise Atlas round-trip overhead.
 func cleanupCollections(t *testing.T, db *database.DB) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -102,13 +105,12 @@ func cleanupCollections(t *testing.T, db *database.DB) {
 		"snippets", "users", "audit_logs", "contact_messages", "login_attempts",
 		"oauth_clients", "user_activity",
 	}
-	empty := bson.M{}
 	var wg sync.WaitGroup
 	for _, name := range collections {
 		wg.Add(1)
 		go func(col string) {
 			defer wg.Done()
-			db.Collection(col).DeleteMany(ctx, empty)
+			db.Collection(col).Drop(ctx) //nolint:errcheck
 		}(name)
 	}
 	wg.Wait()

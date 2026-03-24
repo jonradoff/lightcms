@@ -7,6 +7,9 @@ import (
 	"strings"
 	"testing"
 
+	"lightcms/internal/auth"
+	"lightcms/internal/middleware"
+
 	"github.com/gorilla/mux"
 )
 
@@ -522,10 +525,14 @@ func TestAPIDeleteAPIKey(t *testing.T) {
 	ah, _, cleanup := newTestAPIHandler(t)
 	defer cleanup()
 
-	// Create first
+	// Inject an admin user so the delete handler can determine key ownership
+	adminUser := &auth.SessionUser{ID: "000000000000000000000001", Email: "admin@test", Role: "admin"}
+
+	// Create first (as admin)
 	createRR := httptest.NewRecorder()
 	createReq := httptest.NewRequest(http.MethodPost, "/api/v1/api-keys", strings.NewReader(`{"name":"del-key"}`))
 	createReq.Header.Set("Content-Type", "application/json")
+	createReq = createReq.WithContext(middleware.InjectAPIUser(createReq.Context(), adminUser))
 	ah.APICreateAPIKey(createRR, createReq)
 
 	var created map[string]interface{}
@@ -540,6 +547,7 @@ func TestAPIDeleteAPIKey(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/api-keys/"+id, nil)
+	req = req.WithContext(middleware.InjectAPIUser(req.Context(), adminUser))
 	router.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusOK {
