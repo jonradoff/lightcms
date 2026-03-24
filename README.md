@@ -3,7 +3,6 @@
 [![CI](https://github.com/jonradoff/lightcms/actions/workflows/ci.yml/badge.svg)](https://github.com/jonradoff/lightcms/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/jonradoff/lightcms/branch/main/graph/badge.svg)](https://codecov.io/gh/jonradoff/lightcms)
 [![Go Report Card](https://goreportcard.com/badge/github.com/jonradoff/lightcms)](https://goreportcard.com/report/github.com/jonradoff/lightcms)
-[![lightcms MCP server](https://glama.ai/mcp/servers/jonradoff/lightcms/badges/card.svg)](https://glama.ai/mcp/servers/jonradoff/lightcms)
 
 A lightweight, AI-native content management system for building and managing websites. Built with Go and MongoDB Atlas.
 
@@ -823,6 +822,8 @@ lightcms --json content list             # JSON output
 Run `lightcms --help` for full usage.
 
 ## MCP Server (AI-Powered Content Management)
+
+[![lightcms MCP server](https://glama.ai/mcp/servers/jonradoff/lightcms/badges/card.svg)](https://glama.ai/mcp/servers/jonradoff/lightcms)
 
 LightCMS includes a full MCP (Model Context Protocol) server with 72 tools for managing your entire website through AI agents. It supports two transport modes:
 
