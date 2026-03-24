@@ -39,6 +39,18 @@ A lightweight, AI-native content management system for building and managing web
 - **Merge with Conflict Detection**: Admins merge forks into live content; if a live page was changed after the fork was created, the conflict is recorded (fork wins). New pages created in the fork are inserted into live on merge
 - **Full MCP Toolset**: 8 dedicated fork tools — `list_forks`, `create_fork`, `get_fork`, `fork_page`, `remove_fork_page`, `merge_fork`, `archive_fork`, `delete_fork`
 
+### Batch & Parallel Operations
+Designed for agents that prefer parallelized, high-throughput workflows over sequential single-item calls:
+
+- **`bulk_update_content`**: Update up to 100 pages in a single API call. Each item uses merge semantics — only the fields you specify are touched. Supports `dry_run` validation before committing, and `auto_republish` to re-publish all previously-published pages in the same call, eliminating a separate publish step
+- **`bulk_field_operation`**: Apply a single operation (`set`, `clear`, `prepend`, `append`, `wrap`) to a field across every matching page in one call. Scope by template, folder, category, or explicit ID list. Ideal for adding disclaimers, updating metadata, or clearing stale fields across a content type
+- **`publish_multiple`**: Publish a list of IDs — or all drafts at once with `publish_all_drafts: true` — in a single request instead of looping over `publish_content`
+- **`export_content`**: Dump full field data for a scoped set of pages as a structured JSON array. Designed for export → transform → re-import pipelines; pair with `bulk_update_content` for large-scale content migrations
+- **Scoped Search & Replace**: Both `scoped_search_replace_preview` and `scoped_search_replace_execute` accept scope filters (folder, template, category, IDs) so agents can target precise subsets rather than running site-wide operations
+- **Parallel-Safe Read API**: `list_content` with `include_data: true` returns full field values in one fetch; agents can fan out reads across multiple `list_content` / `get_content` calls concurrently and then batch-write with `bulk_update_content`
+
+Recommended agent pattern for large updates: `list_content` → transform in parallel → `bulk_update_content` (up to 50/call) → `publish_multiple`.
+
 ### AI Chat Widget (v4.2+)
 - **Embeddable Widget**: Add a floating AI chat bubble to any page with a single `<script>` tag — self-contained, no build step required
 - **Two-Phase Pipeline**: Each visitor query runs hybrid semantic+fulltext search to retrieve relevant content excerpts, then streams those excerpts through Claude Haiku for a conversational synthesized answer
