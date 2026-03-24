@@ -14,7 +14,7 @@ func TestEnsureSystemAPIKey_CreatesNewKey(t *testing.T) {
 	apiKeySvc := NewAPIKeyService(db)
 	ctx := context.Background()
 
-	rawKey, err := EnsureSystemAPIKey(ctx, db, apiKeySvc)
+	rawKey, err := EnsureSystemAPIKey(ctx, db, apiKeySvc, nil)
 	if err != nil {
 		t.Fatalf("EnsureSystemAPIKey failed: %v", err)
 	}
@@ -38,13 +38,13 @@ func TestEnsureSystemAPIKey_ReturnsCachedKey(t *testing.T) {
 	ctx := context.Background()
 
 	// First call creates
-	key1, err := EnsureSystemAPIKey(ctx, db, apiKeySvc)
+	key1, err := EnsureSystemAPIKey(ctx, db, apiKeySvc, nil)
 	if err != nil {
 		t.Fatalf("first EnsureSystemAPIKey failed: %v", err)
 	}
 
 	// Second call returns same key
-	key2, err := EnsureSystemAPIKey(ctx, db, apiKeySvc)
+	key2, err := EnsureSystemAPIKey(ctx, db, apiKeySvc, nil)
 	if err != nil {
 		t.Fatalf("second EnsureSystemAPIKey failed: %v", err)
 	}
@@ -62,7 +62,7 @@ func TestEnsureSystemAPIKey_RecreatesDeletedKey(t *testing.T) {
 	ctx := context.Background()
 
 	// Create system key
-	key1, _ := EnsureSystemAPIKey(ctx, db, apiKeySvc)
+	key1, _ := EnsureSystemAPIKey(ctx, db, apiKeySvc, nil)
 
 	// Delete all API keys (simulating key deletion)
 	keys, _ := apiKeySvc.ListAPIKeys(ctx)
@@ -71,7 +71,7 @@ func TestEnsureSystemAPIKey_RecreatesDeletedKey(t *testing.T) {
 	}
 
 	// Should create a new key since the old one is invalid
-	key2, err := EnsureSystemAPIKey(ctx, db, apiKeySvc)
+	key2, err := EnsureSystemAPIKey(ctx, db, apiKeySvc, nil)
 	if err != nil {
 		t.Fatalf("EnsureSystemAPIKey after deletion failed: %v", err)
 	}

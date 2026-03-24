@@ -15,7 +15,6 @@ import (
 
 	"lightcms/internal/database"
 
-	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/writeconcern"
 )
@@ -121,9 +120,9 @@ func MustConnectTestDB(t *testing.T) (*database.DB, func()) {
 	return sharedDB, cleanup
 }
 
-// CleanupCollections removes all documents from test collections for isolation
-// between tests. Uses DeleteMany instead of Drop so that indexes are preserved —
-// Drop + recreate requires createIndexes to do real round-trips on every test.
+// CleanupCollections drops test collections for isolation between tests.
+// Dropping ensures unique indexes (e.g. users.email) are also cleared, preventing
+// duplicate key errors when MigrateToMultiUser runs in subsequent tests.
 func CleanupCollections(t *testing.T, db *database.DB) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -136,9 +135,8 @@ func CleanupCollections(t *testing.T, db *database.DB) {
 		"users", "audit_logs", "user_activity",
 		"oauth_clients", "oauth_auth_codes", "oauth_access_tokens", "oauth_refresh_tokens",
 	}
-	empty := bson.M{}
 	for _, name := range collections {
-		db.Collection(name).DeleteMany(ctx, empty)
+		db.Collection(name).Drop(ctx) //nolint:errcheck
 	}
 }
 
