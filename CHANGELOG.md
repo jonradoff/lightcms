@@ -4,7 +4,19 @@ All notable changes to LightCMS are documented here, organized by version.
 
 ---
 
-## v4.2.0 — Security Hardening, Fork MCP Tools & Performance Overhaul
+## v4.2.0 — AI Chat Widget, Security Hardening, Fork MCP Tools & Performance Overhaul
+
+### AI Chat Widget
+
+An embeddable AI-powered chat widget that lets site visitors ask questions in natural language and receive answers synthesized from the site's own content.
+
+- **Two-phase query pipeline**: Every question first runs a hybrid semantic + full-text search (reusing the same `SearchService` used by the MCP `end_user_search` tool) to retrieve the most relevant content excerpts. Those excerpts are then passed to Claude Haiku for streaming synthesis into a conversational answer.
+- **Server-sent events (SSE) streaming**: The `/api/chat/query` endpoint responds as a live SSE stream, forwarding Haiku's token-by-token output to the browser in real time. Falls back to plain JSON for clients that don't support SSE.
+- **Graceful AI-optional mode**: When no `ANTHROPIC_API_KEY` is configured, the widget still works — it returns ranked search results with excerpts, skipping the synthesis step. Sites without an API key get a useful search-in-chat experience.
+- **Fully configurable from the admin UI**: A new "Chat Widget" admin page exposes all settings — enabled/disabled toggle, widget title, welcome message, placeholder text, primary color, position (bottom-left / bottom-right), max results, and editable system/user prompt templates with `{siteName}`, `{excerpts}`, and `{question}` placeholders.
+- **Embeddable JS widget** (`/static/js/chat-widget.js`): A self-contained floating chat bubble that fetches its config from `/api/chat/config` and posts queries to `/api/chat/query`. Add to any page with a single `<script>` tag.
+- **Dedicated rate limiting**: Chat endpoints use separate per-IP and global rate limits (default: 5/min per IP, 30/min global), independent from the search and API rate limiters. Anthropic API calls are metered separately from ordinary search traffic.
+- **Source attribution**: Every response includes a `sources` SSE event listing the content pages whose excerpts were used, with titles and paths.
 
 ### Security
 
