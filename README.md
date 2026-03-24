@@ -1138,6 +1138,88 @@ From now on, every time a new concept page is published with a matching tag, the
    ```
    The two draft items can then be reviewed, edited, and published as needed.
 
+### Example 12: Bulk Content Migration
+
+**Prompt:** "Add a 'last_reviewed' field to every page in our /docs section and publish them all"
+
+**Tool calls:**
+1. `list_content` — fetches all content under `/docs` with full field data in one call:
+   ```json
+   { "folder_path": "/docs", "include_data": true }
+   ```
+   Returns IDs, titles, current field values, and publish status for all 34 pages.
+
+2. *(parallel)* Agent fans out into batches of 50 and calls `bulk_update_content` concurrently:
+   ```json
+   {
+     "updates": [
+       { "id": "abc123", "data": { "last_reviewed": "2026-03-24" } },
+       { "id": "def456", "data": { "last_reviewed": "2026-03-24" } }
+     ],
+     "version_comment": "Added last_reviewed field — Q1 2026 audit",
+     "auto_republish": true
+   }
+   ```
+   `auto_republish: true` re-publishes every previously-published page immediately — no separate publish step needed.
+
+All 34 pages are updated and live in two parallel calls instead of 34 sequential ones.
+
+### Example 13: Fork-Based Staged Redesign
+
+**Prompt:** "Redesign the homepage and /about page in a staging area so I can preview before publishing"
+
+**Tool calls:**
+1. `create_fork` — creates a named staging workspace:
+   ```json
+   { "name": "Q2 Redesign", "description": "Homepage and About refresh" }
+   ```
+   Returns a fork ID. The live site is completely unaffected.
+
+2. `fork_page` — copies the homepage into the fork and applies edits:
+   ```json
+   {
+     "fork_id": "fork_abc123",
+     "content_id": "homepage_id",
+     "data": { "hero_headline": "Build the web with AI", "hero_subtext": "..." }
+   }
+   ```
+
+3. `fork_page` — does the same for `/about`:
+   ```json
+   {
+     "fork_id": "fork_abc123",
+     "content_id": "about_id",
+     "data": { "body": "<p>Updated company story...</p>" }
+   }
+   ```
+   A floating preview bar is injected into the live site — visiting it with the fork cookie active shows both pages exactly as they'll look after merge.
+
+4. `merge_fork` — after approval, merges both fork pages into live content and regenerates their static HTML:
+   ```json
+   { "fork_id": "fork_abc123" }
+   ```
+   Returns a summary of merged pages and any conflicts detected.
+
+### Example 14: Site-Wide Notice with Auto-Republish
+
+**Prompt:** "Prepend a deprecation notice to all pages in our /v1 docs section and republish them"
+
+**Tool calls:**
+1. `bulk_field_operation` — appends the notice to a specific field across the entire folder in one call:
+   ```json
+   {
+     "operation": "prepend",
+     "field": "body",
+     "value": "<div class=\"deprecation-notice\"><strong>⚠️ This page covers v1 (deprecated).</strong> See <a href=\"/docs\">current docs</a>.</div>\n\n",
+     "folder_path": "/v1",
+     "auto_republish": true,
+     "version_comment": "Added v1 deprecation notice"
+   }
+   ```
+   Returns counts of updated and republished pages. The live site reflects the change immediately.
+
+If the notice ever needs to be removed, a single `scoped_search_replace_execute` with the exact notice HTML reverts all pages in one call.
+
 ### Working with Snippets
 
 ```
