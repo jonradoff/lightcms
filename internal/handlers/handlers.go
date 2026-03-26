@@ -3545,13 +3545,15 @@ func (h *Handler) ServePage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Record visitor activity for DAU/MAU metrics (bounded goroutine with 5s timeout)
+	// Record visitor activity for DAU/MAU metrics and hourly stats (bounded goroutine with 5s timeout)
 	if h.analyticsService != nil {
-		visitorID := middleware.GetClientIP(r, h.proxyConfig)
+		visitorIP := middleware.GetClientIP(r, h.proxyConfig)
+		ipHash := services.HashIP(visitorIP)
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			h.analyticsService.RecordActivity(ctx, visitorID)
+			h.analyticsService.RecordActivity(ctx, ipHash)
+			h.analyticsService.RecordHourlyVisitor(ctx, ipHash)
 		}()
 	}
 

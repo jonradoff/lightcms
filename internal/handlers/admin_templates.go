@@ -6435,6 +6435,153 @@ async function doSearch(q) {
         </div>
     ` + adminLayoutEnd,
 
+	"analytics": adminLayoutStart + `
+        <div class="content-section">
+            <h1>Site Analytics</h1>
+            <div style="display: flex; gap: 0.5rem; margin-bottom: 1.5rem;">
+                <a href="/cm/analytics?range=24h" class="btn {{if eq .Range "24h"}}btn-primary{{else}}btn-secondary{{end}}" style="padding: 0.375rem 0.75rem; font-size: 0.875rem;">24 Hours</a>
+                <a href="/cm/analytics?range=7d" class="btn {{if eq .Range "7d"}}btn-primary{{else}}btn-secondary{{end}}" style="padding: 0.375rem 0.75rem; font-size: 0.875rem;">7 Days</a>
+                <a href="/cm/analytics?range=30d" class="btn {{if eq .Range "30d"}}btn-primary{{else}}btn-secondary{{end}}" style="padding: 0.375rem 0.75rem; font-size: 0.875rem;">30 Days</a>
+            </div>
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
+                <div style="background: var(--bg-dark); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem;">
+                    <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Uptime</div>
+                    <div style="font-size: 2rem; font-weight: 700; margin-top: 0.25rem; color: {{if ge .UptimePercent 99.0}}#4ade80{{else if ge .UptimePercent 95.0}}#facc15{{else}}#f87171{{end}};">{{printf "%.1f" .UptimePercent}}%</div>
+                </div>
+                <div style="background: var(--bg-dark); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem;">
+                    <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Unique Visitors</div>
+                    <div style="font-size: 2rem; font-weight: 700; margin-top: 0.25rem;">{{.TotalVisitors}}</div>
+                </div>
+                <div style="background: var(--bg-dark); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem;">
+                    <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Peak Hour</div>
+                    <div style="font-size: 1.25rem; font-weight: 700; margin-top: 0.25rem;">{{if .PeakHour}}{{.PeakVisitors}} visitors<div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 400;">{{.PeakHour}}</div>{{else}}&mdash;{{end}}</div>
+                </div>
+            </div>
+
+            <div style="background: var(--bg-dark); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem; margin-bottom: 1.5rem;">
+                <h3 style="margin: 0 0 1rem 0; font-size: 0.875rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Visitors per Hour</h3>
+                <canvas id="visitorsChart" height="200"></canvas>
+            </div>
+
+            <div style="background: var(--bg-dark); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem;">
+                <h3 style="margin: 0 0 1rem 0; font-size: 0.875rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Uptime</h3>
+                <div id="uptimeStrip" style="display: flex; gap: 1px; flex-wrap: wrap;"></div>
+                <div style="display: flex; gap: 1rem; margin-top: 0.75rem; font-size: 0.75rem; color: var(--text-muted);">
+                    <span><span style="display: inline-block; width: 10px; height: 10px; background: #4ade80; border-radius: 2px; vertical-align: middle;"></span> Online</span>
+                    <span><span style="display: inline-block; width: 10px; height: 10px; background: #f87171; border-radius: 2px; vertical-align: middle;"></span> Offline</span>
+                    <span><span style="display: inline-block; width: 10px; height: 10px; background: #334155; border-radius: 2px; vertical-align: middle;"></span> No data</span>
+                </div>
+            </div>
+        </div>
+
+        <script>
+        (function() {
+            var stats = JSON.parse('{{.StatsJSON}}');
+            var range = '{{.Range}}';
+
+            // Build lookup map by hour
+            var byHour = {};
+            stats.forEach(function(s) {
+                var d = new Date(s.hour);
+                byHour[d.toISOString()] = s;
+            });
+
+            // Generate all hours in range
+            var now = new Date();
+            now.setMinutes(0, 0, 0);
+            var hours = range === '30d' ? 720 : range === '7d' ? 168 : 24;
+            var labels = [];
+            var visitors = [];
+            var uptimeData = [];
+
+            for (var i = hours - 1; i >= 0; i--) {
+                var h = new Date(now.getTime() - i * 3600000);
+                var key = h.toISOString();
+                var s = byHour[key];
+                var label;
+                if (range === '24h') {
+                    label = h.getUTCHours() + ':00';
+                } else if (range === '7d') {
+                    label = (h.getUTCMonth()+1) + '/' + h.getUTCDate() + ' ' + h.getUTCHours() + ':00';
+                } else {
+                    label = (h.getUTCMonth()+1) + '/' + h.getUTCDate();
+                }
+                labels.push(label);
+                visitors.push(s ? s.visitor_count : 0);
+                uptimeData.push(s ? s.uptime_pings : -1); // -1 = no data
+            }
+
+            // Uptime strip
+            var strip = document.getElementById('uptimeStrip');
+            var cellSize = range === '30d' ? '3px' : range === '7d' ? '6px' : '16px';
+            uptimeData.forEach(function(pings, idx) {
+                var cell = document.createElement('div');
+                var color = pings > 0 ? '#4ade80' : pings === 0 ? '#f87171' : '#334155';
+                cell.style.cssText = 'width:' + cellSize + ';height:20px;background:' + color + ';border-radius:2px;flex-shrink:0;';
+                cell.title = labels[idx] + ' UTC — ' + (pings > 0 ? pings + ' pings' : pings === 0 ? 'DOWN' : 'no data');
+                strip.appendChild(cell);
+            });
+
+            // Visitor chart (canvas)
+            var canvas = document.getElementById('visitorsChart');
+            var ctx = canvas.getContext('2d');
+            var W = canvas.parentElement.clientWidth - 40;
+            canvas.width = W;
+            canvas.height = 200;
+            var maxV = Math.max.apply(null, visitors) || 1;
+            var barW = Math.max(1, (W - 40) / visitors.length - 1);
+            var chartH = 170;
+
+            ctx.fillStyle = '#334155';
+            ctx.fillRect(0, 0, W, 200);
+
+            // Grid lines
+            ctx.strokeStyle = '#475569';
+            ctx.lineWidth = 0.5;
+            for (var g = 0; g < 4; g++) {
+                var gy = 10 + (chartH / 4) * g;
+                ctx.beginPath();
+                ctx.moveTo(30, gy);
+                ctx.lineTo(W, gy);
+                ctx.stroke();
+            }
+
+            // Y-axis labels
+            ctx.fillStyle = '#94a3b8';
+            ctx.font = '10px monospace';
+            ctx.textAlign = 'right';
+            for (var g = 0; g < 5; g++) {
+                var val = Math.round(maxV - (maxV / 4) * g);
+                var gy = 10 + (chartH / 4) * g;
+                ctx.fillText(val, 28, gy + 3);
+            }
+
+            // Bars
+            visitors.forEach(function(v, i) {
+                var x = 32 + i * (barW + 1);
+                var h = (v / maxV) * chartH;
+                ctx.fillStyle = v > 0 ? '#60a5fa' : 'transparent';
+                ctx.fillRect(x, 10 + chartH - h, barW, h);
+            });
+
+            // X-axis labels (show a subset)
+            ctx.fillStyle = '#94a3b8';
+            ctx.font = '9px monospace';
+            ctx.textAlign = 'center';
+            var step = Math.max(1, Math.floor(visitors.length / 12));
+            for (var i = 0; i < visitors.length; i += step) {
+                var x = 32 + i * (barW + 1) + barW / 2;
+                ctx.save();
+                ctx.translate(x, 195);
+                ctx.rotate(-0.5);
+                ctx.fillText(labels[i], 0, 0);
+                ctx.restore();
+            }
+        })();
+        </script>
+    ` + adminLayoutEnd,
+
 	"audit_log": adminLayoutStart + `
         <div class="content-section">
             <h1>Audit Log</h1>
@@ -8346,6 +8493,7 @@ const adminLayoutStart = `<!DOCTYPE html>
                     {{if and .CurrentUser (eq .CurrentUser.Role "admin")}}
                     <a href="/cm/users" class="nav-link">👥 Users</a>
                     <a href="/cm/audit" class="nav-link">📜 Audit Log</a>
+                    <a href="/cm/analytics" class="nav-link">📊 Analytics</a>
                     {{end}}
                 </div>
                 <div class="nav-section">

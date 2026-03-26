@@ -2,6 +2,9 @@ package services
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
+	"fmt"
 	"sync"
 	"time"
 
@@ -13,6 +16,7 @@ import (
 )
 
 const activityCollection = "user_activity"
+const siteStatsCollection = "site_stats"
 
 // AnalyticsService tracks user activity for DAU/MAU metrics.
 //
@@ -55,7 +59,19 @@ func NewAnalyticsService(ctx context.Context, db *database.DB) *AnalyticsService
 		Options: options.Index().SetExpireAfterSeconds(90 * 24 * 3600).SetName("created_at_ttl_90d"),
 	})
 
+	// site_stats indexes
+	statCol := db.Collection(siteStatsCollection)
+	statCol.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    bson.D{{Key: "hour", Value: 1}},
+		Options: options.Index().SetUnique(true).SetName("hour_unique"),
+	})
+	statCol.Indexes().CreateOne(ctx, mongo.IndexModel{
+		Keys:    bson.D{{Key: "created_at", Value: 1}},
+		Options: options.Index().SetExpireAfterSeconds(90 * 24 * 3600).SetName("site_stats_ttl_90d"),
+	})
+
 	go svc.runMidnightCleanup()
+	go svc.runUptimeHeartbeat()
 	return svc
 }
 
@@ -144,4 +160,115 @@ func (s *AnalyticsService) GetContentCreatedToday(ctx context.Context) int64 {
 		"deleted":    bson.M{"$ne": true},
 	})
 	return n
+}
+
+// --- Site Stats (uptime + hourly visitors) ---
+
+// HashIP returns a privacy-safe hash of an IP address for visitor counting.
+func HashIP(ip string) string {
+	h := sha256.Sum256([]byte(ip))
+	return fmt.Sprintf("%x", h[:8])
+}
+
+// RecordHourlyVisitor records a unique visitor (by hashed IP) for the current hour.
+func (s *AnalyticsService) RecordHourlyVisitor(ctx context.Context, ipHash string) {
+	if ipHash == "" {
+		return
+	}
+	hour := time.Now().UTC().Truncate(time.Hour)
+	cacheKey := "hv:" + ipHash + ":" + hour.Format("2006010215")
+	if _, loaded := s.visited.LoadOrStore(cacheKey, struct{}{}); loaded {
+		return
+	}
+	col := s.db.Collection(siteStatsCollection)
+	col.UpdateOne(ctx,
+		bson.M{"hour": hour},
+		bson.M{
+			"$addToSet":    bson.M{"visitors": ipHash},
+			"$setOnInsert": bson.M{"created_at": time.Now().UTC(), "uptime_pings": 0},
+		},
+		options.Update().SetUpsert(true),
+	)
+}
+
+// runUptimeHeartbeat pings the site_stats collection every minute to record uptime.
+func (s *AnalyticsService) runUptimeHeartbeat() {
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			hour := time.Now().UTC().Truncate(time.Hour)
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			s.db.Collection(siteStatsCollection).UpdateOne(ctx,
+				bson.M{"hour": hour},
+				bson.M{
+					"$inc":         bson.M{"uptime_pings": 1},
+					"$setOnInsert": bson.M{"created_at": time.Now().UTC(), "visitors": bson.A{}},
+				},
+				options.Update().SetUpsert(true),
+			)
+			cancel()
+		case <-s.stop:
+			return
+		}
+	}
+}
+
+// HourlyStat is the read model for hourly analytics data.
+type HourlyStat struct {
+	Hour         time.Time `bson:"hour" json:"hour"`
+	VisitorCount int       `bson:"visitor_count" json:"visitor_count"`
+	UptimePings  int       `bson:"uptime_pings" json:"uptime_pings"`
+}
+
+// GetHourlyStats returns stats for the given time range, one entry per hour.
+func (s *AnalyticsService) GetHourlyStats(ctx context.Context, since, until time.Time) ([]HourlyStat, error) {
+	pipeline := bson.A{
+		bson.M{"$match": bson.M{"hour": bson.M{"$gte": since, "$lt": until}}},
+		bson.M{"$project": bson.M{
+			"hour":          1,
+			"visitor_count": bson.M{"$size": bson.M{"$ifNull": bson.A{"$visitors", bson.A{}}}},
+			"uptime_pings":  1,
+		}},
+		bson.M{"$sort": bson.M{"hour": 1}},
+	}
+	var results []HourlyStat
+	if err := s.db.Aggregate(ctx, siteStatsCollection, pipeline, &results); err != nil {
+		return nil, err
+	}
+	return results, nil
+}
+
+// GetUptimeSummary returns uptime percentage and total visitors for a time range.
+func (s *AnalyticsService) GetUptimeSummary(ctx context.Context, since time.Time) (uptimePct float64, totalVisitors int) {
+	now := time.Now().UTC()
+	totalHours := int(now.Sub(since).Hours())
+	if totalHours <= 0 {
+		return 100.0, 0
+	}
+
+	stats, err := s.GetHourlyStats(ctx, since, now)
+	if err != nil {
+		return 0, 0
+	}
+
+	upHours := 0
+	for _, st := range stats {
+		if st.UptimePings > 0 {
+			upHours++
+		}
+		totalVisitors += st.VisitorCount
+	}
+	uptimePct = float64(upHours) / float64(totalHours) * 100
+	return uptimePct, totalVisitors
+}
+
+// HourlyStatsJSON returns the JSON representation of hourly stats for chart rendering.
+func HourlyStatsJSON(stats []HourlyStat) string {
+	if stats == nil {
+		stats = []HourlyStat{}
+	}
+	b, _ := json.Marshal(stats)
+	return string(b)
 }

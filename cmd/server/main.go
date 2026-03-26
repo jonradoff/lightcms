@@ -321,6 +321,9 @@ func main() {
 
 	// Audit log (admin only)
 	admin.HandleFunc("/audit", h.AuditLogPage).Methods("GET")
+
+	// Analytics (admin only)
+	admin.HandleFunc("/analytics", h.AnalyticsPage).Methods("GET")
 	admin.HandleFunc("/audit/ratelimits/{ip}/clear", h.ClearRateLimit).Methods("POST")
 
 	// Webhooks
