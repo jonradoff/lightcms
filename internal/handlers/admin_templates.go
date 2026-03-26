@@ -6480,16 +6480,16 @@ async function doSearch(q) {
             var stats = JSON.parse('{{.StatsJSON}}');
             var range = '{{.Range}}';
 
-            // Build lookup map by hour
+            // Build lookup map by hour (keyed by UTC epoch ms, avoids ISO format mismatches)
             var byHour = {};
             stats.forEach(function(s) {
                 var d = new Date(s.hour);
-                byHour[d.toISOString()] = s;
+                byHour[d.getTime()] = s;
             });
 
             // Generate all hours in range
             var now = new Date();
-            now.setMinutes(0, 0, 0);
+            now.setUTCMinutes(0, 0, 0);
             var hours = range === '30d' ? 720 : range === '7d' ? 168 : 24;
             var labels = [];
             var visitors = [];
@@ -6497,7 +6497,7 @@ async function doSearch(q) {
 
             for (var i = hours - 1; i >= 0; i--) {
                 var h = new Date(now.getTime() - i * 3600000);
-                var key = h.toISOString();
+                var key = h.getTime();
                 var s = byHour[key];
                 var label;
                 if (range === '24h') {
