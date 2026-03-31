@@ -4,6 +4,32 @@ All notable changes to LightCMS are documented here, organized by version.
 
 ---
 
+## [6.1.0] - 2026-03-31
+
+### Added
+- **Bulk Create Content**: New `bulk_create_content` MCP tool and `POST /api/v1/content/bulk-create` endpoint. Creates up to 100 content items in a single call using MongoDB `InsertMany` (unordered — partial failures don't abort the batch). Published items get parallel HTML generation (10 concurrent goroutines). Returns per-item `{id, full_path, success, error}` results.
+- **Content Upsert**: `create_content` and `bulk_create_content` now accept `upsert: true`. If a page already exists at the same path, it updates instead of returning a duplicate key error. Returns `{action: "created"}` or `{action: "updated"}`. Eliminates the most common failure mode in retry scenarios.
+- **Multi-Pair Search & Replace**: `search_replace_preview` and `search_replace_execute` (and scoped variants) now accept a `pairs` array of `{search, replace, regex}` objects. All pairs are applied in a single pass per page — O(pages) instead of O(pairs x pages). Critical for operations like fixing hundreds of broken links simultaneously.
+- **Content List Pagination**: `list_content` now supports `limit` (1-500) and `offset` query parameters. When `limit` is set, returns `{items, total, limit, offset, has_more}` envelope. Default behavior (no limit) unchanged for backward compatibility.
+- **Burst Rate Limiting**: New per-token 20 requests/second burst limiter on all `/api/v1/` endpoints. Returns HTTP 429 with `Retry-After: 1` header. Complements the existing 300 req/min sliding window. Prevents runaway scripts from overwhelming the server.
+- **Site Analytics Dashboard**: New analytics section at `/cm/analytics` with hourly visitor chart (HTML bar chart with hover tooltips), uptime monitoring strip, top pages by views, top referrers (with Non-bot/Bots/All tabs), browser/device donut chart. Per-page analytics at `/cm/analytics/page` with referrer breakdown. Referrer drill-down report at `/cm/analytics/referrer` showing top pages from each source.
+- **Analytics Tab on Content Editor**: New "Analytics" tab in the content edit page bottom panel showing 7-day and 30-day view counts and top referrers for that specific page.
+- **Page View Tracking**: Every public page view records page path, referrer source (direct/internal/external domain), and browser category. Data buffered in memory and flushed to MongoDB every 30 seconds for minimal performance impact.
+
+### Changed
+- **Search/Replace now returns counts**: Both preview and execute responses include `pages_scanned`, `pages_modified` (execute), `total_replacements`, and per-pair summaries in multi-pair mode.
+- **Conditional Republish**: Static HTML generation now uses SHA-256 content hashing. Pages whose rendered output hasn't changed are skipped during regeneration. `RegenerateAllContent` clears all hashes first to force full regeneration when theme/template/snippet changes affect output globally.
+- **Fly.io memory upgraded**: Production machine upgraded from 512MB to 1GB RAM.
+- **Deploy script hardened**: Orphan machine cleanup now catches machines in any state (created, starting, stopped), not just created.
+
+### Fixed
+- **Analytics data not recording**: The `site_stats` collection couldn't be created due to MongoDB Atlas's 500-collection limit. Hourly stats now stored in the existing `user_activity` collection using a sentinel document pattern.
+- **Analytics chart empty**: JavaScript time format mismatch (Go's ISO omits zero milliseconds, JS `toISOString()` always includes them) caused the hour-keyed lookup to never match. Fixed by using epoch-millisecond keys.
+- **Analytics write buffer failing silently**: The per-page referrer key used `\x00` (null byte) as a separator, which BSON rejects in field names. Changed to `||` separator. This bug caused ALL buffered writes (page views, referrers, user agents) to silently fail since they shared a single `$inc` update.
+- **Uptime strip current hour**: The most recent hour in the uptime strip now always shows green (the server is by definition online if you're viewing the page).
+
+---
+
 ## [6.0.2] - 2026-03-24
 
 ### Added

@@ -3,6 +3,7 @@ package services
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"html/template"
 	"log"
@@ -236,6 +237,176 @@ func (s *ContentService) CreateContent(ctx context.Context, content *models.Cont
 	}
 
 	return nil
+}
+
+// UpsertContent creates content if it doesn't exist at the given path, or updates it if it does.
+// Returns true if the content was created (false = updated).
+func (s *ContentService) UpsertContent(ctx context.Context, content *models.Content, versionComment string) (created bool, err error) {
+	// Build the full path first so we can look up existing content
+	if content.FolderPath != "" && content.FolderPath != "/" {
+		content.FullPath = content.FolderPath + "/" + content.Slug
+	} else if content.Slug != "" {
+		content.FullPath = "/" + content.Slug
+	} else {
+		content.FullPath = "/"
+	}
+
+	existing, err := s.GetContentByPath(ctx, content.FullPath)
+	if err == nil && existing != nil {
+		// Update existing: merge fields from the incoming content onto the existing one
+		existing.Title = content.Title
+		existing.Slug = content.Slug
+		existing.FolderPath = content.FolderPath
+		existing.Category = content.Category
+		existing.Tags = content.Tags
+		existing.MetaDescription = content.MetaDescription
+		existing.OGImage = content.OGImage
+		existing.Data = content.Data
+		existing.UseHeader = content.UseHeader
+		existing.UseFooter = content.UseFooter
+		existing.UseTheme = content.UseTheme
+		existing.RawMode = content.RawMode
+		if content.Published {
+			existing.Published = true
+		}
+		if err := s.UpdateContent(ctx, existing, versionComment); err != nil {
+			return false, err
+		}
+		*content = *existing
+		return false, nil
+	}
+
+	// Create new
+	if err := s.CreateContent(ctx, content, versionComment); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// BulkCreateResult holds the outcome for a single item in a bulk create batch.
+type BulkCreateResult struct {
+	Index    int    `json:"index"`
+	ID       string `json:"id,omitempty"`
+	FullPath string `json:"full_path,omitempty"`
+	Success  bool   `json:"success"`
+	Error    string `json:"error,omitempty"`
+}
+
+// BulkCreateContent creates multiple content items in a single batch.
+// Uses unordered InsertMany so one failure doesn't abort the rest.
+// HTML generation for published items runs in parallel (bounded to 10 goroutines).
+func (s *ContentService) BulkCreateContent(ctx context.Context, items []*models.Content, versionComment string) []BulkCreateResult {
+	results := make([]BulkCreateResult, len(items))
+	now := time.Now()
+
+	// Pre-process all items: build paths, merge tags, extract links, assign IDs
+	docs := make([]interface{}, 0, len(items))
+	validIndices := make([]int, 0, len(items))
+	for i, c := range items {
+		c.CreatedAt = now
+		c.UpdatedAt = now
+		c.ID = primitive.NewObjectID()
+
+		if c.FolderPath != "" && c.FolderPath != "/" {
+			c.FullPath = c.FolderPath + "/" + c.Slug
+		} else if c.Slug != "" {
+			c.FullPath = "/" + c.Slug
+		} else {
+			c.FullPath = "/"
+		}
+
+		mergeInlineTags(c)
+		c.InternalLinks = s.extractInternalLinks(c)
+
+		docs = append(docs, c)
+		validIndices = append(validIndices, i)
+		results[i] = BulkCreateResult{Index: i, ID: c.ID.Hex(), FullPath: c.FullPath, Success: true}
+	}
+
+	// Insert all at once (unordered — partial success is OK)
+	_, err := s.db.InsertManyUnordered(ctx, "content", docs)
+	if err != nil {
+		// Check for bulk write errors (partial failures)
+		if bwe, ok := err.(mongo.BulkWriteException); ok {
+			failedIndices := make(map[int]string)
+			for _, we := range bwe.WriteErrors {
+				failedIndices[we.Index] = we.Message
+			}
+			for docIdx, origIdx := range validIndices {
+				if msg, failed := failedIndices[docIdx]; failed {
+					results[origIdx].Success = false
+					results[origIdx].Error = msg
+					results[origIdx].ID = ""
+				}
+			}
+		} else {
+			// Total failure
+			for i := range results {
+				results[i].Success = false
+				results[i].Error = err.Error()
+				results[i].ID = ""
+			}
+			return results
+		}
+	}
+
+	// Batch-insert initial versions for successful items
+	var versionDocs []interface{}
+	for i, c := range items {
+		if !results[i].Success {
+			continue
+		}
+		editorEmail := EditorEmailFromContext(ctx)
+		v := models.ContentVersion{
+			ContentID:       c.ID,
+			Version:         1,
+			Title:           c.Title,
+			Slug:            c.Slug,
+			Data:            c.Data,
+			ModifiedByEmail: editorEmail,
+			Comment:         versionComment,
+			CreatedAt:       now,
+		}
+		versionDocs = append(versionDocs, v)
+	}
+	if len(versionDocs) > 0 {
+		s.db.InsertMany(ctx, "content_versions", versionDocs)
+	}
+
+	// Parallel HTML generation for published items (bounded concurrency)
+	sem := make(chan struct{}, 10)
+	var wg sync.WaitGroup
+	for i, c := range items {
+		if !results[i].Success || !c.Published {
+			continue
+		}
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(content *models.Content) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			if err := s.GenerateStaticPage(ctx, content); err != nil {
+				fmt.Printf("Warning: bulk create static page gen failed for %s: %v\n", content.FullPath, err)
+			}
+			s.triggerEmbedding(content.ID)
+		}(c)
+	}
+	wg.Wait()
+
+	// Fire webhook events and trigger index rebuild once
+	if s.webhookService != nil {
+		for i, c := range items {
+			if results[i].Success {
+				s.webhookService.FireEvent(ctx, "content.create", map[string]interface{}{
+					"id": c.ID.Hex(), "title": c.Title, "path": c.FullPath,
+				})
+			}
+		}
+	}
+	s.triggerIndexRegen()
+	s.triggerKeywordRebuild()
+
+	return results
 }
 
 // UpdateContent updates content and saves a new version with an optional comment
@@ -641,6 +812,65 @@ func (s *ContentService) ListContent(ctx context.Context, includeDeleted bool, c
 	return contents, nil
 }
 
+// PaginationOpts configures paginated listing.
+type PaginationOpts struct {
+	Limit          int
+	Offset         int
+	IncludeDeleted bool
+	Category       string
+	FolderID       *primitive.ObjectID
+}
+
+// PaginationResult carries pagination metadata alongside results.
+type PaginationResult struct {
+	Total   int64 `json:"total"`
+	Limit   int   `json:"limit"`
+	Offset  int   `json:"offset"`
+	HasMore bool  `json:"has_more"`
+}
+
+// ListContentPaginated returns a page of content with total count.
+func (s *ContentService) ListContentPaginated(ctx context.Context, opts PaginationOpts) ([]models.Content, PaginationResult, error) {
+	filter := bson.M{}
+	if !opts.IncludeDeleted {
+		filter["deleted"] = bson.M{"$ne": true}
+	}
+	if opts.Category != "" {
+		filter["category"] = opts.Category
+	}
+	if opts.FolderID != nil {
+		filter["folder_id"] = opts.FolderID
+	}
+
+	total, err := s.db.Count(ctx, "content", filter)
+	if err != nil {
+		return nil, PaginationResult{}, fmt.Errorf("failed to count content: %w", err)
+	}
+
+	findOpts := options.Find().
+		SetSort(bson.D{{Key: "updated_at", Value: -1}}).
+		SetLimit(int64(opts.Limit)).
+		SetSkip(int64(opts.Offset))
+
+	cursor, err := s.db.FindMany(ctx, "content", filter, findOpts)
+	if err != nil {
+		return nil, PaginationResult{}, fmt.Errorf("failed to list content: %w", err)
+	}
+
+	var contents []models.Content
+	if err := cursor.All(ctx, &contents); err != nil {
+		return nil, PaginationResult{}, fmt.Errorf("failed to decode content: %w", err)
+	}
+
+	pr := PaginationResult{
+		Total:   total,
+		Limit:   opts.Limit,
+		Offset:  opts.Offset,
+		HasMore: int64(opts.Offset+len(contents)) < total,
+	}
+	return contents, pr, nil
+}
+
 // GetVersions retrieves all versions of a content item
 func (s *ContentService) GetVersions(ctx context.Context, contentID primitive.ObjectID) ([]models.ContentVersion, error) {
 	cursor, err := s.db.FindMany(ctx, "content_versions",
@@ -881,6 +1111,12 @@ func (s *ContentService) generateStaticPageWithWikilinkIndex(ctx context.Context
 		html = processWikiLinks(idx, html)
 	}
 
+	// Compute content hash — skip write if unchanged (conditional republish)
+	hash := fmt.Sprintf("%x", sha256.Sum256([]byte(html)))
+	if content.ContentHash == hash {
+		return nil // HTML hasn't changed, skip write
+	}
+
 	// Determine file path
 	filePath := content.FullPath
 	if filePath == "" || filePath == "/" {
@@ -898,6 +1134,10 @@ func (s *ContentService) generateStaticPageWithWikilinkIndex(ctx context.Context
 	if err := os.WriteFile(filePath, []byte(html), 0644); err != nil {
 		return fmt.Errorf("failed to write file: %w", err)
 	}
+
+	// Update content hash in DB
+	content.ContentHash = hash
+	s.db.UpdateOne(ctx, "content", bson.M{"_id": content.ID}, bson.M{"$set": bson.M{"content_hash": hash}})
 
 	return nil
 }
@@ -1613,8 +1853,16 @@ func (s *ContentService) RegenerateIndexPages(ctx context.Context) {
 	}
 }
 
-// RegenerateAllContent regenerates all published content
+// RegenerateAllContent regenerates all published content.
+// Clears all content hashes first so every page is regenerated (needed when
+// theme/template/snippet changes affect rendered output globally).
 func (s *ContentService) RegenerateAllContent(ctx context.Context) error {
+	// Clear all content hashes to force full regeneration
+	s.db.Collection("content").UpdateMany(ctx,
+		bson.M{"content_hash": bson.M{"$exists": true}},
+		bson.M{"$unset": bson.M{"content_hash": ""}},
+	)
+
 	cursor, err := s.db.FindMany(ctx, "content",
 		bson.M{"published": true, "deleted": bson.M{"$ne": true}}, nil)
 	if err != nil {

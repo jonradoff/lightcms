@@ -16,6 +16,8 @@ type ListContentInput struct {
 	FolderID       string   `json:"folder_id,omitempty" jsonschema:"Filter by folder ID (MongoDB ObjectID)"`
 	IncludeData    bool     `json:"include_data,omitempty" jsonschema:"If true, include all template field data in results (avoids per-item get_content calls)"`
 	IncludeFields  []string `json:"include_fields,omitempty" jsonschema:"Include only these specific field names from the data object (more efficient than include_data for large content)"`
+	Limit          int      `json:"limit,omitempty" jsonschema:"Maximum number of items to return (1-500). When set, returns paginated response with {items, total, limit, offset, has_more}"`
+	Offset         int      `json:"offset,omitempty" jsonschema:"Number of items to skip (for pagination). Requires limit to be set"`
 }
 
 type GetContentInput struct {
@@ -40,6 +42,7 @@ type CreateContentInput struct {
 	RawMode         bool                   `json:"raw_mode,omitempty" jsonschema:"Use raw HTML mode"`
 	Published       bool                   `json:"published,omitempty" jsonschema:"Publish immediately"`
 	VersionComment  string                 `json:"version_comment,omitempty" jsonschema:"Optional comment describing this version"`
+	Upsert          bool                   `json:"upsert,omitempty" jsonschema:"If true, update existing content at the same path instead of returning a duplicate key error"`
 }
 
 type UpdateContentInput struct {
@@ -68,6 +71,29 @@ type UpdateContentInput struct {
 
 type ContentIDInput struct {
 	ID string `json:"id" jsonschema:"Content ID (MongoDB ObjectID),required"`
+}
+
+type BulkCreateItem struct {
+	TemplateID      string                 `json:"template_id" jsonschema:"Template ID (MongoDB ObjectID),required"`
+	Title           string                 `json:"title" jsonschema:"Content title,required"`
+	Slug            string                 `json:"slug" jsonschema:"URL slug,required"`
+	FolderPath      string                 `json:"folder_path,omitempty" jsonschema:"Folder path"`
+	Category        string                 `json:"category,omitempty" jsonschema:"Content category"`
+	Tags            []string               `json:"tags,omitempty" jsonschema:"Tags"`
+	MetaDescription string                 `json:"meta_description,omitempty" jsonschema:"SEO meta description"`
+	OGImage         string                 `json:"og_image,omitempty" jsonschema:"Open Graph image URL"`
+	Data            map[string]interface{} `json:"data" jsonschema:"Template field values,required"`
+	Published       bool                   `json:"published,omitempty" jsonschema:"Publish immediately"`
+	UseHeader       bool                   `json:"use_header,omitempty" jsonschema:"Include site header"`
+	UseFooter       bool                   `json:"use_footer,omitempty" jsonschema:"Include site footer"`
+	UseTheme        bool                   `json:"use_theme,omitempty" jsonschema:"Apply site theme"`
+	RawMode         bool                   `json:"raw_mode,omitempty" jsonschema:"Raw HTML mode"`
+}
+
+type BulkCreateContentInput struct {
+	Items          []BulkCreateItem `json:"items" jsonschema:"Array of content items to create (max 100),required"`
+	VersionComment string           `json:"version_comment,omitempty" jsonschema:"Version comment for all created items"`
+	Upsert         bool             `json:"upsert,omitempty" jsonschema:"If true, update existing content at the same path instead of failing on duplicates"`
 }
 
 type GetVersionsInput struct {
@@ -184,6 +210,8 @@ Up to 20 concurrent update_content calls are safe. For larger batches, prefer bu
 			FolderID:       args.FolderID,
 			IncludeData:    args.IncludeData,
 			IncludeFields:  args.IncludeFields,
+			Limit:          args.Limit,
+			Offset:         args.Offset,
 		})
 		if err != nil {
 			return errorResult(err), nil, nil
@@ -337,6 +365,7 @@ Templates can use {{.lc_toc}} in their HTML layout to inject an auto-generated t
 			UseTheme:        args.UseTheme,
 			RawMode:         args.RawMode,
 			VersionComment:  args.VersionComment,
+			Upsert:          args.Upsert,
 		}
 
 		content, err := s.client.CreateContent(ctx, createReq)
@@ -344,11 +373,16 @@ Templates can use {{.lc_toc}} in their HTML layout to inject an auto-generated t
 			return errorResult(err), nil, nil
 		}
 
+		action := "created"
+		if args.Upsert && content.UpdatedAt.After(content.CreatedAt) {
+			action = "updated"
+		}
 		return jsonResult(map[string]interface{}{
 			"success":   true,
 			"id":        content.ID,
 			"full_path": content.FullPath,
-			"message":   fmt.Sprintf("Content '%s' created successfully", content.Title),
+			"action":    action,
+			"message":   fmt.Sprintf("Content '%s' %s successfully", content.Title, action),
 		}), nil, nil
 	})
 
@@ -853,6 +887,33 @@ Example: {"search": "old text", "replace": "new text", "folder_path": "/blog", "
 			Category:     args.Category,
 		}
 		result, err := s.client.ScopedSearchReplaceExecute(ctx, args.Search, args.Replace, args.VersionComment, args.Regex, args.AutoRepublish, scope)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		return jsonResult(result), nil, nil
+	})
+
+	// Bulk create content
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:  "bulk_create_content",
+		Title: "Bulk Create Content",
+		Description: `Create up to 100 content items in a single call using efficient batch insert.
+
+Items are inserted via MongoDB InsertMany for maximum throughput. If one item fails (e.g., duplicate path), the rest continue.
+Published items get their static HTML generated in parallel (up to 10 concurrent).
+
+Set upsert: true to update existing pages at the same path instead of failing on duplicates.
+
+Returns: total attempted, succeeded, failed counts, and per-item {id, full_path, success, error} details.`,
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Bulk Create Content",
+			ReadOnlyHint:    false,
+			DestructiveHint: boolPtr(false),
+			IdempotentHint:  false,
+			OpenWorldHint:   boolPtr(false),
+		},
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args BulkCreateContentInput) (*mcp.CallToolResult, any, error) {
+		result, err := s.client.BulkCreateContent(ctx, args)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}

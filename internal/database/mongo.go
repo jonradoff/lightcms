@@ -479,6 +479,16 @@ func (db *DB) InsertMany(ctx context.Context, collection string, docs []interfac
 	return err
 }
 
+// InsertManyUnordered inserts docs with ordered=false so failures don't abort the batch.
+// Returns the inserted IDs and any bulk write errors (partial success is possible).
+func (db *DB) InsertManyUnordered(ctx context.Context, collection string, docs []interface{}) (*mongo.InsertManyResult, error) {
+	if len(docs) == 0 {
+		return &mongo.InsertManyResult{}, nil
+	}
+	opts := options.InsertMany().SetOrdered(false)
+	return db.database.Collection(collection).InsertMany(ctx, docs, opts)
+}
+
 func (db *DB) FindOne(ctx context.Context, collection string, filter interface{}, result interface{}) error {
 	return db.database.Collection(collection).FindOne(ctx, filter).Decode(result)
 }

@@ -1654,6 +1654,7 @@ var adminTemplates = map[string]string{
                 <button type="button" class="bottom-tab active" data-tab="discussion" onclick="switchBottomTab('discussion')">💬 Discussion{{if .Comments}} <span style="background: var(--accent); color: white; border-radius: 9999px; font-size: 0.75rem; padding: 0 0.4rem; margin-left: 0.25rem;">{{len .Comments}}</span>{{end}}</button>
                 <button type="button" class="bottom-tab" data-tab="history" onclick="switchBottomTab('history')">🕒 Version History{{if .Versions}} <span style="background: rgba(148,163,184,0.2); color: var(--muted); border-radius: 9999px; font-size: 0.75rem; padding: 0 0.4rem; margin-left: 0.25rem;">{{len .Versions}}</span>{{end}}</button>
                 <button type="button" class="bottom-tab" data-tab="forks" onclick="switchBottomTab('forks')">🌿 Forks</button>
+                {{if not .IsNew}}<button type="button" class="bottom-tab" data-tab="analytics" onclick="switchBottomTab('analytics')">📊 Analytics</button>{{end}}
             </div>
 
             <!-- Discussion tab -->
@@ -1769,6 +1770,64 @@ var adminTemplates = map[string]string{
                 <p style="color: var(--muted); font-size: 0.9rem;">This page is already inside a fork workspace.</p>
                 {{end}}
             </div>
+
+            {{if not .IsNew}}
+            <div id="tab-analytics" class="bottom-tab-content" style="display: none;">
+                <div style="display: flex; gap: 2rem; margin-bottom: 1.5rem; flex-wrap: wrap;">
+                    <div>
+                        <div style="font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em;">Views (30d)</div>
+                        <div style="font-size: 1.5rem; font-weight: 700; margin-top: 0.25rem;">{{.PageViews30d}}</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 0.75rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em;">Views (7d)</div>
+                        <div style="font-size: 1.5rem; font-weight: 700; margin-top: 0.25rem;">{{.PageViews7d}}</div>
+                    </div>
+                    <div>
+                        <a href="/cm/analytics/page?path={{.Content.FullPath}}&range=30d" style="color: var(--primary); font-size: 0.875rem; text-decoration: none;">View full analytics &rarr;</a>
+                    </div>
+                </div>
+                <div style="margin-bottom: 0.75rem; font-size: 0.8rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600;">Top Referrers (30d)</div>
+                <div id="page-analytics-refs"></div>
+                <div id="page-analytics-refs-empty" style="display:none; color: var(--muted); font-size: 0.875rem;">No external referrer data for this page.</div>
+                <script>
+                (function() {
+                    var refs = JSON.parse('{{.PageReferrersJSON}}');
+                    var container = document.getElementById('page-analytics-refs');
+                    var emptyEl = document.getElementById('page-analytics-refs-empty');
+                    if (!refs || refs.length === 0) { emptyEl.style.display = 'block'; return; }
+                    var maxH = refs[0].hits;
+                    refs.forEach(function(r) {
+                        var row = document.createElement('div');
+                        row.style.cssText = 'display:flex;align-items:center;gap:0.75rem;margin-bottom:0.375rem;font-size:0.8125rem;';
+
+                        var label = document.createElement('div');
+                        label.style.cssText = 'width:180px;min-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+                        var a = document.createElement('a');
+                        a.href = 'https://' + r.domain;
+                        a.target = '_blank';
+                        a.textContent = r.domain;
+                        a.style.cssText = 'color:var(--primary);text-decoration:none;';
+                        label.appendChild(a);
+
+                        var barWrap = document.createElement('div');
+                        barWrap.style.cssText = 'flex:1;height:18px;background:var(--bg-tertiary,#1e293b);border-radius:4px;overflow:hidden;';
+                        var bar = document.createElement('div');
+                        bar.style.cssText = 'height:100%;background:#4ade80;border-radius:4px;min-width:2px;width:' + (r.hits/maxH*100) + '%;';
+                        barWrap.appendChild(bar);
+
+                        var count = document.createElement('div');
+                        count.style.cssText = 'width:50px;text-align:right;color:var(--muted);font-family:monospace;font-size:0.75rem;';
+                        count.textContent = r.hits + ' hits';
+
+                        row.appendChild(label);
+                        row.appendChild(barWrap);
+                        row.appendChild(count);
+                        container.appendChild(row);
+                    });
+                })();
+                </script>
+            </div>
+            {{end}}
         </div>
 
         <style>
@@ -6436,6 +6495,45 @@ async function doSearch(q) {
     ` + adminLayoutEnd,
 
 	"analytics": adminLayoutStart + `
+        <style>
+            .analytics-card { background: var(--bg-dark); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem; }
+            .analytics-label { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+            .analytics-value { font-size: 2rem; font-weight: 700; margin-top: 0.25rem; }
+            .chart-box { background: var(--bg-dark); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem; margin-bottom: 1.5rem; }
+            .chart-title { margin: 0 0 1rem 0; font-size: 0.875rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+            .vchart { display: flex; align-items: flex-end; gap: 1px; height: 180px; position: relative; }
+            .vchart-bar { flex: 1; min-width: 1px; background: #60a5fa; border-radius: 1px 1px 0 0; position: relative; transition: background 0.1s; cursor: pointer; }
+            .vchart-bar:hover { background: #93c5fd; }
+            .vchart-bar[data-v="0"] { background: transparent; }
+            .vchart-bar[data-v="0"]:hover { background: rgba(148,163,184,0.15); }
+            .vchart-tooltip { display: none; position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); background: #1e293b; border: 1px solid #475569; color: #f1f5f9; padding: 6px 10px; border-radius: 6px; font-size: 12px; white-space: nowrap; z-index: 10; pointer-events: none; box-shadow: 0 4px 12px rgba(0,0,0,0.4); }
+            .vchart-tooltip::after { content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%); border: 5px solid transparent; border-top-color: #475569; }
+            .vchart-bar:hover .vchart-tooltip { display: block; }
+            .vchart-y { position: absolute; left: 0; right: 0; border-top: 1px solid #475569; pointer-events: none; }
+            .vchart-y span { position: absolute; right: calc(100% + 4px); top: -7px; font-size: 10px; color: #94a3b8; font-family: monospace; }
+            .vchart-wrap { position: relative; padding-left: 40px; }
+            .vchart-xlabels { display: flex; gap: 1px; padding-left: 40px; margin-top: 4px; }
+            .vchart-xlabels span { flex: 1; text-align: center; font-size: 9px; color: #94a3b8; font-family: monospace; overflow: hidden; }
+            .stat-row { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem; font-size: 0.8125rem; }
+            .stat-label { width: 220px; min-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #e2e8f0; }
+            .stat-label a { color: #60a5fa; text-decoration: none; }
+            .stat-label a:hover { text-decoration: underline; }
+            .stat-bar-wrap { flex: 1; height: 22px; background: #1e293b; border-radius: 4px; overflow: hidden; }
+            .stat-bar { height: 100%; border-radius: 4px; min-width: 2px; }
+            .stat-bar-blue { background: #60a5fa; }
+            .stat-bar-green { background: #4ade80; }
+            .stat-count { width: 70px; text-align: right; color: #94a3b8; font-family: monospace; font-size: 0.75rem; }
+            .stat-actions { display: flex; gap: 0.375rem; width: 70px; flex-shrink: 0; }
+            .stat-actions a { color: #94a3b8; text-decoration: none; font-size: 0.75rem; padding: 2px 5px; border-radius: 3px; border: 1px solid #475569; }
+            .stat-actions a:hover { color: #e2e8f0; border-color: #60a5fa; }
+            .stat-empty { color: var(--text-muted); font-size: 0.875rem; padding: 1rem 0; }
+            .ref-tab { padding: 0.25rem 0.625rem; font-size: 0.75rem; background: transparent; border: 1px solid #475569; color: #94a3b8; cursor: pointer; border-radius: 4px; }
+            .ref-tab:hover { color: #e2e8f0; border-color: #60a5fa; }
+            .ref-tab.active { background: #60a5fa; color: #fff; border-color: #60a5fa; }
+            .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+            @media (max-width: 900px) { .two-col { grid-template-columns: 1fr; } }
+        </style>
+
         <div class="content-section">
             <h1>Site Analytics</h1>
             <div style="display: flex; gap: 0.5rem; margin-bottom: 1.5rem;">
@@ -6445,27 +6543,58 @@ async function doSearch(q) {
             </div>
 
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
-                <div style="background: var(--bg-dark); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem;">
-                    <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Uptime</div>
-                    <div style="font-size: 2rem; font-weight: 700; margin-top: 0.25rem; color: {{if ge .UptimePercent 99.0}}#4ade80{{else if ge .UptimePercent 95.0}}#facc15{{else}}#f87171{{end}};">{{printf "%.1f" .UptimePercent}}%</div>
+                <div class="analytics-card">
+                    <div class="analytics-label">Uptime</div>
+                    <div class="analytics-value" style="color: {{if ge .UptimePercent 99.0}}#4ade80{{else if ge .UptimePercent 95.0}}#facc15{{else}}#f87171{{end}};">{{printf "%.1f" .UptimePercent}}%</div>
                 </div>
-                <div style="background: var(--bg-dark); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem;">
-                    <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Unique Visitors</div>
-                    <div style="font-size: 2rem; font-weight: 700; margin-top: 0.25rem;">{{.TotalVisitors}}</div>
+                <div class="analytics-card">
+                    <div class="analytics-label">Unique Visitors</div>
+                    <div class="analytics-value">{{.TotalVisitors}}</div>
                 </div>
-                <div style="background: var(--bg-dark); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem;">
-                    <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Peak Hour</div>
+                <div class="analytics-card">
+                    <div class="analytics-label">Peak Hour</div>
                     <div style="font-size: 1.25rem; font-weight: 700; margin-top: 0.25rem;">{{if .PeakHour}}{{.PeakVisitors}} visitors<div style="font-size: 0.75rem; color: var(--text-muted); font-weight: 400;">{{.PeakHour}}</div>{{else}}&mdash;{{end}}</div>
                 </div>
             </div>
 
-            <div style="background: var(--bg-dark); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem; margin-bottom: 1.5rem;">
-                <h3 style="margin: 0 0 1rem 0; font-size: 0.875rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Visitors per Hour</h3>
-                <canvas id="visitorsChart" height="200"></canvas>
+            <div style="display: grid; grid-template-columns: 1fr 280px; gap: 1.5rem; margin-bottom: 1.5rem;">
+                <div class="chart-box" style="margin-bottom:0;">
+                    <h3 class="chart-title">Unique Visitors per Hour</h3>
+                    <div class="vchart-wrap">
+                        <div id="visitorsChart" class="vchart"></div>
+                    </div>
+                    <div id="visitorsXLabels" class="vchart-xlabels"></div>
+                </div>
+                <div class="chart-box" style="margin-bottom:0;">
+                    <h3 class="chart-title">Browsers</h3>
+                    <canvas id="uaPieChart" width="240" height="240" style="display:block;margin:0 auto;"></canvas>
+                    <div id="uaLegend" style="margin-top: 0.75rem; font-size: 0.75rem; color: #94a3b8;"></div>
+                    <div id="uaEmpty" class="stat-empty" style="display:none;">No browser data yet.</div>
+                </div>
             </div>
 
-            <div style="background: var(--bg-dark); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem;">
-                <h3 style="margin: 0 0 1rem 0; font-size: 0.875rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Uptime</h3>
+            <div class="two-col">
+                <div class="chart-box" style="margin-bottom:0;">
+                    <h3 class="chart-title">Top Pages</h3>
+                    <div id="topPages"></div>
+                    <div id="topPagesEmpty" class="stat-empty" style="display:none;">No page view data yet.</div>
+                </div>
+                <div class="chart-box" style="margin-bottom:0;">
+                    <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1rem;">
+                        <h3 class="chart-title" style="margin:0;">Top Referrers</h3>
+                        <div class="ref-tabs" style="display:flex;gap:2px;">
+                            <button class="ref-tab active" data-ref-tab="human" onclick="switchRefTab('human')">Non-bot</button>
+                            <button class="ref-tab" data-ref-tab="bot" onclick="switchRefTab('bot')">Bots</button>
+                            <button class="ref-tab" data-ref-tab="all" onclick="switchRefTab('all')">All</button>
+                        </div>
+                    </div>
+                    <div id="topReferrers"></div>
+                    <div id="topReferrersEmpty" class="stat-empty" style="display:none;">No referrer data yet.</div>
+                </div>
+            </div>
+
+            <div class="chart-box" style="margin-top: 1.5rem;">
+                <h3 class="chart-title">Uptime</h3>
                 <div id="uptimeStrip" style="display: flex; gap: 1px; flex-wrap: wrap;"></div>
                 <div style="display: flex; gap: 1rem; margin-top: 0.75rem; font-size: 0.75rem; color: var(--text-muted);">
                     <span><span style="display: inline-block; width: 10px; height: 10px; background: #4ade80; border-radius: 2px; vertical-align: middle;"></span> Online</span>
@@ -6478,106 +6607,520 @@ async function doSearch(q) {
         <script>
         (function() {
             var stats = JSON.parse('{{.StatsJSON}}');
+            var topPages = JSON.parse('{{.TopPagesJSON}}');
+            var refData = {
+                human: JSON.parse('{{.RefHumanJSON}}'),
+                bot: JSON.parse('{{.RefBotJSON}}'),
+                all: JSON.parse('{{.RefAllJSON}}')
+            };
+            var userAgents = JSON.parse('{{.UserAgentsJSON}}');
             var range = '{{.Range}}';
 
-            // Build lookup map by hour (keyed by UTC epoch ms, avoids ISO format mismatches)
             var byHour = {};
-            stats.forEach(function(s) {
-                var d = new Date(s.hour);
-                byHour[d.getTime()] = s;
-            });
+            stats.forEach(function(s) { byHour[new Date(s.hour).getTime()] = s; });
 
-            // Generate all hours in range
             var now = new Date();
             now.setUTCMinutes(0, 0, 0);
             var hours = range === '30d' ? 720 : range === '7d' ? 168 : 24;
-            var labels = [];
-            var visitors = [];
-            var uptimeData = [];
+            var nowKey = now.getTime();
+            var labels = [], visitors = [], uptimeData = [], isCurrentHour = [];
 
             for (var i = hours - 1; i >= 0; i--) {
                 var h = new Date(now.getTime() - i * 3600000);
                 var key = h.getTime();
                 var s = byHour[key];
                 var label;
-                if (range === '24h') {
-                    label = h.getUTCHours() + ':00';
-                } else if (range === '7d') {
-                    label = (h.getUTCMonth()+1) + '/' + h.getUTCDate() + ' ' + h.getUTCHours() + ':00';
-                } else {
-                    label = (h.getUTCMonth()+1) + '/' + h.getUTCDate();
-                }
+                if (range === '24h') label = h.getUTCHours() + ':00';
+                else if (range === '7d') label = (h.getUTCMonth()+1) + '/' + h.getUTCDate() + ' ' + h.getUTCHours() + ':00';
+                else label = (h.getUTCMonth()+1) + '/' + h.getUTCDate();
                 labels.push(label);
                 visitors.push(s ? s.visitor_count : 0);
-                uptimeData.push(s ? s.uptime_pings : -1); // -1 = no data
+                uptimeData.push(s ? s.uptime_pings : -1);
+                isCurrentHour.push(key === nowKey);
             }
 
-            // Uptime strip
+            var maxV = Math.max.apply(null, visitors) || 1;
+
+            // --- Visitor bar chart ---
+            var chart = document.getElementById('visitorsChart');
+            for (var g = 0; g < 5; g++) {
+                var pct = (g / 4) * 100;
+                var line = document.createElement('div');
+                line.className = 'vchart-y';
+                line.style.bottom = (100 - pct) + '%';
+                var lbl = document.createElement('span');
+                lbl.textContent = Math.round(maxV - (maxV / 4) * g);
+                line.appendChild(lbl);
+                chart.appendChild(line);
+            }
+            visitors.forEach(function(v, i) {
+                var bar = document.createElement('div');
+                bar.className = 'vchart-bar';
+                bar.setAttribute('data-v', v);
+                bar.style.height = Math.max(v > 0 ? 2 : 0, maxV > 0 ? (v / maxV * 100) : 0) + '%';
+                var tip = document.createElement('div');
+                tip.className = 'vchart-tooltip';
+                tip.innerHTML = '<strong>' + v.toLocaleString() + ' unique' + (v !== 1 ? 's' : '') + '</strong><br>' + labels[i] + ' UTC';
+                bar.appendChild(tip);
+                chart.appendChild(bar);
+            });
+            var xlabels = document.getElementById('visitorsXLabels');
+            var step = Math.max(1, Math.floor(visitors.length / 12));
+            for (var i = 0; i < visitors.length; i++) {
+                var sp = document.createElement('span');
+                sp.textContent = (i % step === 0) ? labels[i] : '';
+                xlabels.appendChild(sp);
+            }
+
+            // --- Uptime strip ---
             var strip = document.getElementById('uptimeStrip');
             var cellSize = range === '30d' ? '3px' : range === '7d' ? '6px' : '16px';
             uptimeData.forEach(function(pings, idx) {
                 var cell = document.createElement('div');
-                var color = pings > 0 ? '#4ade80' : pings === 0 ? '#f87171' : '#334155';
+                var color;
+                if (isCurrentHour[idx]) color = '#4ade80';
+                else if (pings > 0) color = '#4ade80';
+                else if (pings === 0) color = '#f87171';
+                else color = '#334155';
                 cell.style.cssText = 'width:' + cellSize + ';height:20px;background:' + color + ';border-radius:2px;flex-shrink:0;';
-                cell.title = labels[idx] + ' UTC — ' + (pings > 0 ? pings + ' pings' : pings === 0 ? 'DOWN' : 'no data');
+                var tt = labels[idx] + ' UTC';
+                if (isCurrentHour[idx]) tt += ' \u2014 online (current)';
+                else if (pings > 0) tt += ' \u2014 ' + pings + ' pings';
+                else if (pings === 0) tt += ' \u2014 DOWN';
+                else tt += ' \u2014 no data';
+                cell.title = tt;
                 strip.appendChild(cell);
             });
 
-            // Visitor chart (canvas)
-            var canvas = document.getElementById('visitorsChart');
-            var ctx = canvas.getContext('2d');
-            var W = canvas.parentElement.clientWidth - 40;
-            canvas.width = W;
-            canvas.height = 200;
-            var maxV = Math.max.apply(null, visitors) || 1;
-            var barW = Math.max(1, (W - 40) / visitors.length - 1);
-            var chartH = 170;
+            // --- Top Pages (with links to page detail and to view page) ---
+            function renderStatList(data, container, emptyEl, opts) {
+                if (!data || data.length === 0) { emptyEl.style.display = 'block'; return; }
+                var maxVal = data[0][opts.valKey];
+                data.forEach(function(item) {
+                    var row = document.createElement('div');
+                    row.className = 'stat-row';
 
-            ctx.fillStyle = '#334155';
-            ctx.fillRect(0, 0, W, 200);
+                    var label = document.createElement('div');
+                    label.className = 'stat-label';
+                    if (opts.labelLink) {
+                        var a = document.createElement('a');
+                        a.href = opts.labelLink(item);
+                        a.textContent = item[opts.labelKey];
+                        a.title = item[opts.labelKey];
+                        if (opts.labelTarget) a.target = opts.labelTarget;
+                        label.appendChild(a);
+                    } else {
+                        label.textContent = item[opts.labelKey];
+                        label.title = item[opts.labelKey];
+                    }
 
-            // Grid lines
-            ctx.strokeStyle = '#475569';
-            ctx.lineWidth = 0.5;
-            for (var g = 0; g < 4; g++) {
-                var gy = 10 + (chartH / 4) * g;
-                ctx.beginPath();
-                ctx.moveTo(30, gy);
-                ctx.lineTo(W, gy);
-                ctx.stroke();
+                    var barWrap = document.createElement('div');
+                    barWrap.className = 'stat-bar-wrap';
+                    var bar = document.createElement('div');
+                    bar.className = 'stat-bar ' + (opts.barClass || 'stat-bar-blue');
+                    bar.style.width = (item[opts.valKey] / maxVal * 100) + '%';
+                    barWrap.appendChild(bar);
+
+                    var count = document.createElement('div');
+                    count.className = 'stat-count';
+                    count.textContent = item[opts.valKey].toLocaleString() + ' ' + opts.valLabel;
+
+                    row.appendChild(label);
+                    row.appendChild(barWrap);
+                    row.appendChild(count);
+
+                    if (opts.actions) {
+                        var acts = document.createElement('div');
+                        acts.className = 'stat-actions';
+                        opts.actions(item).forEach(function(ac) {
+                            var a = document.createElement('a');
+                            a.href = ac.href;
+                            a.textContent = ac.text;
+                            a.title = ac.title || '';
+                            if (ac.target) a.target = ac.target;
+                            acts.appendChild(a);
+                        });
+                        row.appendChild(acts);
+                    }
+
+                    container.appendChild(row);
+                });
             }
 
-            // Y-axis labels
-            ctx.fillStyle = '#94a3b8';
-            ctx.font = '10px monospace';
-            ctx.textAlign = 'right';
-            for (var g = 0; g < 5; g++) {
-                var val = Math.round(maxV - (maxV / 4) * g);
-                var gy = 10 + (chartH / 4) * g;
-                ctx.fillText(val, 28, gy + 3);
-            }
-
-            // Bars
-            visitors.forEach(function(v, i) {
-                var x = 32 + i * (barW + 1);
-                var h = (v / maxV) * chartH;
-                ctx.fillStyle = v > 0 ? '#60a5fa' : 'transparent';
-                ctx.fillRect(x, 10 + chartH - h, barW, h);
+            renderStatList(topPages, document.getElementById('topPages'), document.getElementById('topPagesEmpty'), {
+                labelKey: 'path', valKey: 'views', valLabel: 'views', barClass: 'stat-bar-blue',
+                labelLink: function(p) { return '/cm/analytics/page?path=' + encodeURIComponent(p.path) + '&range=' + range; },
+                actions: function(p) {
+                    var acts = [{ href: p.path, text: '\u2197', title: 'View page', target: '_blank' }];
+                    if (p.edit_id) acts.push({ href: '/cm/content/' + p.edit_id, text: '\u270E', title: 'Edit page' });
+                    return acts;
+                }
             });
 
-            // X-axis labels (show a subset)
-            ctx.fillStyle = '#94a3b8';
-            ctx.font = '9px monospace';
-            ctx.textAlign = 'center';
-            var step = Math.max(1, Math.floor(visitors.length / 12));
-            for (var i = 0; i < visitors.length; i += step) {
-                var x = 32 + i * (barW + 1) + barW / 2;
-                ctx.save();
-                ctx.translate(x, 195);
-                ctx.rotate(-0.5);
-                ctx.fillText(labels[i], 0, 0);
-                ctx.restore();
+            // --- Top Referrers (tabbed: human/bot/all) ---
+            function renderRefs(which) {
+                var container = document.getElementById('topReferrers');
+                var emptyEl = document.getElementById('topReferrersEmpty');
+                container.innerHTML = '';
+                emptyEl.style.display = 'none';
+                renderStatList(refData[which], container, emptyEl, {
+                    labelKey: 'domain', valKey: 'hits', valLabel: 'hits', barClass: 'stat-bar-green',
+                    labelLink: function(r) { return '/cm/analytics/referrer?referrer=' + encodeURIComponent(r.domain) + '&range=' + range; }
+                });
             }
+            window.switchRefTab = function(which) {
+                document.querySelectorAll('.ref-tab').forEach(function(b) { b.classList.remove('active'); });
+                document.querySelector('[data-ref-tab="'+which+'"]').classList.add('active');
+                renderRefs(which);
+            };
+            renderRefs('human');
+
+            // --- User Agent Donut Chart with hover ---
+            (function() {
+                var canvas = document.getElementById('uaPieChart');
+                var legend = document.getElementById('uaLegend');
+                var emptyEl = document.getElementById('uaEmpty');
+                if (!userAgents || userAgents.length === 0) {
+                    canvas.style.display = 'none';
+                    emptyEl.style.display = 'block';
+                    return;
+                }
+                var colors = ['#60a5fa','#4ade80','#facc15','#f87171','#a78bfa','#fb923c','#2dd4bf','#e879f9','#94a3b8','#67e8f9','#fda4af','#86efac'];
+                var total = 0;
+                userAgents.forEach(function(u) { total += u.hits; });
+                var cx = 120, cy = 110, R = 90, innerR = R * 0.55;
+
+                // Pre-compute slice angles
+                var slices = [];
+                var angle = -Math.PI / 2;
+                userAgents.forEach(function(u, i) {
+                    var sweep = (u.hits / total) * Math.PI * 2;
+                    slices.push({ start: angle, end: angle + sweep, ua: u, color: colors[i % colors.length], idx: i });
+                    angle += sweep;
+                });
+
+                function drawChart(hoverIdx) {
+                    var c = canvas.getContext('2d');
+                    c.clearRect(0, 0, canvas.width, canvas.height);
+                    slices.forEach(function(s) {
+                        c.beginPath();
+                        c.moveTo(cx, cy);
+                        c.arc(cx, cy, s.idx === hoverIdx ? R + 4 : R, s.start, s.end);
+                        c.closePath();
+                        c.fillStyle = s.color;
+                        c.globalAlpha = (hoverIdx >= 0 && s.idx !== hoverIdx) ? 0.5 : 1;
+                        c.fill();
+                        c.globalAlpha = 1;
+                    });
+                    // Center hole
+                    c.beginPath();
+                    c.arc(cx, cy, innerR, 0, Math.PI * 2);
+                    c.fillStyle = '#1e293b';
+                    c.fill();
+                    // Center text
+                    if (hoverIdx >= 0) {
+                        var h = slices[hoverIdx].ua;
+                        var pct = (h.hits / total * 100).toFixed(1);
+                        c.fillStyle = slices[hoverIdx].color;
+                        c.font = 'bold 15px Inter, sans-serif';
+                        c.textAlign = 'center';
+                        c.textBaseline = 'middle';
+                        c.fillText(h.hits.toLocaleString(), cx, cy - 12);
+                        c.fillStyle = '#e2e8f0';
+                        c.font = '11px Inter, sans-serif';
+                        c.fillText(h.category, cx, cy + 4);
+                        c.fillStyle = '#94a3b8';
+                        c.font = '10px Inter, sans-serif';
+                        c.fillText(pct + '%', cx, cy + 18);
+                    } else {
+                        c.fillStyle = '#e2e8f0';
+                        c.font = 'bold 16px Inter, sans-serif';
+                        c.textAlign = 'center';
+                        c.textBaseline = 'middle';
+                        c.fillText(total.toLocaleString(), cx, cy - 6);
+                        c.fillStyle = '#94a3b8';
+                        c.font = '10px Inter, sans-serif';
+                        c.fillText('views', cx, cy + 10);
+                    }
+                }
+                drawChart(-1);
+
+                function getSliceAt(e) {
+                    var rect = canvas.getBoundingClientRect();
+                    var mx = e.clientX - rect.left, my = e.clientY - rect.top;
+                    var dx = mx - cx, dy = my - cy;
+                    var dist = Math.sqrt(dx * dx + dy * dy);
+                    if (dist < innerR || dist > R + 6) return -1;
+                    var a = Math.atan2(dy, dx);
+                    for (var i = 0; i < slices.length; i++) {
+                        var s = slices[i];
+                        // Normalize angles for comparison
+                        var sa = s.start, ea = s.end;
+                        var ta = a;
+                        if (ta < sa) ta += Math.PI * 2;
+                        if (ea < sa) ea += Math.PI * 2;
+                        if (ta >= sa && ta < ea) return i;
+                    }
+                    return -1;
+                }
+                var lastHover = -1;
+                canvas.addEventListener('mousemove', function(e) {
+                    var idx = getSliceAt(e);
+                    if (idx !== lastHover) { lastHover = idx; drawChart(idx); }
+                    canvas.style.cursor = idx >= 0 ? 'pointer' : 'default';
+                });
+                canvas.addEventListener('mouseleave', function() {
+                    lastHover = -1; drawChart(-1);
+                    canvas.style.cursor = 'default';
+                });
+
+                // Legend
+                var html = '';
+                userAgents.forEach(function(u, i) {
+                    var pct = total > 0 ? (u.hits / total * 100).toFixed(1) : '0';
+                    html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">';
+                    html += '<span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:' + colors[i % colors.length] + ';flex-shrink:0;"></span>';
+                    html += '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + u.category + '</span>';
+                    html += '<span style="color:#e2e8f0;">' + pct + '%</span>';
+                    html += '</div>';
+                });
+                legend.innerHTML = html;
+            })();
+        })();
+        </script>
+    ` + adminLayoutEnd,
+
+	"analytics_page": adminLayoutStart + `
+        <style>
+            .chart-box { background: var(--bg-dark); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem; margin-bottom: 1.5rem; }
+            .chart-title { margin: 0 0 1rem 0; font-size: 0.875rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+            .stat-row { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem; font-size: 0.8125rem; }
+            .stat-label { width: 220px; min-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #e2e8f0; }
+            .stat-label a { color: #60a5fa; text-decoration: none; }
+            .stat-label a:hover { text-decoration: underline; }
+            .stat-bar-wrap { flex: 1; height: 22px; background: #1e293b; border-radius: 4px; overflow: hidden; }
+            .stat-bar { height: 100%; border-radius: 4px; min-width: 2px; background: #4ade80; }
+            .stat-count { width: 70px; text-align: right; color: #94a3b8; font-family: monospace; font-size: 0.75rem; }
+            .stat-empty { color: var(--text-muted); font-size: 0.875rem; padding: 1rem 0; }
+            .ref-tab { padding: 0.25rem 0.625rem; font-size: 0.75rem; background: transparent; border: 1px solid #475569; color: #94a3b8; cursor: pointer; border-radius: 4px; }
+            .ref-tab:hover { color: #e2e8f0; border-color: #60a5fa; }
+            .ref-tab.active { background: #60a5fa; color: #fff; border-color: #60a5fa; }
+            .page-detail-header { display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+            .page-detail-header h1 { margin: 0; font-size: 1.25rem; }
+            .page-detail-path { font-family: monospace; color: #60a5fa; font-size: 0.875rem; max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            .page-detail-meta { display: flex; gap: 1.5rem; font-size: 0.875rem; color: var(--text-muted); margin-bottom: 1.5rem; }
+            .page-detail-meta strong { color: #e2e8f0; }
+        </style>
+
+        <div class="content-section">
+            <div class="page-detail-header">
+                <a href="/cm/analytics?range={{.Range}}" style="color: #94a3b8; text-decoration: none; font-size: 1.25rem;" title="Back to analytics">&larr;</a>
+                <h1>Page Analytics</h1>
+                <a href="{{.PagePath}}" target="_blank" class="page-detail-path" title="{{.PagePath}}">{{.PagePath}} &#x2197;</a>
+                {{if .EditID}}<a href="/cm/content/{{.EditID}}" style="color: #94a3b8; text-decoration: none; font-size: 0.8rem; padding: 3px 8px; border: 1px solid #475569; border-radius: 4px;" title="Edit page">&#x270E; Edit</a>{{end}}
+            </div>
+
+            <div style="display: flex; gap: 0.5rem; margin-bottom: 1.5rem;">
+                <a href="/cm/analytics/page?path={{.PagePath}}&range=24h" class="btn {{if eq .Range "24h"}}btn-primary{{else}}btn-secondary{{end}}" style="padding: 0.375rem 0.75rem; font-size: 0.875rem;">24 Hours</a>
+                <a href="/cm/analytics/page?path={{.PagePath}}&range=7d" class="btn {{if eq .Range "7d"}}btn-primary{{else}}btn-secondary{{end}}" style="padding: 0.375rem 0.75rem; font-size: 0.875rem;">7 Days</a>
+                <a href="/cm/analytics/page?path={{.PagePath}}&range=30d" class="btn {{if eq .Range "30d"}}btn-primary{{else}}btn-secondary{{end}}" style="padding: 0.375rem 0.75rem; font-size: 0.875rem;">30 Days</a>
+            </div>
+
+            <div class="page-detail-meta">
+                <span>Total views: <strong>{{.TotalViews}}</strong></span>
+            </div>
+
+            <div class="chart-box">
+                <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1rem;">
+                    <h3 class="chart-title" style="margin:0;">Referrers</h3>
+                    <div class="ref-tabs" style="display:flex;gap:2px;">
+                        <button class="ref-tab active" data-ref-tab="human" onclick="switchRefTab('human')">Non-bot</button>
+                        <button class="ref-tab" data-ref-tab="bot" onclick="switchRefTab('bot')">Bots</button>
+                        <button class="ref-tab" data-ref-tab="all" onclick="switchRefTab('all')">All</button>
+                    </div>
+                </div>
+                <div id="pageReferrers"></div>
+                <div id="pageReferrersEmpty" class="stat-empty" style="display:none;">No referrer data for this page yet.</div>
+            </div>
+        </div>
+
+        <script>
+        (function() {
+            var refData = {
+                human: JSON.parse('{{.RefHumanJSON}}'),
+                bot: JSON.parse('{{.RefBotJSON}}'),
+                all: JSON.parse('{{.RefAllJSON}}')
+            };
+            function renderRefs(which) {
+                var referrers = refData[which];
+                var container = document.getElementById('pageReferrers');
+                var emptyEl = document.getElementById('pageReferrersEmpty');
+                container.innerHTML = '';
+                emptyEl.style.display = 'none';
+                if (!referrers || referrers.length === 0) { emptyEl.style.display = 'block'; return; }
+                var maxHits = referrers[0].hits;
+                referrers.forEach(function(r) {
+                    var row = document.createElement('div');
+                    row.className = 'stat-row';
+                    var label = document.createElement('div');
+                    label.className = 'stat-label';
+                    var a = document.createElement('a');
+                    a.href = '/cm/analytics/referrer?referrer=' + encodeURIComponent(r.domain) + '&range={{.Range}}';
+                    a.textContent = r.domain;
+                    a.title = r.domain;
+                    label.appendChild(a);
+                    var barWrap = document.createElement('div');
+                    barWrap.className = 'stat-bar-wrap';
+                    var bar = document.createElement('div');
+                    bar.className = 'stat-bar';
+                    bar.style.width = (r.hits / maxHits * 100) + '%';
+                    barWrap.appendChild(bar);
+                    var count = document.createElement('div');
+                    count.className = 'stat-count';
+                    count.textContent = r.hits.toLocaleString() + ' hits';
+                    row.appendChild(label);
+                    row.appendChild(barWrap);
+                    row.appendChild(count);
+                    container.appendChild(row);
+                });
+            }
+            window.switchRefTab = function(which) {
+                document.querySelectorAll('.ref-tab').forEach(function(b) { b.classList.remove('active'); });
+                document.querySelector('[data-ref-tab="'+which+'"]').classList.add('active');
+                renderRefs(which);
+            };
+            renderRefs('human');
+        })();
+        </script>
+    ` + adminLayoutEnd,
+
+	"analytics_referrer": adminLayoutStart + `
+        <style>
+            .chart-box { background: var(--bg-dark); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem; margin-bottom: 1.5rem; }
+            .chart-title { margin: 0 0 1rem 0; font-size: 0.875rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+            .stat-row { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem; font-size: 0.8125rem; }
+            .stat-label { width: 220px; min-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #e2e8f0; }
+            .stat-label a { color: #60a5fa; text-decoration: none; }
+            .stat-label a:hover { text-decoration: underline; }
+            .stat-bar-wrap { flex: 1; height: 22px; background: #1e293b; border-radius: 4px; overflow: hidden; }
+            .stat-bar { height: 100%; border-radius: 4px; min-width: 2px; background: #60a5fa; }
+            .stat-count { width: 70px; text-align: right; color: #94a3b8; font-family: monospace; font-size: 0.75rem; }
+            .stat-actions { display: flex; gap: 0.375rem; width: 60px; flex-shrink: 0; }
+            .stat-actions a { color: #94a3b8; text-decoration: none; font-size: 0.75rem; padding: 2px 5px; border-radius: 3px; border: 1px solid #475569; }
+            .stat-actions a:hover { color: #e2e8f0; border-color: #60a5fa; }
+            .stat-empty { color: var(--text-muted); font-size: 0.875rem; padding: 1rem 0; }
+            .ref-tab { padding: 0.25rem 0.625rem; font-size: 0.75rem; background: transparent; border: 1px solid #475569; color: #94a3b8; cursor: pointer; border-radius: 4px; }
+            .ref-tab:hover { color: #e2e8f0; border-color: #60a5fa; }
+            .ref-tab.active { background: #60a5fa; color: #fff; border-color: #60a5fa; }
+            .ref-header { display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+            .ref-header h1 { margin: 0; font-size: 1.25rem; }
+            .ref-domain { font-family: monospace; color: #4ade80; font-size: 1rem; }
+            .ref-meta { display: flex; gap: 1.5rem; font-size: 0.875rem; color: var(--text-muted); margin-bottom: 1.5rem; align-items: center; flex-wrap: wrap; }
+            .ref-meta strong { color: #e2e8f0; }
+            .ref-visit-link { display: inline-flex; align-items: center; gap: 0.375rem; color: #60a5fa; text-decoration: none; font-size: 0.875rem; padding: 0.375rem 0.75rem; border: 1px solid #475569; border-radius: 6px; }
+            .ref-visit-link:hover { border-color: #60a5fa; color: #93c5fd; }
+        </style>
+
+        <div class="content-section">
+            <div class="ref-header">
+                <a href="/cm/analytics?range={{.Range}}" style="color: #94a3b8; text-decoration: none; font-size: 1.25rem;" title="Back to analytics">&larr;</a>
+                <h1>Referrer Report</h1>
+                <span class="ref-domain">{{.Referrer}}</span>
+            </div>
+
+            <div style="display: flex; gap: 0.5rem; margin-bottom: 1.5rem;">
+                <a href="/cm/analytics/referrer?referrer={{.Referrer}}&range=24h" class="btn {{if eq .Range "24h"}}btn-primary{{else}}btn-secondary{{end}}" style="padding: 0.375rem 0.75rem; font-size: 0.875rem;">24 Hours</a>
+                <a href="/cm/analytics/referrer?referrer={{.Referrer}}&range=7d" class="btn {{if eq .Range "7d"}}btn-primary{{else}}btn-secondary{{end}}" style="padding: 0.375rem 0.75rem; font-size: 0.875rem;">7 Days</a>
+                <a href="/cm/analytics/referrer?referrer={{.Referrer}}&range=30d" class="btn {{if eq .Range "30d"}}btn-primary{{else}}btn-secondary{{end}}" style="padding: 0.375rem 0.75rem; font-size: 0.875rem;">30 Days</a>
+            </div>
+
+            <div class="ref-meta">
+                <span id="refHitsLabel">Total hits: <strong>{{.HitsHuman}}</strong></span>
+                {{if and (ne .Referrer "(direct)") (ne .Referrer "(internal)")}}
+                <a href="https://{{.Referrer}}" target="_blank" class="ref-visit-link">&#x2197; Visit {{.Referrer}}</a>
+                {{end}}
+            </div>
+
+            <div class="chart-box">
+                <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1rem;">
+                    <h3 class="chart-title" style="margin:0;">Top Pages from This Referrer</h3>
+                    <div class="ref-tabs" style="display:flex;gap:2px;">
+                        <button class="ref-tab active" data-ref-tab="human" onclick="switchRefTab('human')">Non-bot</button>
+                        <button class="ref-tab" data-ref-tab="bot" onclick="switchRefTab('bot')">Bots</button>
+                        <button class="ref-tab" data-ref-tab="all" onclick="switchRefTab('all')">All</button>
+                    </div>
+                </div>
+                <div id="refPages"></div>
+                <div id="refPagesEmpty" class="stat-empty" style="display:none;">No page data for this referrer yet.</div>
+            </div>
+        </div>
+
+        <script>
+        (function() {
+            var pagesData = {
+                human: JSON.parse('{{.PagesHumanJSON}}'),
+                bot: JSON.parse('{{.PagesBotJSON}}'),
+                all: JSON.parse('{{.PagesAllJSON}}')
+            };
+            var hitsData = { human: {{.HitsHuman}}, bot: {{.HitsBot}}, all: {{.HitsAll}} };
+            var range = '{{.Range}}';
+
+            function renderPages(which) {
+                var topPages = pagesData[which];
+                var container = document.getElementById('refPages');
+                var emptyEl = document.getElementById('refPagesEmpty');
+                container.innerHTML = '';
+                emptyEl.style.display = 'none';
+                document.getElementById('refHitsLabel').innerHTML = 'Total hits: <strong>' + hitsData[which].toLocaleString() + '</strong>';
+                if (!topPages || topPages.length === 0) { emptyEl.style.display = 'block'; return; }
+                var maxViews = topPages[0].views;
+                topPages.forEach(function(p) {
+                    var row = document.createElement('div');
+                    row.className = 'stat-row';
+                    var label = document.createElement('div');
+                    label.className = 'stat-label';
+                    var link = document.createElement('a');
+                    link.href = '/cm/analytics/page?path=' + encodeURIComponent(p.path) + '&range=' + range;
+                    link.textContent = p.path;
+                    link.title = p.path;
+                    label.appendChild(link);
+                    var barWrap = document.createElement('div');
+                    barWrap.className = 'stat-bar-wrap';
+                    var bar = document.createElement('div');
+                    bar.className = 'stat-bar';
+                    bar.style.width = (p.views / maxViews * 100) + '%';
+                    barWrap.appendChild(bar);
+                    var count = document.createElement('div');
+                    count.className = 'stat-count';
+                    count.textContent = p.views.toLocaleString() + ' views';
+                    var acts = document.createElement('div');
+                    acts.className = 'stat-actions';
+                    var viewLink = document.createElement('a');
+                    viewLink.href = p.path;
+                    viewLink.target = '_blank';
+                    viewLink.textContent = '\u2197';
+                    viewLink.title = 'View page';
+                    acts.appendChild(viewLink);
+                    if (p.edit_id) {
+                        var editLink = document.createElement('a');
+                        editLink.href = '/cm/content/' + p.edit_id;
+                        editLink.textContent = '\u270E';
+                        editLink.title = 'Edit page';
+                        acts.appendChild(editLink);
+                    }
+                    row.appendChild(label);
+                    row.appendChild(barWrap);
+                    row.appendChild(count);
+                    row.appendChild(acts);
+                    container.appendChild(row);
+                });
+            }
+            window.switchRefTab = function(which) {
+                document.querySelectorAll('.ref-tab').forEach(function(b) { b.classList.remove('active'); });
+                document.querySelector('[data-ref-tab="'+which+'"]').classList.add('active');
+                renderPages(which);
+            };
+            renderPages('human');
         })();
         </script>
     ` + adminLayoutEnd,

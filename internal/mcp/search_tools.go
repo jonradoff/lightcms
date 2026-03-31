@@ -20,18 +20,26 @@ type EndUserSearchInput struct {
 	Limit int    `json:"limit,omitempty" jsonschema:"Max results 1-50 (default 10)"`
 }
 
-type SearchReplacePreviewInput struct {
+type SearchReplacePair struct {
 	Search  string `json:"search" jsonschema:"Text to search for,required"`
 	Replace string `json:"replace" jsonschema:"Text to replace with,required"`
-	Regex   bool   `json:"regex,omitempty" jsonschema:"If true, treat search as a Go regular expression. Use $1, $2 for capture group references in replace."`
+	Regex   bool   `json:"regex,omitempty" jsonschema:"If true, treat search as a Go regular expression"`
+}
+
+type SearchReplacePreviewInput struct {
+	Search  string              `json:"search,omitempty" jsonschema:"Text to search for (single-pair mode)"`
+	Replace string              `json:"replace,omitempty" jsonschema:"Text to replace with (single-pair mode)"`
+	Regex   bool                `json:"regex,omitempty" jsonschema:"If true, treat search as regex (single-pair mode)"`
+	Pairs   []SearchReplacePair `json:"pairs,omitempty" jsonschema:"Array of {search, replace, regex} pairs for bulk mode. Scans each page once, applying all pairs in order. Much faster than calling preview multiple times."`
 }
 
 type SearchReplaceExecuteInput struct {
-	Search          string `json:"search" jsonschema:"Text to search for,required"`
-	Replace         string `json:"replace" jsonschema:"Text to replace with,required"`
-	Regex           bool   `json:"regex,omitempty" jsonschema:"If true, treat search as a Go regular expression. Use $1, $2 for capture group references in replace."`
-	VersionComment  string `json:"version_comment,omitempty" jsonschema:"Comment for version history (defaults to 'Bulk search and replace')"`
-	AutoRepublish   bool   `json:"auto_republish,omitempty" jsonschema:"If true, re-publish all previously-published pages immediately after updating them (saves a separate publish_multiple call)"`
+	Search          string              `json:"search,omitempty" jsonschema:"Text to search for (single-pair mode)"`
+	Replace         string              `json:"replace,omitempty" jsonschema:"Text to replace with (single-pair mode)"`
+	Regex           bool                `json:"regex,omitempty" jsonschema:"If true, treat search as regex (single-pair mode)"`
+	Pairs           []SearchReplacePair `json:"pairs,omitempty" jsonschema:"Array of {search, replace, regex} pairs for bulk mode. Applies all replacements in a single pass per page."`
+	VersionComment  string              `json:"version_comment,omitempty" jsonschema:"Comment for version history"`
+	AutoRepublish   bool                `json:"auto_republish,omitempty" jsonschema:"If true, re-publish updated pages immediately"`
 }
 
 func (s *Server) registerSearchTools() {
@@ -72,15 +80,24 @@ For targeted replacements (a folder, template, or category), use scoped_search_r
 			OpenWorldHint: boolPtr(false),
 		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args SearchReplacePreviewInput) (*mcp.CallToolResult, any, error) {
-		if args.Search == "" {
-			return errorResult(fmt.Errorf("search text is required")), nil, nil
+		if len(args.Pairs) > 0 {
+			pairs := make([]map[string]interface{}, len(args.Pairs))
+			for i, p := range args.Pairs {
+				pairs[i] = map[string]interface{}{"search": p.Search, "replace": p.Replace, "regex": p.Regex}
+			}
+			result, err := s.client.SearchReplacePreviewPairs(ctx, pairs)
+			if err != nil {
+				return errorResult(err), nil, nil
+			}
+			return jsonResult(result), nil, nil
 		}
-
+		if args.Search == "" {
+			return errorResult(fmt.Errorf("search text is required (or provide pairs array)")), nil, nil
+		}
 		result, err := s.client.SearchReplacePreview(ctx, args.Search, args.Replace, args.Regex)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
-
 		return jsonResult(result), nil, nil
 	})
 
@@ -106,15 +123,24 @@ For targeted replacements, use scoped_search_replace_execute instead.`,
 			OpenWorldHint:   boolPtr(false),
 		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args SearchReplaceExecuteInput) (*mcp.CallToolResult, any, error) {
-		if args.Search == "" {
-			return errorResult(fmt.Errorf("search text is required")), nil, nil
+		if len(args.Pairs) > 0 {
+			pairs := make([]map[string]interface{}, len(args.Pairs))
+			for i, p := range args.Pairs {
+				pairs[i] = map[string]interface{}{"search": p.Search, "replace": p.Replace, "regex": p.Regex}
+			}
+			result, err := s.client.SearchReplaceExecutePairs(ctx, pairs, args.VersionComment, args.AutoRepublish)
+			if err != nil {
+				return errorResult(err), nil, nil
+			}
+			return jsonResult(result), nil, nil
 		}
-
+		if args.Search == "" {
+			return errorResult(fmt.Errorf("search text is required (or provide pairs array)")), nil, nil
+		}
 		result, err := s.client.SearchReplaceExecute(ctx, args.Search, args.Replace, args.VersionComment, args.Regex, args.AutoRepublish)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
-
 		return jsonResult(result), nil, nil
 	})
 

@@ -72,6 +72,7 @@ type CreateContentRequest struct {
 	UseTheme        bool                   `json:"use_theme,omitempty"`
 	RawMode         bool                   `json:"raw_mode,omitempty"`
 	VersionComment  string                 `json:"version_comment,omitempty"`
+	Upsert          bool                   `json:"upsert,omitempty"`
 }
 
 // Snippet types

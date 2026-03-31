@@ -116,6 +116,86 @@ func APIRateLimit(next http.Handler) http.Handler {
 	})
 }
 
+// BurstRateLimit enforces a per-token per-second rate limit (20 req/s default).
+// This prevents clients from overwhelming the server with rapid-fire requests,
+// complementing the per-minute APIRateLimit which allows bursty traffic.
+var burstLimiter = struct {
+	sync.Mutex
+	tokens map[string][]time.Time
+}{
+	tokens: make(map[string][]time.Time),
+}
+
+const burstRateLimit = 20
+const burstWindow = time.Second
+
+func init() {
+	// Prune burst limiter entries every 30 seconds (lightweight — 1-second entries expire fast)
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			cutoff := time.Now().Add(-burstWindow * 2)
+			burstLimiter.Lock()
+			for token, times := range burstLimiter.tokens {
+				start := 0
+				for start < len(times) && times[start].Before(cutoff) {
+					start++
+				}
+				if start == len(times) {
+					delete(burstLimiter.tokens, token)
+				} else {
+					burstLimiter.tokens[token] = times[start:]
+				}
+			}
+			burstLimiter.Unlock()
+		}
+	}()
+}
+
+// APIBurstRateLimit is middleware that enforces 20 requests/second per bearer token.
+func APIBurstRateLimit(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		token := ""
+		if auth := r.Header.Get("Authorization"); len(auth) > 7 {
+			token = auth[7:]
+		}
+		if token == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		burstLimiter.Lock()
+		now := time.Now()
+		cutoff := now.Add(-burstWindow)
+		times := burstLimiter.tokens[token]
+		start := 0
+		for start < len(times) && times[start].Before(cutoff) {
+			start++
+		}
+		times = times[start:]
+		limited := len(times) >= burstRateLimit
+		if !limited {
+			burstLimiter.tokens[token] = append(times, now)
+		} else {
+			burstLimiter.tokens[token] = times
+		}
+		burstLimiter.Unlock()
+
+		if limited {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(http.StatusTooManyRequests)
+			json.NewEncoder(w).Encode(map[string]string{
+				"error": "Rate limit exceeded (20 requests/second). Please slow down.",
+			})
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
 // APIBodySizeLimit is middleware that caps JSON request body size to prevent
 // memory exhaustion from oversized payloads. Applied globally to /api/v1/.
 func APIBodySizeLimit(next http.Handler) http.Handler {

@@ -89,9 +89,9 @@ Once connected, you can ask Claude to manage your content naturally:
 Binary: `bin/lightcms-mcp`
 Config: Uses same `config.dev.json` or environment variables as main server
 
-### Available MCP Tools (106 total):
+### Available MCP Tools (107 total):
 
-**Content (22 tools):** list_content, get_content, create_content, update_content, update_content_by_path, publish_content, publish_multiple, unpublish_content, delete_content, restore_content, preview_content, get_content_versions, get_content_version, revert_to_version, bulk_update_content, bulk_field_operation, export_content, get_backlinks
+**Content (23 tools):** list_content, get_content, create_content, update_content, update_content_by_path, publish_content, publish_multiple, unpublish_content, delete_content, restore_content, preview_content, get_content_versions, get_content_version, revert_to_version, bulk_create_content, bulk_update_content, bulk_field_operation, export_content, get_backlinks
 
 **Templates (5 tools):** list_templates, get_template, create_template, update_template, delete_template
 
@@ -355,6 +355,56 @@ go run cmd/resetpw/main.go [email]  # Reset specific user, or first admin if no 
 7. Standard Page
 
 Template fields support types: text, textarea, richtext, date, image, select
+
+## Bulk Operations & Programmatic SEO
+
+LightCMS supports large-scale content operations (2,000+ pages) via optimized bulk APIs. These guidelines apply to programmatic SEO, mass content migration, site-wide link fixing, and similar large-scale tasks.
+
+### Bulk Content Creation
+- Use `bulk_create_content` (up to 100 items/call) instead of calling `create_content` in a loop
+- Uses MongoDB `InsertMany` with unordered mode — one failure doesn't abort the batch
+- Published items get parallel HTML generation (10 concurrent)
+- Set `upsert: true` to update existing pages instead of failing on duplicates
+- Example: creating 2,000 pages = 20 batch calls of 100
+
+### Content Upsert (Idempotent Creates)
+- `create_content` accepts `upsert: true` — if a page exists at the same path, it updates instead of failing
+- Eliminates the most common failure mode in retry scenarios
+- `bulk_create_content` also supports `upsert: true` for batch idempotency
+
+### Bulk Search & Replace
+- `search_replace_preview` and `search_replace_execute` accept a `pairs` array for multi-pair mode
+- Each page is scanned once with all pairs applied in order — O(pages) instead of O(pairs × pages)
+- Critical for operations like fixing hundreds of broken links in a single pass
+- Returns `pages_scanned`, `pages_modified`, `total_replacements` counts
+- Pairs are applied in array order — replacement from pair 1 may create text that pair 2 matches
+
+### Conditional Republish
+- Static HTML generation uses content hashing (SHA-256) — unchanged pages are skipped automatically
+- `RegenerateAllContent` (triggered by theme/template changes) clears all hashes first to force full regen
+- For search/replace with `auto_republish: true`, only modified pages get republished
+
+### Content List Pagination
+- `list_content` supports `limit` and `offset` parameters for paginated results
+- Returns `{items, total, limit, offset, has_more}` envelope when `limit` is set
+- Default (no limit) returns all items — backward compatible
+- Max limit: 500 per request
+- For sites with 2,000+ pages, use pagination to avoid large JSON responses
+
+### Rate Limits
+- API: 300 requests/minute per bearer token (sliding window)
+- Burst: 20 requests/second per bearer token (prevents runaway scripts)
+- Bulk endpoints: additional per-endpoint limits (regenerate, search/replace, bulk update)
+- When rate limited, response includes `Retry-After` header
+
+### Best Practices for Large-Scale Operations
+1. **Use batch APIs** — `bulk_create_content` and `bulk_update_content` over individual calls
+2. **Use multi-pair search/replace** — preview first, then execute with all pairs in one call
+3. **Set `auto_republish: true`** on search/replace to avoid a separate publish step
+4. **Include `version_comment`** on all bulk operations for readable version history
+5. **Use `upsert: true`** for retry-safe content creation (idempotent)
+6. **Paginate list_content** with `limit: 100` to avoid loading 2,000+ items at once
+7. **Don't exceed 100 items per bulk call** — this is enforced server-side
 
 ## Deployment
 

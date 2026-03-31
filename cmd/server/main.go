@@ -96,7 +96,7 @@ func main() {
 	snippetService := services.NewSnippetService(db)
 
 	// Initialize analytics service (DAU/MAU tracking)
-	analyticsService := services.NewAnalyticsService(context.Background(), db)
+	analyticsService := services.NewAnalyticsService(context.Background(), db, cfg.BaseURL)
 
 	// Initialize handlers with config
 	h := handlers.New(db, authManager, cfg.BaseURL, cfg.Env, userService, auditService, snippetService)
@@ -324,6 +324,8 @@ func main() {
 
 	// Analytics (admin only)
 	admin.HandleFunc("/analytics", h.AnalyticsPage).Methods("GET")
+	admin.HandleFunc("/analytics/page", h.AnalyticsPageDetail).Methods("GET")
+	admin.HandleFunc("/analytics/referrer", h.AnalyticsReferrerReport).Methods("GET")
 	admin.HandleFunc("/audit/ratelimits/{ip}/clear", h.ClearRateLimit).Methods("POST")
 
 	// Webhooks
@@ -468,6 +470,7 @@ func main() {
 
 	apiv1 := r.PathPrefix("/api/v1").Subrouter()
 	apiv1.Use(apiAuthMiddleware.Middleware)
+	apiv1.Use(middleware.APIBurstRateLimit) // per-token burst limit (20 req/s)
 	apiv1.Use(middleware.APIRateLimit)      // per-token sliding-window rate limit (300 req/min)
 	apiv1.Use(middleware.APIBodySizeLimit)  // cap request body at 10 MiB to prevent memory exhaustion
 
@@ -478,6 +481,7 @@ func main() {
 	apiv1.HandleFunc("/content/by-path", apiHandler.APIUpdateContentByPath).Methods("PUT")
 	apiv1.HandleFunc("/content/backlinks", apiHandler.APIGetBacklinks).Methods("GET")
 	apiv1.HandleFunc("/content/batch-publish", apiHandler.APIBatchPublishContent).Methods("POST")
+	apiv1.Handle("/content/bulk-create", middleware.BulkUpdateLimiter()(http.HandlerFunc(apiHandler.APIBulkCreateContent))).Methods("POST")
 	apiv1.Handle("/content/bulk-update", middleware.BulkUpdateLimiter()(http.HandlerFunc(apiHandler.APIBulkUpdateContent))).Methods("POST")
 	apiv1.Handle("/content/bulk-field-op", middleware.BulkUpdateLimiter()(http.HandlerFunc(apiHandler.APIBulkFieldOperation))).Methods("POST")
 	apiv1.Handle("/content/export", middleware.ExportLimiter()(http.HandlerFunc(apiHandler.APIExportContent))).Methods("POST")

@@ -1,12 +1,47 @@
 package handlers
 
 import (
+	"encoding/json"
+	"log"
 	"net/http"
 	"time"
 
 	"lightcms/internal/auth"
+	"lightcms/internal/models"
 	"lightcms/internal/services"
+
+	"go.mongodb.org/mongo-driver/bson"
 )
+
+// resolveEditIDs looks up content IDs by full_path for the given page stats
+// so the template can link to the edit page.
+func (h *Handler) resolveEditIDs(ctx interface{ Deadline() (time.Time, bool); Done() <-chan struct{}; Err() error; Value(interface{}) interface{} }, pages []services.PageStat) {
+	if len(pages) == 0 {
+		return
+	}
+	paths := make([]string, len(pages))
+	for i, p := range pages {
+		paths[i] = p.Path
+	}
+	cursor, err := h.db.FindMany(ctx, "content", bson.M{
+		"full_path": bson.M{"$in": paths},
+		"deleted":   bson.M{"$ne": true},
+	}, nil)
+	if err != nil {
+		return
+	}
+	var docs []models.Content
+	if err := cursor.All(ctx, &docs); err != nil {
+		return
+	}
+	byPath := make(map[string]string, len(docs))
+	for _, d := range docs {
+		byPath[d.FullPath] = d.ID.Hex()
+	}
+	for i := range pages {
+		pages[i].EditID = byPath[pages[i].Path]
+	}
+}
 
 // AnalyticsPage shows the uptime and visitor analytics dashboard (admin only).
 func (h *Handler) AnalyticsPage(w http.ResponseWriter, r *http.Request) {
@@ -31,7 +66,10 @@ func (h *Handler) AnalyticsPage(w http.ResponseWriter, r *http.Request) {
 		rangeParam = "24h"
 	}
 
-	stats, _ := h.analyticsService.GetHourlyStats(ctx, since, now)
+	stats, err := h.analyticsService.GetHourlyStats(ctx, since, now)
+	if err != nil {
+		log.Printf("[analytics] GetHourlyStats error: %v", err)
+	}
 	uptimePct, totalVisitors := h.analyticsService.GetUptimeSummary(ctx, since)
 
 	// Find peak hour
@@ -44,13 +82,152 @@ func (h *Handler) AnalyticsPage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Top pages (with edit IDs resolved)
+	topPages, err := h.analyticsService.GetTopPages(ctx, since, now, 20)
+	if err != nil {
+		log.Printf("[analytics] GetTopPages error: %v", err)
+	}
+	h.resolveEditIDs(ctx, topPages)
+	topPagesJSON, _ := json.Marshal(topPages)
+
+	// Top referrers — all three views for client-side tab switching
+	refHuman, _ := h.analyticsService.GetTopReferrers(ctx, since, now, 20, services.BotFilterHuman)
+	refBot, _ := h.analyticsService.GetTopReferrers(ctx, since, now, 20, services.BotFilterBot)
+	refAll, _ := h.analyticsService.GetTopReferrers(ctx, since, now, 20, services.BotFilterAll)
+	refHumanJSON, _ := json.Marshal(refHuman)
+	refBotJSON, _ := json.Marshal(refBot)
+	refAllJSON, _ := json.Marshal(refAll)
+
+	// User agent breakdown
+	userAgents, err := h.analyticsService.GetUserAgents(ctx, since, now)
+	if err != nil {
+		log.Printf("[analytics] GetUserAgents error: %v", err)
+	}
+	userAgentsJSON, _ := json.Marshal(userAgents)
+
 	h.renderAdmin(w, r, "analytics", map[string]interface{}{
-		"Stats":         stats,
-		"StatsJSON":     services.HourlyStatsJSON(stats),
+		"Stats":          stats,
+		"StatsJSON":      services.HourlyStatsJSON(stats),
+		"Range":          rangeParam,
+		"UptimePercent":  uptimePct,
+		"TotalVisitors":  totalVisitors,
+		"PeakHour":       peakHour,
+		"PeakVisitors":   peakVisitors,
+		"TopPagesJSON":   string(topPagesJSON),
+		"RefHumanJSON":   string(refHumanJSON),
+		"RefBotJSON":     string(refBotJSON),
+		"RefAllJSON":     string(refAllJSON),
+		"UserAgentsJSON": string(userAgentsJSON),
+	})
+}
+
+// AnalyticsPageDetail shows per-page analytics including referrers.
+func (h *Handler) AnalyticsPageDetail(w http.ResponseWriter, r *http.Request) {
+	user, ok := h.auth.GetCurrentUser(r)
+	if !ok || !auth.HasPermission(user.Role, auth.PermAuditView) {
+		http.Redirect(w, r, "/cm", http.StatusSeeOther)
+		return
+	}
+
+	pagePath := r.URL.Query().Get("path")
+	if pagePath == "" {
+		http.Redirect(w, r, "/cm/analytics", http.StatusSeeOther)
+		return
+	}
+
+	ctx := r.Context()
+	now := time.Now().UTC()
+
+	rangeParam := r.URL.Query().Get("range")
+	var since time.Time
+	switch rangeParam {
+	case "7d":
+		since = now.Add(-7 * 24 * time.Hour)
+	case "30d":
+		since = now.Add(-30 * 24 * time.Hour)
+	default:
+		since = now.Add(-24 * time.Hour)
+		rangeParam = "24h"
+	}
+
+	totalViews := h.analyticsService.GetPageViews(ctx, since, now, pagePath)
+
+	prHuman, _ := h.analyticsService.GetPageReferrers(ctx, since, now, pagePath, 20, services.BotFilterHuman)
+	prBot, _ := h.analyticsService.GetPageReferrers(ctx, since, now, pagePath, 20, services.BotFilterBot)
+	prAll, _ := h.analyticsService.GetPageReferrers(ctx, since, now, pagePath, 20, services.BotFilterAll)
+	prHumanJSON, _ := json.Marshal(prHuman)
+	prBotJSON, _ := json.Marshal(prBot)
+	prAllJSON, _ := json.Marshal(prAll)
+
+	// Look up content ID for edit link
+	editID := ""
+	var content models.Content
+	if err := h.db.FindOne(ctx, "content", bson.M{"full_path": pagePath, "deleted": bson.M{"$ne": true}}, &content); err == nil {
+		editID = content.ID.Hex()
+	}
+
+	h.renderAdmin(w, r, "analytics_page", map[string]interface{}{
+		"PagePath":      pagePath,
 		"Range":         rangeParam,
-		"UptimePercent": uptimePct,
-		"TotalVisitors": totalVisitors,
-		"PeakHour":      peakHour,
-		"PeakVisitors":  peakVisitors,
+		"TotalViews":    totalViews,
+		"RefHumanJSON":  string(prHumanJSON),
+		"RefBotJSON":    string(prBotJSON),
+		"RefAllJSON":    string(prAllJSON),
+		"EditID":        editID,
+	})
+}
+
+// AnalyticsReferrerReport shows top pages from a specific referrer source.
+func (h *Handler) AnalyticsReferrerReport(w http.ResponseWriter, r *http.Request) {
+	user, ok := h.auth.GetCurrentUser(r)
+	if !ok || !auth.HasPermission(user.Role, auth.PermAuditView) {
+		http.Redirect(w, r, "/cm", http.StatusSeeOther)
+		return
+	}
+
+	referrer := r.URL.Query().Get("referrer")
+	if referrer == "" {
+		http.Redirect(w, r, "/cm/analytics", http.StatusSeeOther)
+		return
+	}
+
+	ctx := r.Context()
+	now := time.Now().UTC()
+
+	rangeParam := r.URL.Query().Get("range")
+	var since time.Time
+	switch rangeParam {
+	case "7d":
+		since = now.Add(-7 * 24 * time.Hour)
+	case "30d":
+		since = now.Add(-30 * 24 * time.Hour)
+	default:
+		since = now.Add(-24 * time.Hour)
+		rangeParam = "24h"
+	}
+
+	hitsHuman := h.analyticsService.GetReferrerHits(ctx, since, now, referrer, services.BotFilterHuman)
+	hitsBot := h.analyticsService.GetReferrerHits(ctx, since, now, referrer, services.BotFilterBot)
+	hitsAll := hitsHuman + hitsBot
+
+	pagesHuman, _ := h.analyticsService.GetTopPagesByReferrer(ctx, since, now, referrer, 50, services.BotFilterHuman)
+	pagesBot, _ := h.analyticsService.GetTopPagesByReferrer(ctx, since, now, referrer, 50, services.BotFilterBot)
+	pagesAll, _ := h.analyticsService.GetTopPagesByReferrer(ctx, since, now, referrer, 50, services.BotFilterAll)
+	h.resolveEditIDs(ctx, pagesHuman)
+	h.resolveEditIDs(ctx, pagesBot)
+	h.resolveEditIDs(ctx, pagesAll)
+	pagesHumanJSON, _ := json.Marshal(pagesHuman)
+	pagesBotJSON, _ := json.Marshal(pagesBot)
+	pagesAllJSON, _ := json.Marshal(pagesAll)
+
+	h.renderAdmin(w, r, "analytics_referrer", map[string]interface{}{
+		"Referrer":       referrer,
+		"Range":          rangeParam,
+		"HitsHuman":      hitsHuman,
+		"HitsBot":        hitsBot,
+		"HitsAll":        hitsAll,
+		"PagesHumanJSON": string(pagesHumanJSON),
+		"PagesBotJSON":   string(pagesBotJSON),
+		"PagesAllJSON":   string(pagesAllJSON),
 	})
 }

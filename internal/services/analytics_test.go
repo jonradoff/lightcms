@@ -13,7 +13,7 @@ func TestAnalyticsService_RecordActivity_DAU(t *testing.T) {
 	defer cleanup()
 
 	ctx := context.Background()
-	svc := NewAnalyticsService(ctx, db)
+	svc := NewAnalyticsService(ctx, db, "http://localhost:8082")
 	defer svc.Stop()
 
 	dau := svc.GetDAU(ctx)
@@ -35,7 +35,7 @@ func TestAnalyticsService_RecordActivity_Dedup(t *testing.T) {
 	defer cleanup()
 
 	ctx := context.Background()
-	svc := NewAnalyticsService(ctx, db)
+	svc := NewAnalyticsService(ctx, db, "http://localhost:8082")
 	defer svc.Stop()
 
 	// Same user recorded multiple times — should only count once
@@ -54,7 +54,7 @@ func TestAnalyticsService_RecordActivity_EmptyUserID(t *testing.T) {
 	defer cleanup()
 
 	ctx := context.Background()
-	svc := NewAnalyticsService(ctx, db)
+	svc := NewAnalyticsService(ctx, db, "http://localhost:8082")
 	defer svc.Stop()
 
 	// Empty userID should be silently ignored
@@ -71,7 +71,7 @@ func TestAnalyticsService_GetMAU(t *testing.T) {
 	defer cleanup()
 
 	ctx := context.Background()
-	svc := NewAnalyticsService(ctx, db)
+	svc := NewAnalyticsService(ctx, db, "http://localhost:8082")
 	defer svc.Stop()
 
 	mau := svc.GetMAU(ctx)
@@ -93,7 +93,7 @@ func TestAnalyticsService_GetContentCreatedToday_Empty(t *testing.T) {
 	defer cleanup()
 
 	ctx := context.Background()
-	svc := NewAnalyticsService(ctx, db)
+	svc := NewAnalyticsService(ctx, db, "http://localhost:8082")
 	defer svc.Stop()
 
 	count := svc.GetContentCreatedToday(ctx)
@@ -107,7 +107,7 @@ func TestAnalyticsService_Stop(t *testing.T) {
 	defer cleanup()
 
 	ctx := context.Background()
-	svc := NewAnalyticsService(ctx, db)
+	svc := NewAnalyticsService(ctx, db, "http://localhost:8082")
 
 	// Should not panic or block
 	done := make(chan struct{})

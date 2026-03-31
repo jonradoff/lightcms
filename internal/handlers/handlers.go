@@ -1190,19 +1190,36 @@ func (h *Handler) EditContent(w http.ResponseWriter, r *http.Request) {
 		currentUserEmail = currentUser.Email
 	}
 
+	// Page analytics for the analytics tab (last 30 days)
+	pageViews30d := 0
+	pageViews7d := 0
+	pageReferrersJSON := "[]"
+	if h.analyticsService != nil && content.FullPath != "" {
+		now := time.Now().UTC()
+		pageViews30d = h.analyticsService.GetPageViews(ctx, now.Add(-30*24*time.Hour), now, content.FullPath)
+		pageViews7d = h.analyticsService.GetPageViews(ctx, now.Add(-7*24*time.Hour), now, content.FullPath)
+		refs, _ := h.analyticsService.GetPageReferrers(ctx, now.Add(-30*24*time.Hour), now, content.FullPath, 10, services.BotFilterHuman)
+		if b, err := json.Marshal(refs); err == nil {
+			pageReferrersJSON = string(b)
+		}
+	}
+
 	h.renderAdmin(w, r, "content_form", map[string]interface{}{
-		"IsNew":            false,
-		"Template":         tmpl,
-		"Content":          content,
-		"Folders":          folders,
-		"Versions":         versions,
-		"SameSlugPages":    sameSlugPages,
-		"AllTemplates":     allTemplates,
-		"Error":            errorMsg,
-		"ForkPageID":       forkPageID,
-		"Comments":         comments,
-		"CurrentUserRole":  currentUserRole,
-		"CurrentUserEmail": currentUserEmail,
+		"IsNew":              false,
+		"Template":           tmpl,
+		"Content":            content,
+		"Folders":            folders,
+		"Versions":           versions,
+		"SameSlugPages":      sameSlugPages,
+		"AllTemplates":       allTemplates,
+		"Error":              errorMsg,
+		"ForkPageID":         forkPageID,
+		"Comments":           comments,
+		"CurrentUserRole":    currentUserRole,
+		"CurrentUserEmail":   currentUserEmail,
+		"PageViews30d":       pageViews30d,
+		"PageViews7d":        pageViews7d,
+		"PageReferrersJSON":  pageReferrersJSON,
 	})
 }
 
@@ -3545,15 +3562,19 @@ func (h *Handler) ServePage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Record visitor activity for DAU/MAU metrics and hourly stats (bounded goroutine with 5s timeout)
+	// Record visitor activity for DAU/MAU metrics, hourly stats, and page views (bounded goroutine with 5s timeout)
 	if h.analyticsService != nil {
 		visitorIP := middleware.GetClientIP(r, h.proxyConfig)
 		ipHash := services.HashIP(visitorIP)
+		pagePath := content.FullPath
+		referrer := r.Referer()
+		userAgent := r.UserAgent()
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			h.analyticsService.RecordActivity(ctx, ipHash)
 			h.analyticsService.RecordHourlyVisitor(ctx, ipHash)
+			h.analyticsService.RecordPageView(ctx, pagePath, referrer, userAgent)
 		}()
 	}
 

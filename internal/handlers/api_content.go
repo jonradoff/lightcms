@@ -21,6 +21,76 @@ import (
 
 // API Content endpoints
 
+type contentListItem struct {
+	ID              string                 `json:"id"`
+	Title           string                 `json:"title"`
+	Slug            string                 `json:"slug"`
+	FullPath        string                 `json:"full_path"`
+	Category        string                 `json:"category"`
+	Tags            []string               `json:"tags,omitempty"`
+	Published       bool                   `json:"published"`
+	Deleted         bool                   `json:"deleted"`
+	UpdatedAt       string                 `json:"updated_at"`
+	MetaDescription string                 `json:"meta_description,omitempty"`
+	TemplateID      string                 `json:"template_id,omitempty"`
+	TemplateName    string                 `json:"template_name,omitempty"`
+	Data            map[string]interface{} `json:"data,omitempty"`
+}
+
+// formatContentList converts content models to API response items with optional field filtering.
+func (a *APIHandler) formatContentList(contents []models.Content, includeData bool, includeFieldsParam string) []contentListItem {
+	if !includeData && includeFieldsParam == "" {
+		// No data requested — return minimal items
+		result := make([]contentListItem, len(contents))
+		for i, c := range contents {
+			result[i] = contentListItem{
+				ID: c.ID.Hex(), Title: c.Title, Slug: c.Slug,
+				FullPath: c.FullPath, Category: c.Category, Tags: c.Tags,
+				Published: c.Published, Deleted: c.Deleted,
+				UpdatedAt: c.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+				MetaDescription: c.MetaDescription,
+				TemplateID: c.TemplateID.Hex(), TemplateName: c.TemplateName,
+			}
+		}
+		return result
+	}
+
+	var includeFields map[string]bool
+	if includeFieldsParam != "" {
+		includeFields = make(map[string]bool)
+		for _, f := range strings.Split(includeFieldsParam, ",") {
+			f = strings.TrimSpace(f)
+			if f != "" {
+				includeFields[f] = true
+			}
+		}
+	}
+
+	result := make([]contentListItem, len(contents))
+	for i, c := range contents {
+		item := contentListItem{
+			ID: c.ID.Hex(), Title: c.Title, Slug: c.Slug,
+			FullPath: c.FullPath, Category: c.Category, Tags: c.Tags,
+			Published: c.Published, Deleted: c.Deleted,
+			UpdatedAt: c.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+			MetaDescription: c.MetaDescription,
+			TemplateID: c.TemplateID.Hex(), TemplateName: c.TemplateName,
+		}
+		if includeFields != nil {
+			item.Data = make(map[string]interface{})
+			for k, v := range c.Data {
+				if includeFields[k] {
+					item.Data[k] = v
+				}
+			}
+		} else {
+			item.Data = c.Data
+		}
+		result[i] = item
+	}
+	return result
+}
+
 func (a *APIHandler) APIListContent(w http.ResponseWriter, r *http.Request) {
 	if !a.requirePermission(w, r, auth.PermContentView) {
 		return
@@ -40,78 +110,63 @@ func (a *APIHandler) APIListContent(w http.ResponseWriter, r *http.Request) {
 		folderID = &id
 	}
 
+	// Pagination: if limit is set, use paginated listing
+	limitParam := r.URL.Query().Get("limit")
+	offsetParam := r.URL.Query().Get("offset")
+
+	if limitParam != "" {
+		limit, err := strconv.Atoi(limitParam)
+		if err != nil || limit < 1 {
+			a.jsonError(w, http.StatusBadRequest, "limit must be a positive integer")
+			return
+		}
+		if limit > 500 {
+			limit = 500
+		}
+		offset := 0
+		if offsetParam != "" {
+			offset, _ = strconv.Atoi(offsetParam)
+			if offset < 0 {
+				offset = 0
+			}
+		}
+
+		contents, pr, err := a.contentService.ListContentPaginated(r.Context(), services.PaginationOpts{
+			Limit:          limit,
+			Offset:         offset,
+			IncludeDeleted: includeDeleted,
+			Category:       category,
+			FolderID:       folderID,
+		})
+		if err != nil {
+			a.jsonError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		items := a.formatContentList(contents, includeData, includeFieldsParam)
+		a.jsonResponse(w, http.StatusOK, map[string]interface{}{
+			"items":    items,
+			"total":    pr.Total,
+			"limit":    pr.Limit,
+			"offset":   pr.Offset,
+			"has_more": pr.HasMore,
+		})
+		return
+	}
+
 	contents, err := a.contentService.ListContent(r.Context(), includeDeleted, category, folderID)
 	if err != nil {
 		a.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
-	// If no data requested, return as-is (existing behavior)
+	// If no data requested, return as-is (existing behavior — raw Content models)
 	if !includeData && includeFieldsParam == "" {
 		a.jsonResponse(w, http.StatusOK, contents)
 		return
 	}
 
-	// Build optional field filter
-	var includeFields map[string]bool
-	if includeFieldsParam != "" {
-		includeFields = make(map[string]bool)
-		for _, f := range strings.Split(includeFieldsParam, ",") {
-			f = strings.TrimSpace(f)
-			if f != "" {
-				includeFields[f] = true
-			}
-		}
-	}
-
-	type ContentWithData struct {
-		ID              string                 `json:"id"`
-		Title           string                 `json:"title"`
-		Slug            string                 `json:"slug"`
-		FullPath        string                 `json:"full_path"`
-		Category        string                 `json:"category"`
-		Tags            []string               `json:"tags,omitempty"`
-		Published       bool                   `json:"published"`
-		Deleted         bool                   `json:"deleted"`
-		UpdatedAt       string                 `json:"updated_at"`
-		MetaDescription string                 `json:"meta_description,omitempty"`
-		TemplateID      string                 `json:"template_id,omitempty"`
-		TemplateName    string                 `json:"template_name,omitempty"`
-		Data            map[string]interface{} `json:"data,omitempty"`
-	}
-
-	result := make([]ContentWithData, len(contents))
-	for i, c := range contents {
-		item := ContentWithData{
-			ID:              c.ID.Hex(),
-			Title:           c.Title,
-			Slug:            c.Slug,
-			FullPath:        c.FullPath,
-			Category:        c.Category,
-			Tags:            c.Tags,
-			Published:       c.Published,
-			Deleted:         c.Deleted,
-			UpdatedAt:       c.UpdatedAt.Format("2006-01-02T15:04:05Z"),
-			MetaDescription: c.MetaDescription,
-			TemplateID:      c.TemplateID.Hex(),
-			TemplateName:    c.TemplateName,
-		}
-		if includeFields != nil {
-			// Only include specific fields
-			item.Data = make(map[string]interface{})
-			for k, v := range c.Data {
-				if includeFields[k] {
-					item.Data[k] = v
-				}
-			}
-		} else {
-			// Include all data fields
-			item.Data = c.Data
-		}
-		result[i] = item
-	}
-
-	a.jsonResponse(w, http.StatusOK, result)
+	a.jsonResponse(w, http.StatusOK, a.formatContentList(contents, includeData, includeFieldsParam))
 }
 
 func (a *APIHandler) APIGetContent(w http.ResponseWriter, r *http.Request) {
@@ -203,6 +258,7 @@ func (a *APIHandler) APICreateContent(w http.ResponseWriter, r *http.Request) {
 		UseTheme        bool                   `json:"use_theme"`
 		RawMode         bool                   `json:"raw_mode"`
 		VersionComment  string                 `json:"version_comment"`
+		Upsert          bool                   `json:"upsert"`
 	}
 	if err := a.decodeJSON(r, &req); err != nil {
 		a.jsonError(w, http.StatusBadRequest, "invalid request body")
@@ -259,9 +315,35 @@ func (a *APIHandler) APICreateContent(w http.ResponseWriter, r *http.Request) {
 		RawMode:         req.RawMode,
 	}
 
+	comment := req.VersionComment
+
+	if req.Upsert {
+		created, err := a.contentService.UpsertContent(r.Context(), content, comment)
+		if err != nil {
+			a.jsonError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		action := "updated"
+		if created {
+			action = "created"
+		}
+		a.auditLog(r, "content."+action, "content", content.ID.Hex(), map[string]interface{}{"title": content.Title, "path": content.FullPath, "upsert": true})
+		status := http.StatusOK
+		if created {
+			status = http.StatusCreated
+		}
+		a.jsonResponse(w, status, map[string]interface{}{
+			"id":        content.ID.Hex(),
+			"full_path": content.FullPath,
+			"action":    action,
+			"content":   content,
+		})
+		return
+	}
+
 	args := []string{}
-	if req.VersionComment != "" {
-		args = append(args, req.VersionComment)
+	if comment != "" {
+		args = append(args, comment)
 	}
 	if err := a.contentService.CreateContent(r.Context(), content, args...); err != nil {
 		a.jsonError(w, http.StatusInternalServerError, err.Error())
@@ -667,6 +749,36 @@ func (h *searchReplaceHelper) contains(s string) bool {
 	return strings.Contains(s, h.search)
 }
 
+// srPair is used for multi-pair search/replace requests.
+type srPair struct {
+	Search  string `json:"search"`
+	Replace string `json:"replace"`
+	Regex   bool   `json:"regex"`
+}
+
+// parseSRHelpers builds search/replace helpers from either single-pair or multi-pair request.
+func parseSRHelpers(search, replace string, regex bool, pairs []srPair) ([]srPair, []*searchReplaceHelper, error) {
+	if len(pairs) > 0 {
+		helpers := make([]*searchReplaceHelper, len(pairs))
+		for i, p := range pairs {
+			h, err := newSearchReplaceHelper(p.Search, p.Replace, p.Regex)
+			if err != nil {
+				return nil, nil, fmt.Errorf("pair %d: %w", i, err)
+			}
+			helpers[i] = h
+		}
+		return pairs, helpers, nil
+	}
+	if search == "" {
+		return nil, nil, fmt.Errorf("search text is required")
+	}
+	h, err := newSearchReplaceHelper(search, replace, regex)
+	if err != nil {
+		return nil, nil, err
+	}
+	return []srPair{{search, replace, regex}}, []*searchReplaceHelper{h}, nil
+}
+
 // APISearchReplacePreview previews search and replace
 func (a *APIHandler) APISearchReplacePreview(w http.ResponseWriter, r *http.Request) {
 	if !a.requirePermission(w, r, auth.PermSearchReplace) {
@@ -674,27 +786,22 @@ func (a *APIHandler) APISearchReplacePreview(w http.ResponseWriter, r *http.Requ
 	}
 
 	var req struct {
-		Search  string `json:"search"`
-		Replace string `json:"replace"`
-		Regex   bool   `json:"regex"`
+		Search  string   `json:"search"`
+		Replace string   `json:"replace"`
+		Regex   bool     `json:"regex"`
+		Pairs   []srPair `json:"pairs"`
 	}
 	if err := a.decodeJSON(r, &req); err != nil {
 		a.jsonError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if req.Search == "" {
-		a.jsonError(w, http.StatusBadRequest, "search text is required")
-		return
-	}
 
-	srh, err := newSearchReplaceHelper(req.Search, req.Replace, req.Regex)
+	pairs, helpers, err := parseSRHelpers(req.Search, req.Replace, req.Regex, req.Pairs)
 	if err != nil {
 		a.jsonError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
-	// Stream the cursor document-by-document to avoid loading the entire collection
-	// into memory. All matching pages are returned — nothing is truncated.
 	cursor, err := a.contentService.StreamContent(r.Context(), false)
 	if err != nil {
 		a.jsonError(w, http.StatusInternalServerError, err.Error())
@@ -713,6 +820,8 @@ func (a *APIHandler) APISearchReplacePreview(w http.ResponseWriter, r *http.Requ
 
 	var matches []MatchDetail
 	totalMatchCount := 0
+	// Per-pair match counts
+	pairCounts := make([]int, len(helpers))
 
 	for cursor.Next(r.Context()) {
 		var content models.Content
@@ -721,18 +830,22 @@ func (a *APIHandler) APISearchReplacePreview(w http.ResponseWriter, r *http.Requ
 		}
 		matchCount := 0
 		fieldMatches := make(map[string]int)
-		for fieldName, value := range content.Data {
-			if strVal, ok := value.(string); ok {
-				if count := srh.count(strVal); count > 0 {
-					matchCount += count
-					fieldMatches[fieldName] = count
+		for hi, srh := range helpers {
+			for fieldName, value := range content.Data {
+				if strVal, ok := value.(string); ok {
+					if count := srh.count(strVal); count > 0 {
+						matchCount += count
+						fieldMatches[fieldName] += count
+						pairCounts[hi] += count
+					}
 				}
 			}
-		}
-		if srh.contains(content.Title) {
-			n := srh.count(content.Title)
-			matchCount += n
-			fieldMatches["title"] = n
+			if srh.contains(content.Title) {
+				n := srh.count(content.Title)
+				matchCount += n
+				fieldMatches["title"] += n
+				pairCounts[hi] += n
+			}
 		}
 		if matchCount > 0 {
 			matches = append(matches, MatchDetail{
@@ -747,13 +860,28 @@ func (a *APIHandler) APISearchReplacePreview(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
-	a.jsonResponse(w, http.StatusOK, map[string]interface{}{
-		"search":         req.Search,
-		"replace":        req.Replace,
+	resp := map[string]interface{}{
 		"total_matches":  totalMatchCount,
 		"affected_pages": len(matches),
 		"matches":        matches,
-	})
+	}
+	// Include per-pair summary for multi-pair mode
+	if len(pairs) > 1 {
+		pairSummary := make([]map[string]interface{}, len(pairs))
+		for i, p := range pairs {
+			pairSummary[i] = map[string]interface{}{
+				"search":  p.Search,
+				"replace": p.Replace,
+				"matches": pairCounts[i],
+			}
+		}
+		resp["pairs_summary"] = pairSummary
+	} else {
+		resp["search"] = pairs[0].Search
+		resp["replace"] = pairs[0].Replace
+	}
+
+	a.jsonResponse(w, http.StatusOK, resp)
 }
 
 // APISearchReplaceExecute executes search and replace
@@ -763,22 +891,19 @@ func (a *APIHandler) APISearchReplaceExecute(w http.ResponseWriter, r *http.Requ
 	}
 
 	var req struct {
-		Search          string `json:"search"`
-		Replace         string `json:"replace"`
-		Regex           bool   `json:"regex"`
-		VersionComment  string `json:"version_comment"`
-		AutoRepublish   bool   `json:"auto_republish"`
+		Search          string   `json:"search"`
+		Replace         string   `json:"replace"`
+		Regex           bool     `json:"regex"`
+		Pairs           []srPair `json:"pairs"`
+		VersionComment  string   `json:"version_comment"`
+		AutoRepublish   bool     `json:"auto_republish"`
 	}
 	if err := a.decodeJSON(r, &req); err != nil {
 		a.jsonError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	if req.Search == "" {
-		a.jsonError(w, http.StatusBadRequest, "search text is required")
-		return
-	}
 
-	srh, err := newSearchReplaceHelper(req.Search, req.Replace, req.Regex)
+	pairs, helpers, err := parseSRHelpers(req.Search, req.Replace, req.Regex, req.Pairs)
 	if err != nil {
 		a.jsonError(w, http.StatusBadRequest, err.Error())
 		return
@@ -805,31 +930,40 @@ func (a *APIHandler) APISearchReplaceExecute(w http.ResponseWriter, r *http.Requ
 		FieldsUpdated []string `json:"fields_updated"`
 	}
 
-	// srApplyAndUpdate computes replacements for one content item, applies them,
-	// and returns an UpdatedPage if any changes were made (nil otherwise).
+	// srApplyAndUpdate applies all search/replace helpers to one content item.
+	_ = pairs // used for response metadata
 	srApplyAndUpdate := func(content models.Content) *UpdatedPage {
 		needsUpdate := false
 		matchCount := 0
-		var fieldsUpdated []string
+		fieldsUpdatedSet := make(map[string]bool)
 		wasPublished := content.Published
 		newData := make(map[string]interface{})
 		for k, v := range content.Data {
 			newData[k] = v
 		}
-		for fieldName, value := range content.Data {
-			if strVal, ok := value.(string); ok && srh.contains(strVal) {
-				matchCount += srh.count(strVal)
-				newData[fieldName] = srh.replaceIn(strVal)
-				needsUpdate = true
-				fieldsUpdated = append(fieldsUpdated, fieldName)
+		// Apply all helpers in order
+		for _, srh := range helpers {
+			for fieldName, value := range newData {
+				if strVal, ok := value.(string); ok && srh.contains(strVal) {
+					matchCount += srh.count(strVal)
+					newData[fieldName] = srh.replaceIn(strVal)
+					needsUpdate = true
+					fieldsUpdatedSet[fieldName] = true
+				}
 			}
 		}
 		newTitle := content.Title
-		if srh.contains(content.Title) {
-			matchCount += srh.count(content.Title)
-			newTitle = srh.replaceIn(content.Title)
-			needsUpdate = true
-			fieldsUpdated = append(fieldsUpdated, "title")
+		for _, srh := range helpers {
+			if srh.contains(newTitle) {
+				matchCount += srh.count(newTitle)
+				newTitle = srh.replaceIn(newTitle)
+				needsUpdate = true
+				fieldsUpdatedSet["title"] = true
+			}
+		}
+		var fieldsUpdated []string
+		for f := range fieldsUpdatedSet {
+			fieldsUpdated = append(fieldsUpdated, f)
 		}
 		if !needsUpdate {
 			return nil
@@ -864,10 +998,12 @@ func (a *APIHandler) APISearchReplaceExecute(w http.ResponseWriter, r *http.Requ
 			}
 		}()
 	}
+	pagesScanned := 0
 	go func() {
 		for cursor.Next(r.Context()) {
 			var c models.Content
 			if cursor.Decode(&c) == nil {
+				pagesScanned++
 				jobs <- c
 			}
 		}
@@ -886,17 +1022,22 @@ func (a *APIHandler) APISearchReplaceExecute(w http.ResponseWriter, r *http.Requ
 	}
 
 	a.auditLog(r, "content.search_replace", "content", "", map[string]interface{}{
-		"search": req.Search, "replace": req.Replace,
+		"pairs_count": len(pairs),
 		"pages_updated": len(updatedPages), "total_replacements": totalReplacements,
 	})
-	a.jsonResponse(w, http.StatusOK, map[string]interface{}{
+	resp := map[string]interface{}{
 		"success":            true,
-		"search":             req.Search,
-		"replace":            req.Replace,
+		"pages_scanned":      pagesScanned,
+		"pages_modified":     len(updatedPages),
 		"total_replacements": totalReplacements,
 		"pages_updated":      len(updatedPages),
 		"updated_pages":      updatedPages,
-	})
+	}
+	if len(pairs) == 1 {
+		resp["search"] = pairs[0].Search
+		resp["replace"] = pairs[0].Replace
+	}
+	a.jsonResponse(w, http.StatusOK, resp)
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -1372,10 +1513,12 @@ func (a *APIHandler) APIScopedSearchReplaceExecute(w http.ResponseWriter, r *htt
 			}
 		}()
 	}
+	scopedScanned := 0
 	go func() {
 		for cursor2.Next(r.Context()) {
 			var c models.Content
 			if cursor2.Decode(&c) == nil {
+				scopedScanned++
 				jobs2 <- c
 			}
 		}
@@ -1401,6 +1544,8 @@ func (a *APIHandler) APIScopedSearchReplaceExecute(w http.ResponseWriter, r *htt
 		"success":            true,
 		"search":             req.Search,
 		"replace":            req.Replace,
+		"pages_scanned":      scopedScanned,
+		"pages_modified":     len(updatedPages),
 		"total_replacements": totalReplacements,
 		"pages_updated":      len(updatedPages),
 		"updated_pages":      updatedPages,
@@ -1410,6 +1555,152 @@ func (a *APIHandler) APIScopedSearchReplaceExecute(w http.ResponseWriter, r *htt
 // ─── Bulk operations ──────────────────────────────────────────────────────────
 
 const bulkConcurrency = 10
+
+// APIBulkCreateContent creates multiple content items in a single call.
+func (a *APIHandler) APIBulkCreateContent(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermContentCreate) {
+		return
+	}
+
+	var req struct {
+		Items []struct {
+			TemplateID      string                 `json:"template_id"`
+			Title           string                 `json:"title"`
+			Slug            string                 `json:"slug"`
+			FolderPath      string                 `json:"folder_path"`
+			Category        string                 `json:"category"`
+			Tags            []string               `json:"tags"`
+			MetaDescription string                 `json:"meta_description"`
+			OGImage         string                 `json:"og_image"`
+			Data            map[string]interface{} `json:"data"`
+			Published       bool                   `json:"published"`
+			UseHeader       bool                   `json:"use_header"`
+			UseFooter       bool                   `json:"use_footer"`
+			UseTheme        bool                   `json:"use_theme"`
+			RawMode         bool                   `json:"raw_mode"`
+		} `json:"items"`
+		VersionComment string `json:"version_comment"`
+		Upsert         bool   `json:"upsert"`
+	}
+	if err := a.decodeJSON(r, &req); err != nil {
+		a.jsonError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if len(req.Items) == 0 {
+		a.jsonError(w, http.StatusBadRequest, "items array is required")
+		return
+	}
+	if len(req.Items) > 100 {
+		a.jsonError(w, http.StatusBadRequest, "maximum 100 items per batch")
+		return
+	}
+
+	// Resolve templates and folders once
+	templateCache := make(map[string]*models.Template)
+	folders, _ := a.settingsService.ListFolders(r.Context())
+	folderMap := make(map[string]*primitive.ObjectID)
+	for _, f := range folders {
+		id := f.ID
+		folderMap[f.Path] = &id
+	}
+
+	items := make([]*models.Content, len(req.Items))
+	for i, item := range req.Items {
+		if item.TemplateID == "" || item.Title == "" || item.Slug == "" {
+			a.jsonError(w, http.StatusBadRequest, fmt.Sprintf("item %d: template_id, title, and slug are required", i))
+			return
+		}
+
+		tmpl, ok := templateCache[item.TemplateID]
+		if !ok {
+			tid, err := primitive.ObjectIDFromHex(item.TemplateID)
+			if err != nil {
+				a.jsonError(w, http.StatusBadRequest, fmt.Sprintf("item %d: invalid template_id", i))
+				return
+			}
+			tmpl, err = a.templateService.GetTemplate(r.Context(), tid)
+			if err != nil {
+				a.jsonError(w, http.StatusBadRequest, fmt.Sprintf("item %d: template not found", i))
+				return
+			}
+			templateCache[item.TemplateID] = tmpl
+		}
+
+		c := &models.Content{
+			TemplateID:      tmpl.ID,
+			TemplateName:    tmpl.Name,
+			Title:           item.Title,
+			Slug:            item.Slug,
+			FolderPath:      item.FolderPath,
+			FolderID:        folderMap[item.FolderPath],
+			Category:        item.Category,
+			Tags:            item.Tags,
+			MetaDescription: item.MetaDescription,
+			OGImage:         item.OGImage,
+			Data:            item.Data,
+			Published:       item.Published,
+			UseHeader:       item.UseHeader,
+			UseFooter:       item.UseFooter,
+			UseTheme:        item.UseTheme,
+			RawMode:         item.RawMode,
+		}
+		items[i] = c
+	}
+
+	// If upsert mode, use individual upserts (slower but handles duplicates)
+	if req.Upsert {
+		type upsertResult struct {
+			Index    int    `json:"index"`
+			ID       string `json:"id"`
+			FullPath string `json:"full_path"`
+			Action   string `json:"action"`
+			Success  bool   `json:"success"`
+			Error    string `json:"error,omitempty"`
+		}
+		results := make([]upsertResult, len(items))
+		succeeded := 0
+		for i, c := range items {
+			created, err := a.contentService.UpsertContent(r.Context(), c, req.VersionComment)
+			if err != nil {
+				results[i] = upsertResult{Index: i, Success: false, Error: err.Error()}
+			} else {
+				action := "updated"
+				if created {
+					action = "created"
+				}
+				results[i] = upsertResult{Index: i, ID: c.ID.Hex(), FullPath: c.FullPath, Action: action, Success: true}
+				succeeded++
+			}
+		}
+		a.jsonResponse(w, http.StatusOK, map[string]interface{}{
+			"total":     len(items),
+			"succeeded": succeeded,
+			"failed":    len(items) - succeeded,
+			"results":   results,
+		})
+		return
+	}
+
+	results := a.contentService.BulkCreateContent(r.Context(), items, req.VersionComment)
+
+	succeeded := 0
+	for _, r := range results {
+		if r.Success {
+			succeeded++
+		}
+	}
+
+	a.auditLog(r, "content.bulk_create", "content", "", map[string]interface{}{
+		"total": len(items), "succeeded": succeeded,
+	})
+	a.jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"total":     len(items),
+		"succeeded": succeeded,
+		"failed":    len(items) - succeeded,
+		"results":   results,
+	})
+}
 
 // APIBulkUpdateContent updates multiple content items in a single call.
 // Performance: pre-fetches all content in one $in query, then processes

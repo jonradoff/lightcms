@@ -497,6 +497,33 @@ func (c *Client) SearchReplaceExecute(ctx context.Context, search, replace, comm
 	return &result, nil
 }
 
+// SearchReplacePreviewPairs previews a multi-pair search/replace across all content.
+func (c *Client) SearchReplacePreviewPairs(ctx context.Context, pairs []map[string]interface{}) (*SearchReplaceResult, error) {
+	var result SearchReplaceResult
+	if err := c.do(ctx, "POST", "/search-replace/preview", map[string]interface{}{
+		"pairs": pairs,
+	}, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// SearchReplaceExecutePairs executes a multi-pair search/replace across all content.
+func (c *Client) SearchReplaceExecutePairs(ctx context.Context, pairs []map[string]interface{}, comment string, autoRepublish bool) (*SearchReplaceResult, error) {
+	req := map[string]interface{}{
+		"pairs":          pairs,
+		"auto_republish": autoRepublish,
+	}
+	if comment != "" {
+		req["version_comment"] = comment
+	}
+	var result SearchReplaceResult
+	if err := c.do(ctx, "POST", "/search-replace/execute", req, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 // API Keys
 
 func (c *Client) ListAPIKeys(ctx context.Context) ([]APIKey, error) {
@@ -670,9 +697,21 @@ type ListContentOptions struct {
 	FolderID       string
 	IncludeData    bool
 	IncludeFields  []string
+	Limit          int
+	Offset         int
+}
+
+// ListContentResponse is returned when pagination is used.
+type ListContentResponse struct {
+	Items   []Content `json:"items"`
+	Total   int64     `json:"total"`
+	Limit   int       `json:"limit"`
+	Offset  int       `json:"offset"`
+	HasMore bool      `json:"has_more"`
 }
 
 // ListContentWithOptions lists content with extended filter options.
+// When Limit > 0, returns paginated results via ListContentPaginated.
 func (c *Client) ListContentWithOptions(ctx context.Context, opts ListContentOptions) ([]Content, error) {
 	params := url.Values{}
 	if opts.IncludeDeleted {
@@ -690,14 +729,72 @@ func (c *Client) ListContentWithOptions(ctx context.Context, opts ListContentOpt
 	if len(opts.IncludeFields) > 0 {
 		params.Set("include_fields", strings.Join(opts.IncludeFields, ","))
 	}
+	if opts.Limit > 0 {
+		params.Set("limit", strconv.Itoa(opts.Limit))
+		if opts.Offset > 0 {
+			params.Set("offset", strconv.Itoa(opts.Offset))
+		}
+	}
 
 	path := "/content"
 	if len(params) > 0 {
 		path += "?" + params.Encode()
 	}
 
+	// When paginated, the server returns {items, total, ...} envelope
+	if opts.Limit > 0 {
+		var result ListContentResponse
+		if err := c.do(ctx, "GET", path, nil, &result); err != nil {
+			return nil, err
+		}
+		return result.Items, nil
+	}
+
 	var result []Content
 	if err := c.do(ctx, "GET", path, nil, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// ListContentPaginated returns paginated content with metadata.
+func (c *Client) ListContentPaginated(ctx context.Context, opts ListContentOptions) (*ListContentResponse, error) {
+	if opts.Limit <= 0 {
+		opts.Limit = 100
+	}
+	params := url.Values{}
+	if opts.IncludeDeleted {
+		params.Set("include_deleted", "true")
+	}
+	if opts.Category != "" {
+		params.Set("category", opts.Category)
+	}
+	if opts.FolderID != "" {
+		params.Set("folder_id", opts.FolderID)
+	}
+	if opts.IncludeData {
+		params.Set("include_data", "true")
+	}
+	if len(opts.IncludeFields) > 0 {
+		params.Set("include_fields", strings.Join(opts.IncludeFields, ","))
+	}
+	params.Set("limit", strconv.Itoa(opts.Limit))
+	if opts.Offset > 0 {
+		params.Set("offset", strconv.Itoa(opts.Offset))
+	}
+
+	path := "/content?" + params.Encode()
+	var result ListContentResponse
+	if err := c.do(ctx, "GET", path, nil, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// BulkCreateContent creates multiple content items in a single call.
+func (c *Client) BulkCreateContent(ctx context.Context, req interface{}) (map[string]interface{}, error) {
+	var result map[string]interface{}
+	if err := c.do(ctx, "POST", "/content/bulk-create", req, &result); err != nil {
 		return nil, err
 	}
 	return result, nil
