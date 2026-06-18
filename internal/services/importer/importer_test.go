@@ -132,6 +132,50 @@ func TestParseFeed_RSS(t *testing.T) {
 	}
 }
 
+func TestParseFeed_Atom(t *testing.T) {
+	atom := `<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Example</title>
+  <entry>
+    <title>Atom Post One</title>
+    <link rel="alternate" href="https://example.com/a1"/>
+    <id>urn:a1</id>
+    <author><name>Jane</name></author>
+    <published>2026-01-02T15:04:05Z</published>
+    <content>Full content one</content>
+  </entry>
+  <entry>
+    <title>Atom Post Two</title>
+    <link href="https://example.com/a2"/>
+    <id>urn:a2</id>
+    <updated>2026-01-03T00:00:00Z</updated>
+    <summary>Summary two</summary>
+  </entry>
+</feed>`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/atom+xml")
+		w.Write([]byte(atom))
+	}))
+	defer srv.Close()
+
+	items, err := ParseFeed(context.Background(), srv.URL)
+	if err != nil {
+		t.Fatalf("ParseFeed(atom): %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("expected 2 atom items, got %d", len(items))
+	}
+	if items[0].Title != "Atom Post One" || items[0].URL != "https://example.com/a1" {
+		t.Errorf("unexpected atom item 0: %+v", items[0])
+	}
+	if items[0].Author != "Jane" || items[0].PublishedAt == nil {
+		t.Errorf("atom author/date not parsed: %+v", items[0])
+	}
+	if items[1].Description != "Summary two" {
+		t.Errorf("atom summary fallback failed: %+v", items[1])
+	}
+}
+
 func TestParseFeed_BadURL(t *testing.T) {
 	if _, err := ParseFeed(context.Background(), "http://127.0.0.1:0/nope"); err == nil {
 		t.Error("expected error for unreachable feed")
