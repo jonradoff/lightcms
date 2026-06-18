@@ -20,7 +20,7 @@ func TestAPIGetTheme(t *testing.T) {
 	defer cleanup()
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/theme", nil)
+	req := authReq(http.MethodGet, "/api/v1/theme", nil)
 	ah.APIGetTheme(rr, req)
 
 	if rr.Code != http.StatusOK {
@@ -42,7 +42,7 @@ func TestAPIUpdateTheme(t *testing.T) {
 
 	payload := `{"site_name":"My Updated Site"}`
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/theme", strings.NewReader(payload))
+	req := authReq(http.MethodPut, "/api/v1/theme", strings.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APIUpdateTheme(rr, req)
 
@@ -61,7 +61,7 @@ func TestAPIUpdateTheme_InvalidBody(t *testing.T) {
 	defer cleanup()
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/theme", strings.NewReader(`{invalid`))
+	req := authReq(http.MethodPut, "/api/v1/theme", strings.NewReader(`{invalid`))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APIUpdateTheme(rr, req)
 
@@ -79,7 +79,7 @@ func TestAPIListThemeVersions_Empty(t *testing.T) {
 	defer cleanup()
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/theme/versions", nil)
+	req := authReq(http.MethodGet, "/api/v1/theme/versions", nil)
 	ah.APIListThemeVersions(rr, req)
 
 	if rr.Code != http.StatusOK {
@@ -95,7 +95,7 @@ func TestAPIGetThemeVersion_NotFound(t *testing.T) {
 	router.HandleFunc("/api/v1/theme/versions/{version}", ah.APIGetThemeVersion).Methods(http.MethodGet)
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/theme/versions/99999", nil)
+	req := authReq(http.MethodGet, "/api/v1/theme/versions/99999", nil)
 	router.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusNotFound {
@@ -116,7 +116,7 @@ func TestAPIRevertThemeVersion_NotFound(t *testing.T) {
 	router.HandleFunc("/api/v1/theme/versions/{version}/revert", ah.APIRevertThemeVersion).Methods(http.MethodPost)
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/theme/versions/99999/revert", nil)
+	req := authReq(http.MethodPost, "/api/v1/theme/versions/99999/revert", nil)
 	router.ServeHTTP(rr, req)
 
 	// Should return 500 (service error) since version doesn't exist
@@ -133,7 +133,7 @@ func TestAPIPinThemeVersion_NotFound(t *testing.T) {
 	router.HandleFunc("/api/v1/theme/versions/{version}/pin", ah.APIPinThemeVersion).Methods(http.MethodPost)
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/theme/versions/99999/pin", nil)
+	req := authReq(http.MethodPost, "/api/v1/theme/versions/99999/pin", nil)
 	router.ServeHTTP(rr, req)
 
 	// Pin is idempotent — MongoDB UpdateOne succeeds even for non-existent versions
@@ -151,7 +151,7 @@ func TestAPIGetSiteConfig(t *testing.T) {
 	defer cleanup()
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/config", nil)
+	req := authReq(http.MethodGet, "/api/v1/config", nil)
 	ah.APIGetSiteConfig(rr, req)
 
 	if rr.Code != http.StatusOK {
@@ -172,7 +172,7 @@ func TestAPIUpdateSiteConfig(t *testing.T) {
 
 	payload := `{"title_template":"{{.Title}} - My Site"}`
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/config", strings.NewReader(payload))
+	req := authReq(http.MethodPut, "/api/v1/config", strings.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APIUpdateSiteConfig(rr, req)
 
@@ -192,7 +192,7 @@ func TestAPIUpdateSiteConfig_InvalidBody(t *testing.T) {
 	defer cleanup()
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/config", strings.NewReader(`not json`))
+	req := authReq(http.MethodPut, "/api/v1/config", strings.NewReader(`not json`))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APIUpdateSiteConfig(rr, req)
 
@@ -210,7 +210,7 @@ func TestAPIListRedirects_Empty(t *testing.T) {
 	defer cleanup()
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/redirects", nil)
+	req := authReq(http.MethodGet, "/api/v1/redirects", nil)
 	ah.APIListRedirects(rr, req)
 
 	if rr.Code != http.StatusOK {
@@ -229,7 +229,7 @@ func TestAPICreateRedirect(t *testing.T) {
 
 	payload := `{"from_path":"/old-page","to_path":"/new-page","status_code":301}`
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/redirects", strings.NewReader(payload))
+	req := authReq(http.MethodPost, "/api/v1/redirects", strings.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APICreateRedirect(rr, req)
 
@@ -252,7 +252,7 @@ func TestAPICreateRedirect_MissingFields(t *testing.T) {
 
 	payload := `{"from_path":"/only-from"}`
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/redirects", strings.NewReader(payload))
+	req := authReq(http.MethodPost, "/api/v1/redirects", strings.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APICreateRedirect(rr, req)
 
@@ -270,7 +270,7 @@ func TestAPIGetRedirect_NotFound(t *testing.T) {
 
 	fakeID := primitive.NewObjectID().Hex()
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/redirects/"+fakeID, nil)
+	req := authReq(http.MethodGet, "/api/v1/redirects/"+fakeID, nil)
 	router.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusNotFound {
@@ -285,7 +285,7 @@ func TestAPIUpdateRedirect(t *testing.T) {
 	// Create a redirect first
 	createPayload := `{"from_path":"/a","to_path":"/b","status_code":301}`
 	createRR := httptest.NewRecorder()
-	createReq := httptest.NewRequest(http.MethodPost, "/api/v1/redirects", strings.NewReader(createPayload))
+	createReq := authReq(http.MethodPost, "/api/v1/redirects", strings.NewReader(createPayload))
 	createReq.Header.Set("Content-Type", "application/json")
 	ah.APICreateRedirect(createRR, createReq)
 
@@ -308,7 +308,7 @@ func TestAPIUpdateRedirect(t *testing.T) {
 
 	updatePayload := `{"to_path":"/c"}`
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/redirects/"+id, strings.NewReader(updatePayload))
+	req := authReq(http.MethodPut, "/api/v1/redirects/"+id, strings.NewReader(updatePayload))
 	req.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(rr, req)
 
@@ -328,7 +328,7 @@ func TestAPIDeleteRedirect(t *testing.T) {
 
 	// Create a redirect first
 	createRR := httptest.NewRecorder()
-	createReq := httptest.NewRequest(http.MethodPost, "/api/v1/redirects", strings.NewReader(`{"from_path":"/del","to_path":"/gone","status_code":301}`))
+	createReq := authReq(http.MethodPost, "/api/v1/redirects", strings.NewReader(`{"from_path":"/del","to_path":"/gone","status_code":301}`))
 	createReq.Header.Set("Content-Type", "application/json")
 	ah.APICreateRedirect(createRR, createReq)
 
@@ -346,7 +346,7 @@ func TestAPIDeleteRedirect(t *testing.T) {
 	router.HandleFunc("/api/v1/redirects/{id}", ah.APIDeleteRedirect).Methods(http.MethodDelete)
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/redirects/"+id, nil)
+	req := authReq(http.MethodDelete, "/api/v1/redirects/"+id, nil)
 	router.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusOK {
@@ -368,7 +368,7 @@ func TestAPIListFolders_Empty(t *testing.T) {
 	defer cleanup()
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/folders", nil)
+	req := authReq(http.MethodGet, "/api/v1/folders", nil)
 	ah.APIListFolders(rr, req)
 
 	if rr.Code != http.StatusOK {
@@ -387,7 +387,7 @@ func TestAPICreateFolder(t *testing.T) {
 
 	payload := `{"name":"Blog","slug":"blog"}`
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/folders", strings.NewReader(payload))
+	req := authReq(http.MethodPost, "/api/v1/folders", strings.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APICreateFolder(rr, req)
 
@@ -407,7 +407,7 @@ func TestAPICreateFolder_MissingFields(t *testing.T) {
 
 	payload := `{"name":"OnlyName"}`
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/folders", strings.NewReader(payload))
+	req := authReq(http.MethodPost, "/api/v1/folders", strings.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APICreateFolder(rr, req)
 
@@ -425,7 +425,7 @@ func TestAPIGetFolder_NotFound(t *testing.T) {
 
 	fakeID := primitive.NewObjectID().Hex()
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/folders/"+fakeID, nil)
+	req := authReq(http.MethodGet, "/api/v1/folders/"+fakeID, nil)
 	router.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusNotFound {
@@ -442,7 +442,7 @@ func TestAPIDeleteFolder_NotFound(t *testing.T) {
 
 	fakeID := primitive.NewObjectID().Hex()
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/folders/"+fakeID, nil)
+	req := authReq(http.MethodDelete, "/api/v1/folders/"+fakeID, nil)
 	router.ServeHTTP(rr, req)
 
 	// DeleteFolder succeeds for non-existent IDs (MongoDB DeleteOne is idempotent)
@@ -460,7 +460,7 @@ func TestAPIListCollections_Empty(t *testing.T) {
 	defer cleanup()
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/collections", nil)
+	req := authReq(http.MethodGet, "/api/v1/collections", nil)
 	ah.APIListCollections(rr, req)
 
 	if rr.Code != http.StatusOK {
@@ -479,7 +479,7 @@ func TestAPICreateCollection(t *testing.T) {
 
 	payload := `{"name":"Articles","slug":"articles","description":"All articles"}`
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/collections", strings.NewReader(payload))
+	req := authReq(http.MethodPost, "/api/v1/collections", strings.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APICreateCollection(rr, req)
 
@@ -502,7 +502,7 @@ func TestAPICreateCollection_MissingFields(t *testing.T) {
 
 	payload := `{"name":"NoSlug"}`
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/collections", strings.NewReader(payload))
+	req := authReq(http.MethodPost, "/api/v1/collections", strings.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APICreateCollection(rr, req)
 
@@ -520,7 +520,7 @@ func TestAPIGetCollection_NotFound(t *testing.T) {
 
 	fakeID := primitive.NewObjectID().Hex()
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/collections/"+fakeID, nil)
+	req := authReq(http.MethodGet, "/api/v1/collections/"+fakeID, nil)
 	router.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusNotFound {
@@ -534,7 +534,7 @@ func TestAPIUpdateCollection(t *testing.T) {
 
 	// Create first
 	createRR := httptest.NewRecorder()
-	createReq := httptest.NewRequest(http.MethodPost, "/api/v1/collections", strings.NewReader(`{"name":"Docs","slug":"docs"}`))
+	createReq := authReq(http.MethodPost, "/api/v1/collections", strings.NewReader(`{"name":"Docs","slug":"docs"}`))
 	createReq.Header.Set("Content-Type", "application/json")
 	ah.APICreateCollection(createRR, createReq)
 
@@ -557,7 +557,7 @@ func TestAPIUpdateCollection(t *testing.T) {
 
 	updatePayload := `{"name":"Documentation","description":"Updated docs"}`
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/collections/"+id, strings.NewReader(updatePayload))
+	req := authReq(http.MethodPut, "/api/v1/collections/"+id, strings.NewReader(updatePayload))
 	req.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(rr, req)
 
@@ -580,7 +580,7 @@ func TestAPIDeleteCollection_NotFound(t *testing.T) {
 
 	fakeID := primitive.NewObjectID().Hex()
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/collections/"+fakeID, nil)
+	req := authReq(http.MethodDelete, "/api/v1/collections/"+fakeID, nil)
 	router.ServeHTTP(rr, req)
 
 	// DeleteCollection succeeds even for non-existent IDs (MongoDB DeleteOne is idempotent)
@@ -598,7 +598,7 @@ func TestAPIRegenerateAllContent(t *testing.T) {
 	defer cleanup()
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/regenerate", nil)
+	req := authReq(http.MethodPost, "/api/v1/regenerate", nil)
 	ah.APIRegenerateAllContent(rr, req)
 
 	// Should return 200 (even with no content to regenerate)
@@ -621,7 +621,7 @@ func TestAPIListAssets_Empty(t *testing.T) {
 	defer cleanup()
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/assets", nil)
+	req := authReq(http.MethodGet, "/api/v1/assets", nil)
 	ah.APIListAssets(rr, req)
 
 	if rr.Code != http.StatusOK {
@@ -646,7 +646,7 @@ func TestAPIGetAsset_InvalidID(t *testing.T) {
 	router.HandleFunc("/api/v1/assets/{id}", ah.APIGetAsset).Methods(http.MethodGet)
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/assets/not-a-valid-id", nil)
+	req := authReq(http.MethodGet, "/api/v1/assets/not-a-valid-id", nil)
 	router.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusBadRequest {
@@ -663,7 +663,7 @@ func TestAPIGetAsset_NotFound(t *testing.T) {
 
 	fakeID := primitive.NewObjectID().Hex()
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/assets/"+fakeID, nil)
+	req := authReq(http.MethodGet, "/api/v1/assets/"+fakeID, nil)
 	router.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusNotFound {
@@ -680,7 +680,7 @@ func TestAPIGetAssetByPath_MissingPath(t *testing.T) {
 	defer cleanup()
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/assets/by-path", nil)
+	req := authReq(http.MethodGet, "/api/v1/assets/by-path", nil)
 	ah.APIGetAssetByPath(rr, req)
 
 	if rr.Code != http.StatusBadRequest {
@@ -693,7 +693,7 @@ func TestAPIGetAssetByPath_NotFound(t *testing.T) {
 	defer cleanup()
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/assets/by-path?path=/assets/nonexistent.png", nil)
+	req := authReq(http.MethodGet, "/api/v1/assets/by-path?path=/assets/nonexistent.png", nil)
 	ah.APIGetAssetByPath(rr, req)
 
 	if rr.Code != http.StatusNotFound {
@@ -713,7 +713,7 @@ func TestAPIDeleteAsset_InvalidID(t *testing.T) {
 	router.HandleFunc("/api/v1/assets/{id}", ah.APIDeleteAsset).Methods(http.MethodDelete)
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/assets/bad-id", nil)
+	req := authReq(http.MethodDelete, "/api/v1/assets/bad-id", nil)
 	router.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusBadRequest {
@@ -730,7 +730,7 @@ func TestAPIDeleteAsset_NotFound(t *testing.T) {
 
 	fakeID := primitive.NewObjectID().Hex()
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/assets/"+fakeID, nil)
+	req := authReq(http.MethodDelete, "/api/v1/assets/"+fakeID, nil)
 	router.ServeHTTP(rr, req)
 
 	// DeleteAsset returns 500 on service error for non-existent asset
@@ -748,7 +748,7 @@ func TestAPIListAssetFolders_Empty(t *testing.T) {
 	defer cleanup()
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/assets/folders", nil)
+	req := authReq(http.MethodGet, "/api/v1/assets/folders", nil)
 	ah.APIListAssetFolders(rr, req)
 
 	if rr.Code != http.StatusOK {
@@ -766,7 +766,7 @@ func TestAPIUploadAsset_MissingFile(t *testing.T) {
 
 	// Send empty JSON body — missing filename, serve_path, data_base64
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/assets", strings.NewReader(`{}`))
+	req := authReq(http.MethodPost, "/api/v1/assets", strings.NewReader(`{}`))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APIUploadAsset(rr, req)
 
@@ -785,7 +785,7 @@ func TestAPIUploadAssetFromURL_MissingFields(t *testing.T) {
 
 	// Missing url field
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/assets/from-url", strings.NewReader(`{"serve_path":"/assets/test.png"}`))
+	req := authReq(http.MethodPost, "/api/v1/assets/from-url", strings.NewReader(`{"serve_path":"/assets/test.png"}`))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APIUploadAssetFromURL(rr, req)
 
@@ -799,7 +799,7 @@ func TestAPIUploadAssetFromURL_InvalidBody(t *testing.T) {
 	defer cleanup()
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/assets/from-url", strings.NewReader(`{broken`))
+	req := authReq(http.MethodPost, "/api/v1/assets/from-url", strings.NewReader(`{broken`))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APIUploadAssetFromURL(rr, req)
 

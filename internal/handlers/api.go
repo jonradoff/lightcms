@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
 
 	"lightcms/internal/auth"
@@ -71,11 +72,14 @@ func (a *APIHandler) getAPIUser(r *http.Request) *auth.SessionUser {
 
 // requirePermission checks if the authenticated API user has the required permission.
 // Returns true if allowed, false if denied (and writes a 403 response).
+// API keys without an associated user are rejected — legacy system keys must be
+// re-created with a user owner via the admin UI or API.
 func (a *APIHandler) requirePermission(w http.ResponseWriter, r *http.Request, perm string) bool {
 	user := a.getAPIUser(r)
 	if user == nil {
-		// No user context — allow for backward compatibility (system keys without user)
-		return true
+		log.Printf("[security] API request denied: key has no user context (perm=%s, path=%s)", perm, r.URL.Path)
+		a.jsonError(w, http.StatusForbidden, "API key must be associated with a user — legacy keys without user context are no longer supported")
+		return false
 	}
 	if !auth.HasPermission(user.Role, perm) {
 		a.jsonError(w, http.StatusForbidden, "insufficient permissions")

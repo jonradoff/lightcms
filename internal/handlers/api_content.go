@@ -2,14 +2,17 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"log"
 	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"lightcms/internal/auth"
 	"lightcms/internal/models"
@@ -716,9 +719,24 @@ type searchReplaceHelper struct {
 	re      *regexp.Regexp
 }
 
+const (
+	maxSearchReplaceTextLen = 100_000 // 100K max for search or replace text
+	maxRegexPatternLen      = 1_000   // regex patterns are expensive to compile and match
+	maxSearchReplacePairs   = 100     // match the bulk-create limit
+)
+
 func newSearchReplaceHelper(search, replace string, isRegex bool) (*searchReplaceHelper, error) {
+	if len(search) > maxSearchReplaceTextLen {
+		return nil, fmt.Errorf("search text exceeds maximum length of %d characters", maxSearchReplaceTextLen)
+	}
+	if len(replace) > maxSearchReplaceTextLen {
+		return nil, fmt.Errorf("replace text exceeds maximum length of %d characters", maxSearchReplaceTextLen)
+	}
 	h := &searchReplaceHelper{search: search, replace: replace, isRegex: isRegex}
 	if isRegex {
+		if len(search) > maxRegexPatternLen {
+			return nil, fmt.Errorf("regex pattern exceeds maximum length of %d characters", maxRegexPatternLen)
+		}
 		re, err := regexp.Compile(search)
 		if err != nil {
 			return nil, fmt.Errorf("invalid regex: %w", err)
@@ -758,6 +776,9 @@ type srPair struct {
 
 // parseSRHelpers builds search/replace helpers from either single-pair or multi-pair request.
 func parseSRHelpers(search, replace string, regex bool, pairs []srPair) ([]srPair, []*searchReplaceHelper, error) {
+	if len(pairs) > maxSearchReplacePairs {
+		return nil, nil, fmt.Errorf("maximum %d pairs per request", maxSearchReplacePairs)
+	}
 	if len(pairs) > 0 {
 		helpers := make([]*searchReplaceHelper, len(pairs))
 		for i, p := range pairs {
@@ -890,6 +911,12 @@ func (a *APIHandler) APISearchReplaceExecute(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	if !acquireBulkOp() {
+		a.jsonError(w, http.StatusTooManyRequests, "a bulk operation is already in progress, please retry shortly")
+		return
+	}
+	defer releaseBulkOp()
+
 	var req struct {
 		Search          string   `json:"search"`
 		Replace         string   `json:"replace"`
@@ -914,13 +941,17 @@ func (a *APIHandler) APISearchReplaceExecute(w http.ResponseWriter, r *http.Requ
 		versionComment = fmt.Sprintf("Bulk search and replace: '%s' → '%s'", req.Search, req.Replace)
 	}
 
+	// Enforce a maximum duration for the entire operation.
+	ctx, cancel := context.WithTimeout(r.Context(), bulkOpTimeout)
+	defer cancel()
+
 	// Stream documents one-by-one — avoids loading the full collection into memory.
-	cursor, err := a.contentService.StreamContent(r.Context(), false)
+	cursor, err := a.contentService.StreamContent(ctx, false)
 	if err != nil {
 		a.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	defer cursor.Close(r.Context())
+	defer cursor.Close(ctx)
 
 	type UpdatedPage struct {
 		ID            string   `json:"id"`
@@ -931,8 +962,14 @@ func (a *APIHandler) APISearchReplaceExecute(w http.ResponseWriter, r *http.Requ
 	}
 
 	// srApplyAndUpdate applies all search/replace helpers to one content item.
+	// Uses per-page locking to prevent concurrent updates to the same page.
 	_ = pairs // used for response metadata
 	srApplyAndUpdate := func(content models.Content) *UpdatedPage {
+		if ctx.Err() != nil {
+			return nil
+		}
+		unlock := lockContent(content.ID.Hex())
+		defer unlock()
 		needsUpdate := false
 		matchCount := 0
 		fieldsUpdatedSet := make(map[string]bool)
@@ -970,11 +1007,11 @@ func (a *APIHandler) APISearchReplaceExecute(w http.ResponseWriter, r *http.Requ
 		}
 		content.Title = newTitle
 		content.Data = newData
-		if err := a.contentService.UpdateContent(r.Context(), &content, versionComment); err != nil {
+		if err := a.contentService.UpdateContent(ctx, &content, versionComment); err != nil {
 			return nil
 		}
 		if req.AutoRepublish && wasPublished {
-			a.contentService.PublishContent(r.Context(), content.ID)
+			a.contentService.PublishContent(ctx, content.ID)
 		}
 		return &UpdatedPage{
 			ID: content.ID.Hex(), Title: newTitle,
@@ -1000,11 +1037,17 @@ func (a *APIHandler) APISearchReplaceExecute(w http.ResponseWriter, r *http.Requ
 	}
 	pagesScanned := 0
 	go func() {
-		for cursor.Next(r.Context()) {
+		for cursor.Next(ctx) {
+			if ctx.Err() != nil {
+				break
+			}
 			var c models.Content
 			if cursor.Decode(&c) == nil {
 				pagesScanned++
-				jobs <- c
+				select {
+				case jobs <- c:
+				case <-ctx.Done():
+				}
 			}
 		}
 		close(jobs)
@@ -1032,6 +1075,9 @@ func (a *APIHandler) APISearchReplaceExecute(w http.ResponseWriter, r *http.Requ
 		"total_replacements": totalReplacements,
 		"pages_updated":      len(updatedPages),
 		"updated_pages":      updatedPages,
+	}
+	if ctx.Err() != nil {
+		resp["warning"] = "operation timed out; results are partial"
 	}
 	if len(pairs) == 1 {
 		resp["search"] = pairs[0].Search
@@ -1154,7 +1200,7 @@ func (a *APIHandler) APIBatchPublishContent(w http.ResponseWriter, r *http.Reque
 	var failed []map[string]string
 	for _, id := range ids {
 		if err := a.contentService.PublishContent(r.Context(), id); err != nil {
-			failed = append(failed, map[string]string{"id": id.Hex(), "error": err.Error()})
+			failed = append(failed, map[string]string{"id": id.Hex(), "error": sanitizeAPIError(err)})
 		} else {
 			published = append(published, id.Hex())
 		}
@@ -1413,6 +1459,12 @@ func (a *APIHandler) APIScopedSearchReplaceExecute(w http.ResponseWriter, r *htt
 		return
 	}
 
+	if !acquireBulkOp() {
+		a.jsonError(w, http.StatusTooManyRequests, "a bulk operation is already in progress, please retry shortly")
+		return
+	}
+	defer releaseBulkOp()
+
 	var req struct {
 		Search         string      `json:"search"`
 		Replace        string      `json:"replace"`
@@ -1441,14 +1493,17 @@ func (a *APIHandler) APIScopedSearchReplaceExecute(w http.ResponseWriter, r *htt
 		versionComment = fmt.Sprintf("Scoped search and replace: '%s' → '%s'", req.Search, req.Replace)
 	}
 
+	ctx, cancel := context.WithTimeout(r.Context(), bulkOpTimeout)
+	defer cancel()
+
 	// Push scope filters to MongoDB and stream results to avoid loading the full
 	// scoped set into memory before processing starts.
-	cursor2, err := a.contentService.StreamContentScoped(r.Context(), scopeToContentScope(req.Scope))
+	cursor2, err := a.contentService.StreamContentScoped(ctx, scopeToContentScope(req.Scope))
 	if err != nil {
 		a.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	defer cursor2.Close(r.Context())
+	defer cursor2.Close(ctx)
 
 	type UpdatedPage struct {
 		ID            string   `json:"id"`
@@ -1459,6 +1514,9 @@ func (a *APIHandler) APIScopedSearchReplaceExecute(w http.ResponseWriter, r *htt
 	}
 
 	scopedApplyAndUpdate := func(content models.Content) *UpdatedPage {
+		if ctx.Err() != nil {
+			return nil
+		}
 		needsUpdate := false
 		matchCount := 0
 		var fieldsUpdated []string
@@ -1487,11 +1545,11 @@ func (a *APIHandler) APIScopedSearchReplaceExecute(w http.ResponseWriter, r *htt
 		}
 		content.Title = newTitle
 		content.Data = newData
-		if err := a.contentService.UpdateContent(r.Context(), &content, versionComment); err != nil {
+		if err := a.contentService.UpdateContent(ctx, &content, versionComment); err != nil {
 			return nil
 		}
 		if req.AutoRepublish && wasPublished {
-			a.contentService.PublishContent(r.Context(), content.ID)
+			a.contentService.PublishContent(ctx, content.ID)
 		}
 		return &UpdatedPage{
 			ID: content.ID.Hex(), Title: newTitle,
@@ -1515,11 +1573,17 @@ func (a *APIHandler) APIScopedSearchReplaceExecute(w http.ResponseWriter, r *htt
 	}
 	scopedScanned := 0
 	go func() {
-		for cursor2.Next(r.Context()) {
+		for cursor2.Next(ctx) {
+			if ctx.Err() != nil {
+				break
+			}
 			var c models.Content
 			if cursor2.Decode(&c) == nil {
 				scopedScanned++
-				jobs2 <- c
+				select {
+				case jobs2 <- c:
+				case <-ctx.Done():
+				}
 			}
 		}
 		close(jobs2)
@@ -1540,7 +1604,7 @@ func (a *APIHandler) APIScopedSearchReplaceExecute(w http.ResponseWriter, r *htt
 		"search": req.Search, "replace": req.Replace,
 		"pages_updated": len(updatedPages), "total_replacements": totalReplacements,
 	})
-	a.jsonResponse(w, http.StatusOK, map[string]interface{}{
+	resp := map[string]interface{}{
 		"success":            true,
 		"search":             req.Search,
 		"replace":            req.Replace,
@@ -1549,12 +1613,79 @@ func (a *APIHandler) APIScopedSearchReplaceExecute(w http.ResponseWriter, r *htt
 		"total_replacements": totalReplacements,
 		"pages_updated":      len(updatedPages),
 		"updated_pages":      updatedPages,
-	})
+	}
+	if ctx.Err() != nil {
+		resp["warning"] = "operation timed out; results are partial"
+	}
+	a.jsonResponse(w, http.StatusOK, resp)
+}
+
+// sanitizeAPIError converts internal errors to safe external messages,
+// logging the full detail server-side. Prevents leaking MongoDB internals,
+// field names, and collection structure to API consumers.
+func sanitizeAPIError(err error) string {
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "not found"):
+		return "not found"
+	case strings.Contains(msg, "duplicate key"):
+		return "duplicate content at this path"
+	case strings.Contains(msg, "template"):
+		return "template error"
+	default:
+		log.Printf("[api] internal error (sanitized): %v", err)
+		return "operation failed"
+	}
 }
 
 // ─── Bulk operations ──────────────────────────────────────────────────────────
 
 const bulkConcurrency = 10
+
+// bulkOpSem limits the number of concurrent heavy bulk operations (search/replace,
+// bulk update) to prevent resource exhaustion that can hang the HTTP server.
+// A buffered channel of size 2 means at most 2 heavy operations run simultaneously.
+var bulkOpSem = make(chan struct{}, 2)
+
+// acquireBulkOp tries to acquire a slot for a heavy bulk operation. Returns false
+// if the semaphore is full (caller should return 429 Too Many Requests).
+func acquireBulkOp() bool {
+	select {
+	case bulkOpSem <- struct{}{}:
+		return true
+	default:
+		return false
+	}
+}
+
+func releaseBulkOp() {
+	<-bulkOpSem
+}
+
+// bulkOpTimeout is the maximum duration for a single search/replace or bulk
+// update operation. Prevents runaway operations from tying up the server.
+const bulkOpTimeout = 3 * time.Minute
+
+// contentLocks provides per-page mutual exclusion for concurrent bulk operations.
+// This prevents race conditions when multiple workers try to update the same page
+// simultaneously (e.g., during search/replace or bulk update).
+var contentLocks = struct {
+	sync.Mutex
+	m map[string]*sync.Mutex
+}{m: make(map[string]*sync.Mutex)}
+
+// lockContent acquires a per-page mutex. The returned function unlocks it.
+func lockContent(id string) func() {
+	contentLocks.Lock()
+	mu, ok := contentLocks.m[id]
+	if !ok {
+		mu = &sync.Mutex{}
+		contentLocks.m[id] = mu
+	}
+	contentLocks.Unlock()
+	mu.Lock()
+	return mu.Unlock
+}
 
 // APIBulkCreateContent creates multiple content items in a single call.
 func (a *APIHandler) APIBulkCreateContent(w http.ResponseWriter, r *http.Request) {
@@ -1648,6 +1779,22 @@ func (a *APIHandler) APIBulkCreateContent(w http.ResponseWriter, r *http.Request
 		items[i] = c
 	}
 
+	// Defense-in-depth: sanitize content data based on script policy and caller role.
+	// Primary enforcement is at render/generation time, but this prevents storage of
+	// script-injection vectors when the policy restricts them.
+	siteConfig, _ := a.settingsService.GetSiteConfig(r.Context())
+	scriptPolicy := "all"
+	if siteConfig != nil && siteConfig.MarkdownScriptPolicy != "" {
+		scriptPolicy = siteConfig.MarkdownScriptPolicy
+	}
+	apiUser := a.getAPIUser(r)
+	isAdmin := apiUser != nil && apiUser.Role == "admin"
+	if scriptPolicy == "none" || (scriptPolicy == "admin_only" && !isAdmin) {
+		for _, c := range items {
+			c.Data = services.SanitizeContentData(c.Data)
+		}
+	}
+
 	// If upsert mode, use individual upserts (slower but handles duplicates)
 	if req.Upsert {
 		type upsertResult struct {
@@ -1663,7 +1810,7 @@ func (a *APIHandler) APIBulkCreateContent(w http.ResponseWriter, r *http.Request
 		for i, c := range items {
 			created, err := a.contentService.UpsertContent(r.Context(), c, req.VersionComment)
 			if err != nil {
-				results[i] = upsertResult{Index: i, Success: false, Error: err.Error()}
+				results[i] = upsertResult{Index: i, Success: false, Error: sanitizeAPIError(err)}
 			} else {
 				action := "updated"
 				if created {
@@ -1691,8 +1838,15 @@ func (a *APIHandler) APIBulkCreateContent(w http.ResponseWriter, r *http.Request
 		}
 	}
 
+	// Collect sample of created IDs for audit trail (up to 10)
+	var sampleIDs []string
+	for _, res := range results {
+		if res.Success && len(sampleIDs) < 10 {
+			sampleIDs = append(sampleIDs, res.ID)
+		}
+	}
 	a.auditLog(r, "content.bulk_create", "content", "", map[string]interface{}{
-		"total": len(items), "succeeded": succeeded,
+		"total": len(items), "succeeded": succeeded, "sample_ids": sampleIDs,
 	})
 	a.jsonResponse(w, http.StatusOK, map[string]interface{}{
 		"total":     len(items),
@@ -1768,6 +1922,24 @@ func (a *APIHandler) APIBulkUpdateContent(w http.ResponseWriter, r *http.Request
 		goto respond
 	}
 
+	// Defense-in-depth: sanitize data fields based on script policy.
+	{
+		siteConfig, _ := a.settingsService.GetSiteConfig(r.Context())
+		scriptPolicy := "all"
+		if siteConfig != nil && siteConfig.MarkdownScriptPolicy != "" {
+			scriptPolicy = siteConfig.MarkdownScriptPolicy
+		}
+		apiUser := a.getAPIUser(r)
+		isAdmin := apiUser != nil && apiUser.Role == "admin"
+		if scriptPolicy == "none" || (scriptPolicy == "admin_only" && !isAdmin) {
+			for i := range valid {
+				if valid[i].upd.Data != nil {
+					valid[i].upd.Data = services.SanitizeContentData(valid[i].upd.Data)
+				}
+			}
+		}
+	}
+
 	if req.DryRun {
 		// Batch-fetch all requested IDs in one query for dry-run existence check.
 		ids := make([]primitive.ObjectID, len(valid))
@@ -1821,6 +1993,7 @@ func (a *APIHandler) APIBulkUpdateContent(w http.ResponseWriter, r *http.Request
 			go func() {
 				defer wg.Done()
 				for job := range jobs {
+					unlock := lockContent(job.id.Hex())
 					c := job.content
 					if job.upd.Title != "" {
 						c.Title = job.upd.Title
@@ -1847,10 +2020,11 @@ func (a *APIHandler) APIBulkUpdateContent(w http.ResponseWriter, r *http.Request
 					}
 					var res UpdateResult
 					if err := a.contentService.UpdateContent(r.Context(), c, versionComment); err != nil {
-						res = UpdateResult{ID: job.upd.ID, Success: false, Error: err.Error()}
+						res = UpdateResult{ID: job.upd.ID, Success: false, Error: sanitizeAPIError(err)}
 					} else {
 						res = UpdateResult{ID: job.upd.ID, Success: true}
 					}
+					unlock()
 					mu.Lock()
 					results[job.idx] = res
 					mu.Unlock()
@@ -1943,6 +2117,19 @@ func (a *APIHandler) APIBulkFieldOperation(w http.ResponseWriter, r *http.Reques
 		a.jsonError(w, http.StatusBadRequest, "field is required")
 		return
 	}
+	// Block system/internal field names — only template data fields are allowed.
+	blockedFields := map[string]bool{
+		"_id": true, "template_id": true, "template_name": true, "published": true,
+		"deleted": true, "slug": true, "full_path": true, "folder_path": true,
+		"folder_id": true, "created_at": true, "updated_at": true, "published_at": true,
+		"fork_id": true, "category": true, "tags": true, "meta_description": true,
+		"og_image": true, "content_hash": true, "use_header": true, "use_footer": true,
+		"use_theme": true, "raw_mode": true, "locked_by": true, "locked_at": true,
+	}
+	if blockedFields[req.Field] {
+		a.jsonError(w, http.StatusBadRequest, "cannot modify system field via bulk field operation")
+		return
+	}
 
 	// Push scope filters to MongoDB — avoids full-collection load.
 	contents, err := a.contentService.ListContentScoped(r.Context(), scopeToContentScope(req.Scope))
@@ -1999,6 +2186,7 @@ func (a *APIHandler) APIBulkFieldOperation(w http.ResponseWriter, r *http.Reques
 			go func() {
 				defer wg.Done()
 				for job := range jobs {
+					unlock := lockContent(job.content.ID.Hex())
 					c := job.content
 					if c.Data == nil {
 						c.Data = make(map[string]interface{})
@@ -2023,10 +2211,11 @@ func (a *APIHandler) APIBulkFieldOperation(w http.ResponseWriter, r *http.Reques
 					c.Data[req.Field] = newVal
 					var res ItemResult
 					if err := a.contentService.UpdateContent(r.Context(), &c, versionComment); err != nil {
-						res = ItemResult{ID: c.ID.Hex(), Title: c.Title, FullPath: c.FullPath, Success: false, Error: err.Error()}
+						res = ItemResult{ID: c.ID.Hex(), Title: c.Title, FullPath: c.FullPath, Success: false, Error: sanitizeAPIError(err)}
 					} else {
 						res = ItemResult{ID: c.ID.Hex(), Title: c.Title, FullPath: c.FullPath, Success: true}
 					}
+					unlock()
 					mu.Lock()
 					results[job.idx] = res
 					mu.Unlock()

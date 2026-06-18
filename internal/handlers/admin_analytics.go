@@ -70,7 +70,7 @@ func (h *Handler) AnalyticsPage(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("[analytics] GetHourlyStats error: %v", err)
 	}
-	uptimePct, totalVisitors := h.analyticsService.GetUptimeSummary(ctx, since)
+	uptimePct, totalVisitors, humanVisitors := h.analyticsService.GetUptimeSummary(ctx, since)
 
 	// Find peak hour
 	peakHour := ""
@@ -82,13 +82,19 @@ func (h *Handler) AnalyticsPage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Top pages (with edit IDs resolved)
-	topPages, err := h.analyticsService.GetTopPages(ctx, since, now, 20)
+	// Top pages (with edit IDs resolved) — all three views for client-side tab switching
+	topPagesHuman, err := h.analyticsService.GetTopPages(ctx, since, now, 20, services.BotFilterHuman)
 	if err != nil {
 		log.Printf("[analytics] GetTopPages error: %v", err)
 	}
-	h.resolveEditIDs(ctx, topPages)
-	topPagesJSON, _ := json.Marshal(topPages)
+	h.resolveEditIDs(ctx, topPagesHuman)
+	topPagesBot, _ := h.analyticsService.GetTopPages(ctx, since, now, 20, services.BotFilterBot)
+	h.resolveEditIDs(ctx, topPagesBot)
+	topPagesAll, _ := h.analyticsService.GetTopPages(ctx, since, now, 20, services.BotFilterAll)
+	h.resolveEditIDs(ctx, topPagesAll)
+	topPagesHumanJSON, _ := json.Marshal(topPagesHuman)
+	topPagesBotJSON, _ := json.Marshal(topPagesBot)
+	topPagesAllJSON, _ := json.Marshal(topPagesAll)
 
 	// Top referrers — all three views for client-side tab switching
 	refHuman, _ := h.analyticsService.GetTopReferrers(ctx, since, now, 20, services.BotFilterHuman)
@@ -111,9 +117,12 @@ func (h *Handler) AnalyticsPage(w http.ResponseWriter, r *http.Request) {
 		"Range":          rangeParam,
 		"UptimePercent":  uptimePct,
 		"TotalVisitors":  totalVisitors,
+		"HumanVisitors":  humanVisitors,
 		"PeakHour":       peakHour,
 		"PeakVisitors":   peakVisitors,
-		"TopPagesJSON":   string(topPagesJSON),
+		"TopPagesHumanJSON": string(topPagesHumanJSON),
+		"TopPagesBotJSON":   string(topPagesBotJSON),
+		"TopPagesAllJSON":   string(topPagesAllJSON),
 		"RefHumanJSON":   string(refHumanJSON),
 		"RefBotJSON":     string(refBotJSON),
 		"RefAllJSON":     string(refAllJSON),

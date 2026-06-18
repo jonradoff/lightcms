@@ -3573,7 +3573,7 @@ func (h *Handler) ServePage(w http.ResponseWriter, r *http.Request) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			h.analyticsService.RecordActivity(ctx, ipHash)
-			h.analyticsService.RecordHourlyVisitor(ctx, ipHash)
+			h.analyticsService.RecordHourlyVisitor(ctx, ipHash, userAgent)
 			h.analyticsService.RecordPageView(ctx, pagePath, referrer, userAgent)
 		}()
 	}

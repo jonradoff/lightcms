@@ -6501,8 +6501,8 @@ async function doSearch(q) {
             .analytics-value { font-size: 2rem; font-weight: 700; margin-top: 0.25rem; }
             .chart-box { background: var(--bg-dark); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem; margin-bottom: 1.5rem; }
             .chart-title { margin: 0 0 1rem 0; font-size: 0.875rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
-            .vchart { display: flex; align-items: flex-end; gap: 1px; height: 180px; position: relative; }
-            .vchart-bar { flex: 1; min-width: 1px; background: #60a5fa; border-radius: 1px 1px 0 0; position: relative; transition: background 0.1s; cursor: pointer; }
+            .vchart { display: flex; align-items: flex-end; height: 180px; position: relative; overflow: hidden; }
+            .vchart-bar { flex: 1; min-width: 0; background: #60a5fa; border-radius: 1px 1px 0 0; position: relative; transition: background 0.1s; cursor: pointer; }
             .vchart-bar:hover { background: #93c5fd; }
             .vchart-bar[data-v="0"] { background: transparent; }
             .vchart-bar[data-v="0"]:hover { background: rgba(148,163,184,0.15); }
@@ -6512,8 +6512,12 @@ async function doSearch(q) {
             .vchart-y { position: absolute; left: 0; right: 0; border-top: 1px solid #475569; pointer-events: none; }
             .vchart-y span { position: absolute; right: calc(100% + 4px); top: -7px; font-size: 10px; color: #94a3b8; font-family: monospace; }
             .vchart-wrap { position: relative; padding-left: 40px; }
-            .vchart-xlabels { display: flex; gap: 1px; padding-left: 40px; margin-top: 4px; }
-            .vchart-xlabels span { flex: 1; text-align: center; font-size: 9px; color: #94a3b8; font-family: monospace; overflow: hidden; }
+            .vchart-trend { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+            .vchart-trend line { stroke: #f59e0b; stroke-width: 2; stroke-dasharray: 6 3; opacity: 0.85; }
+            .trend-legend { display: inline-flex; align-items: center; gap: 0.375rem; font-size: 0.7rem; color: #94a3b8; margin-left: 0.75rem; vertical-align: middle; }
+            .trend-legend-line { width: 18px; height: 0; border-top: 2px dashed #f59e0b; opacity: 0.85; }
+            .vchart-xlabels { position: relative; height: 16px; padding-left: 40px; margin-top: 4px; }
+            .vchart-xlabels span { position: absolute; font-size: 10px; color: #94a3b8; font-family: monospace; white-space: nowrap; transform: translateX(-50%); }
             .stat-row { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem; font-size: 0.8125rem; }
             .stat-label { width: 220px; min-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #e2e8f0; }
             .stat-label a { color: #60a5fa; text-decoration: none; }
@@ -6542,14 +6546,22 @@ async function doSearch(q) {
                 <a href="/cm/analytics?range=30d" class="btn {{if eq .Range "30d"}}btn-primary{{else}}btn-secondary{{end}}" style="padding: 0.375rem 0.75rem; font-size: 0.875rem;">30 Days</a>
             </div>
 
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
                 <div class="analytics-card">
                     <div class="analytics-label">Uptime</div>
                     <div class="analytics-value" style="color: {{if ge .UptimePercent 99.0}}#4ade80{{else if ge .UptimePercent 95.0}}#facc15{{else}}#f87171{{end}};">{{printf "%.1f" .UptimePercent}}%</div>
                 </div>
                 <div class="analytics-card">
-                    <div class="analytics-label">Unique Visitors</div>
+                    <div class="analytics-label">All Visitors</div>
                     <div class="analytics-value">{{.TotalVisitors}}</div>
+                </div>
+                <div class="analytics-card">
+                    <div class="analytics-label">Non-Bot Visitors</div>
+                    <div class="analytics-value">{{.HumanVisitors}}</div>
+                </div>
+                <div class="analytics-card">
+                    <div class="analytics-label">Trend</div>
+                    <div id="trendPctCard" class="analytics-value">&mdash;</div>
                 </div>
                 <div class="analytics-card">
                     <div class="analytics-label">Peak Hour</div>
@@ -6559,9 +6571,19 @@ async function doSearch(q) {
 
             <div style="display: grid; grid-template-columns: 1fr 280px; gap: 1.5rem; margin-bottom: 1.5rem;">
                 <div class="chart-box" style="margin-bottom:0;">
-                    <h3 class="chart-title">Unique Visitors per Hour</h3>
+                    <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1rem;">
+                        <h3 class="chart-title" style="margin:0;">Unique Visitors per Hour</h3>
+                        <div style="display:flex;gap:2px;">
+                            <button class="ref-tab active" data-vchart-tab="human" onclick="switchVisitorTab('human')">Excluding Bots</button>
+                            <button class="ref-tab" data-vchart-tab="bot" onclick="switchVisitorTab('bot')">Bots Only</button>
+                            <button class="ref-tab" data-vchart-tab="all" onclick="switchVisitorTab('all')">All Visitors</button>
+                        </div>
+                        <span id="trendLegend" class="trend-legend" style="display:none;"><span class="trend-legend-line"></span> Trend</span>
+                    </div>
                     <div class="vchart-wrap">
-                        <div id="visitorsChart" class="vchart"></div>
+                        <div id="visitorsChart" class="vchart">
+                            <svg id="trendLine" class="vchart-trend"></svg>
+                        </div>
                     </div>
                     <div id="visitorsXLabels" class="vchart-xlabels"></div>
                 </div>
@@ -6607,7 +6629,11 @@ async function doSearch(q) {
         <script>
         (function() {
             var stats = JSON.parse('{{.StatsJSON}}');
-            var topPages = JSON.parse('{{.TopPagesJSON}}');
+            var topPagesData = {
+                human: JSON.parse('{{.TopPagesHumanJSON}}'),
+                bot: JSON.parse('{{.TopPagesBotJSON}}'),
+                all: JSON.parse('{{.TopPagesAllJSON}}')
+            };
             var refData = {
                 human: JSON.parse('{{.RefHumanJSON}}'),
                 bot: JSON.parse('{{.RefBotJSON}}'),
@@ -6623,7 +6649,9 @@ async function doSearch(q) {
             now.setUTCMinutes(0, 0, 0);
             var hours = range === '30d' ? 720 : range === '7d' ? 168 : 24;
             var nowKey = now.getTime();
-            var labels = [], visitors = [], uptimeData = [], isCurrentHour = [];
+            var labels = [], uptimeData = [], isCurrentHour = [];
+            // Build per-tab visitor arrays
+            var visitorSets = { human: [], bot: [], all: [] };
 
             for (var i = hours - 1; i >= 0; i--) {
                 var h = new Date(now.getTime() - i * 3600000);
@@ -6634,43 +6662,151 @@ async function doSearch(q) {
                 else if (range === '7d') label = (h.getUTCMonth()+1) + '/' + h.getUTCDate() + ' ' + h.getUTCHours() + ':00';
                 else label = (h.getUTCMonth()+1) + '/' + h.getUTCDate();
                 labels.push(label);
-                visitors.push(s ? s.visitor_count : 0);
+                visitorSets.all.push(s ? s.visitor_count : 0);
+                visitorSets.human.push(s ? s.visitor_count_human : 0);
+                visitorSets.bot.push(s ? s.visitor_count_bot : 0);
                 uptimeData.push(s ? s.uptime_pings : -1);
                 isCurrentHour.push(key === nowKey);
             }
 
-            var maxV = Math.max.apply(null, visitors) || 1;
+            // --- X-axis label positions (computed once, reused on tab switch) ---
+            var labelTexts = [];
+            if (range === '24h') {
+                for (var i = 0; i < hours; i++) {
+                    var h = new Date(now.getTime() - (hours - 1 - i) * 3600000);
+                    if (h.getUTCHours() % 4 === 0) labelTexts.push({ idx: i, text: labels[i] });
+                }
+            } else if (range === '7d') {
+                var lastDay = -1;
+                for (var i = 0; i < hours; i++) {
+                    var h = new Date(now.getTime() - (hours - 1 - i) * 3600000);
+                    var day = h.getUTCDate();
+                    if (day !== lastDay) {
+                        labelTexts.push({ idx: i, text: (h.getUTCMonth()+1) + '/' + day });
+                        lastDay = day;
+                    }
+                }
+            } else {
+                var lastDay = -1, dayCount = 0;
+                for (var i = 0; i < hours; i++) {
+                    var h = new Date(now.getTime() - (hours - 1 - i) * 3600000);
+                    var day = h.getUTCDate();
+                    if (day !== lastDay) {
+                        if (dayCount % 5 === 0) labelTexts.push({ idx: i, text: (h.getUTCMonth()+1) + '/' + day });
+                        lastDay = day;
+                        dayCount++;
+                    }
+                }
+            }
 
-            // --- Visitor bar chart ---
-            var chart = document.getElementById('visitorsChart');
-            for (var g = 0; g < 5; g++) {
-                var pct = (g / 4) * 100;
-                var line = document.createElement('div');
-                line.className = 'vchart-y';
-                line.style.bottom = (100 - pct) + '%';
-                var lbl = document.createElement('span');
-                lbl.textContent = Math.round(maxV - (maxV / 4) * g);
-                line.appendChild(lbl);
-                chart.appendChild(line);
+            // --- Render visitor chart for a given tab ---
+            function renderVisitorChart(which) {
+                var visitors = visitorSets[which];
+                var maxV = Math.max.apply(null, visitors) || 1;
+                var chart = document.getElementById('visitorsChart');
+                var svg = document.getElementById('trendLine');
+                // Clear existing bars and grid lines (keep the SVG)
+                var children = chart.children;
+                for (var i = children.length - 1; i >= 0; i--) {
+                    if (children[i] !== svg) chart.removeChild(children[i]);
+                }
+                // Clear SVG
+                svg.innerHTML = '';
+                svg.removeAttribute('viewBox');
+                document.getElementById('trendLegend').style.display = 'none';
+
+                var barGap = visitors.length <= 48 ? 2 : visitors.length <= 168 ? 1 : 0;
+                chart.style.gap = barGap + 'px';
+                // Grid lines
+                for (var g = 0; g < 5; g++) {
+                    var pct = (g / 4) * 100;
+                    var line = document.createElement('div');
+                    line.className = 'vchart-y';
+                    line.style.bottom = (100 - pct) + '%';
+                    var lbl = document.createElement('span');
+                    lbl.textContent = Math.round(maxV - (maxV / 4) * g);
+                    line.appendChild(lbl);
+                    chart.insertBefore(line, svg);
+                }
+                // Bars
+                visitors.forEach(function(v, i) {
+                    var bar = document.createElement('div');
+                    bar.className = 'vchart-bar';
+                    bar.setAttribute('data-v', v);
+                    bar.style.height = Math.max(v > 0 ? 2 : 0, maxV > 0 ? (v / maxV * 100) : 0) + '%';
+                    var tip = document.createElement('div');
+                    tip.className = 'vchart-tooltip';
+                    tip.innerHTML = '<strong>' + v.toLocaleString() + ' unique' + (v !== 1 ? 's' : '') + '</strong><br>' + labels[i] + ' UTC';
+                    bar.appendChild(tip);
+                    chart.insertBefore(bar, svg);
+                });
+                // X labels
+                var xlabels = document.getElementById('visitorsXLabels');
+                xlabels.innerHTML = '';
+                labelTexts.forEach(function(lt) {
+                    var sp = document.createElement('span');
+                    sp.textContent = lt.text;
+                    sp.style.left = ((lt.idx + 0.5) / visitors.length * 100) + '%';
+                    xlabels.appendChild(sp);
+                });
+                // Trend line
+                var points = [];
+                for (var i = 0; i < visitors.length; i++) {
+                    if (visitors[i] > 0) points.push({ x: i, y: visitors[i] });
+                }
+                if (points.length >= 2) {
+                    var n = points.length;
+                    var sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
+                    for (var i = 0; i < n; i++) {
+                        sumX += points[i].x;
+                        sumY += points[i].y;
+                        sumXY += points[i].x * points[i].y;
+                        sumX2 += points[i].x * points[i].x;
+                    }
+                    var denom = n * sumX2 - sumX * sumX;
+                    if (denom !== 0) {
+                        var m = (n * sumXY - sumX * sumY) / denom;
+                        var bCoeff = (sumY - m * sumX) / n;
+                        var firstIdx = points[0].x;
+                        var lastIdx = points[n - 1].x;
+                        var y1 = m * firstIdx + bCoeff;
+                        var y2 = m * lastIdx + bCoeff;
+                        var total = visitors.length;
+                        var x1Pct = (firstIdx + 0.5) / total * 100;
+                        var x2Pct = (lastIdx + 0.5) / total * 100;
+                        var y1Pct = Math.max(0, Math.min(100, 100 - (y1 / maxV * 100)));
+                        var y2Pct = Math.max(0, Math.min(100, 100 - (y2 / maxV * 100)));
+                        svg.setAttribute('viewBox', '0 0 100 100');
+                        svg.setAttribute('preserveAspectRatio', 'none');
+                        var tl = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                        tl.setAttribute('x1', x1Pct);
+                        tl.setAttribute('y1', y1Pct);
+                        tl.setAttribute('x2', x2Pct);
+                        tl.setAttribute('y2', y2Pct);
+                        tl.setAttribute('vector-effect', 'non-scaling-stroke');
+                        svg.appendChild(tl);
+                        document.getElementById('trendLegend').style.display = '';
+                        // Update trend % KPI card
+                        if (y1 > 0) {
+                            var pctChange = ((y2 - y1) / y1 * 100);
+                            var card = document.getElementById('trendPctCard');
+                            var sign = pctChange >= 0 ? '+' : '';
+                            card.textContent = sign + pctChange.toFixed(1) + '%';
+                            card.style.color = pctChange > 0 ? '#4ade80' : pctChange < 0 ? '#f87171' : '#e2e8f0';
+                        }
+                    }
+                }
             }
-            visitors.forEach(function(v, i) {
-                var bar = document.createElement('div');
-                bar.className = 'vchart-bar';
-                bar.setAttribute('data-v', v);
-                bar.style.height = Math.max(v > 0 ? 2 : 0, maxV > 0 ? (v / maxV * 100) : 0) + '%';
-                var tip = document.createElement('div');
-                tip.className = 'vchart-tooltip';
-                tip.innerHTML = '<strong>' + v.toLocaleString() + ' unique' + (v !== 1 ? 's' : '') + '</strong><br>' + labels[i] + ' UTC';
-                bar.appendChild(tip);
-                chart.appendChild(bar);
-            });
-            var xlabels = document.getElementById('visitorsXLabels');
-            var step = Math.max(1, Math.floor(visitors.length / 12));
-            for (var i = 0; i < visitors.length; i++) {
-                var sp = document.createElement('span');
-                sp.textContent = (i % step === 0) ? labels[i] : '';
-                xlabels.appendChild(sp);
-            }
+
+            // Tab switching
+            window.switchVisitorTab = function(which) {
+                document.querySelectorAll('[data-vchart-tab]').forEach(function(b) { b.classList.remove('active'); });
+                document.querySelector('[data-vchart-tab="'+which+'"]').classList.add('active');
+                renderVisitorChart(which);
+                renderTopPages(which);
+            };
+            // Initial render with human (excluding bots) as default
+            renderVisitorChart('human');
 
             // --- Uptime strip ---
             var strip = document.getElementById('uptimeStrip');
@@ -6747,15 +6883,22 @@ async function doSearch(q) {
                 });
             }
 
-            renderStatList(topPages, document.getElementById('topPages'), document.getElementById('topPagesEmpty'), {
-                labelKey: 'path', valKey: 'views', valLabel: 'views', barClass: 'stat-bar-blue',
-                labelLink: function(p) { return '/cm/analytics/page?path=' + encodeURIComponent(p.path) + '&range=' + range; },
-                actions: function(p) {
-                    var acts = [{ href: p.path, text: '\u2197', title: 'View page', target: '_blank' }];
-                    if (p.edit_id) acts.push({ href: '/cm/content/' + p.edit_id, text: '\u270E', title: 'Edit page' });
-                    return acts;
-                }
-            });
+            function renderTopPages(which) {
+                var container = document.getElementById('topPages');
+                var emptyEl = document.getElementById('topPagesEmpty');
+                container.innerHTML = '';
+                emptyEl.style.display = 'none';
+                renderStatList(topPagesData[which], container, emptyEl, {
+                    labelKey: 'path', valKey: 'views', valLabel: 'views', barClass: 'stat-bar-blue',
+                    labelLink: function(p) { return '/cm/analytics/page?path=' + encodeURIComponent(p.path) + '&range=' + range; },
+                    actions: function(p) {
+                        var acts = [{ href: p.path, text: '\u2197', title: 'View page', target: '_blank' }];
+                        if (p.edit_id) acts.push({ href: '/cm/content/' + p.edit_id, text: '\u270E', title: 'Edit page' });
+                        return acts;
+                    }
+                });
+            }
+            renderTopPages('human');
 
             // --- Top Referrers (tabbed: human/bot/all) ---
             function renderRefs(which) {

@@ -3,6 +3,9 @@ package handlers
 import (
 	"bufio"
 	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,14 +15,63 @@ import (
 
 	"lightcms/internal/auth"
 	"lightcms/internal/database"
+	"lightcms/internal/middleware"
 	"lightcms/internal/services"
 
+	"github.com/gorilla/mux"
 	"github.com/gorilla/sessions"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/writeconcern"
 )
+
+// adminAPIUser returns a SessionUser with the admin role, as produced by API-key
+// authentication. The admin role carries every RBAC permission.
+func adminAPIUser() *auth.SessionUser {
+	return &auth.SessionUser{
+		ID:        "000000000000000000000001",
+		Email:     "admin@localhost",
+		Role:      "admin",
+		ViaAPIKey: true,
+	}
+}
+
+// testSessionSecret must match the secret used to construct the auth manager's
+// cookie store in newTestHandler, so forged session cookies validate.
+const testSessionSecret = "test-session-secret"
+
+// sessionReq builds an httptest request carrying a valid admin session cookie,
+// as produced by a logged-in admin. It is the session-auth counterpart to
+// authReq, for exercising the /cm admin UI handlers. CSRF is enforced by
+// middleware (not the handlers themselves), so direct handler calls bypass it.
+func sessionReq(method, target string, body io.Reader, vars map[string]string) *http.Request {
+	store := sessions.NewCookieStore([]byte(testSessionSecret))
+	req := httptest.NewRequest(method, target, body)
+	rec := httptest.NewRecorder()
+	sess, _ := store.New(req, "lightcms-session")
+	sess.Values["authenticated"] = true
+	sess.Values["user_id"] = "000000000000000000000001"
+	sess.Values["user_email"] = "admin@localhost"
+	sess.Values["user_role"] = "admin"
+	_ = sess.Save(req, rec)
+	for _, c := range rec.Result().Cookies() {
+		req.AddCookie(c)
+	}
+	if vars != nil {
+		req = mux.SetURLVars(req, vars)
+	}
+	return req
+}
+
+// authReq builds an httptest request with an authenticated admin API user
+// injected into its context. It is a drop-in replacement for
+// httptest.NewRequest for APIHandler tests: as of the API-key-requires-user
+// security change, handlers reject requests with no user context (403).
+func authReq(method, target string, body io.Reader) *http.Request {
+	req := httptest.NewRequest(method, target, body)
+	return req.WithContext(middleware.InjectAPIUser(req.Context(), adminAPIUser()))
+}
 
 var (
 	sharedTestOnce sync.Once
@@ -148,10 +200,114 @@ func newTestHandler(t *testing.T) (*Handler, func()) {
 	h.SetContentService(contentService)
 	h.SetProxyConfig(nil)
 
+	// Wire the optional services used by the admin UI handlers (imports,
+	// webhooks, analytics, locks, comments, approvals, forks).
+	webhookService := services.NewWebhookService(db)
+	commentService := services.NewCommentService(db)
+	h.SetImportService(services.NewImportService(db, contentService))
+	h.SetWebhookService(webhookService)
+	h.SetCommentService(commentService)
+	h.SetLockService(services.NewLockService(db))
+	h.SetForkService(services.NewForkService(db, contentService))
+	h.SetApprovalService(services.NewApprovalService(db, contentService, commentService, webhookService))
+	h.SetAnalyticsService(services.NewAnalyticsService(context.Background(), db, "http://localhost:8082"))
+
 	cleanup := func() {
 		cleanupCollections(t, db)
 	}
 	return h, cleanup
+}
+
+// brokenDBOnce builds a single MongoDB connection that is immediately
+// disconnected, so every subsequent operation returns an error. This lets tests
+// exercise the (otherwise unreachable) "if err != nil { 500 }" database-error
+// branches that pepper the handlers.
+var (
+	brokenDBOnce sync.Once
+	brokenDBConn *database.DB
+)
+
+func getBrokenDB(t *testing.T) *database.DB {
+	t.Helper()
+	brokenDBOnce.Do(func() {
+		loadTestEnv(t)
+		uri := os.Getenv("MONGODB_URI")
+		if uri == "" {
+			return
+		}
+		dbName := os.Getenv("DATABASE_NAME")
+		if dbName == "" {
+			dbName = "lightcms-test"
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		wc := writeconcern.New(writeconcern.WMajority())
+		db, err := database.Connect(ctx, uri, dbName, options.Client().SetWriteConcern(wc))
+		if err != nil {
+			return
+		}
+		_ = db.Disconnect(context.Background()) // kill the client; ops now error
+		brokenDBConn = db
+	})
+	if brokenDBConn == nil {
+		t.Skip("skipping: MONGODB_URI not set")
+	}
+	return brokenDBConn
+}
+
+// newBrokenAPIHandler returns an APIHandler whose services are wired to a dead
+// (disconnected) database, so handler DB calls fail and their error paths run.
+func newBrokenAPIHandler(t *testing.T) *APIHandler {
+	t.Helper()
+	db := getBrokenDB(t)
+	contentService := services.NewContentService(db)
+	templateService := services.NewTemplateService(db, contentService)
+	assetService := services.NewAssetService(db)
+	settingsService := services.NewSettingsService(db, contentService)
+	apiKeyService := services.NewAPIKeyService(db)
+	auditService := services.NewAuditService(db)
+	snippetService := services.NewSnippetService(db)
+	webhookService := services.NewWebhookService(db)
+	commentService := services.NewCommentService(db)
+
+	ah := NewAPIHandler(contentService, templateService, assetService, settingsService, apiKeyService, auditService, snippetService)
+	ah.SetSearchService(services.NewSearchService(db, ""))
+	ah.SetForkService(services.NewForkService(db, contentService))
+	ah.SetWebhookServiceAPI(webhookService)
+	ah.SetCommentService(commentService)
+	ah.SetLockServiceAPI(services.NewLockService(db))
+	ah.SetLinkCheckerService(services.NewLinkCheckerService(db))
+	ah.SetImportService(services.NewImportService(db, contentService))
+	ah.SetUserService(services.NewUserService(db))
+	ah.SetApprovalService(services.NewApprovalService(db, contentService, commentService, webhookService))
+	return ah
+}
+
+// newBrokenHandler returns a session Handler wired to a dead database.
+func newBrokenHandler(t *testing.T) *Handler {
+	t.Helper()
+	db := getBrokenDB(t)
+	userService := services.NewUserService(db)
+	auditService := services.NewAuditService(db)
+	snippetService := services.NewSnippetService(db)
+	contentService := services.NewContentService(db)
+	webhookService := services.NewWebhookService(db)
+	commentService := services.NewCommentService(db)
+	store := sessions.NewCookieStore([]byte(testSessionSecret))
+	authManager := auth.NewManager(store, db, userService)
+
+	h := New(db, authManager, "http://localhost:8082", "test", userService, auditService, snippetService)
+	h.SetSearchService(services.NewSearchService(db, ""))
+	h.SetContentService(contentService)
+	h.SetProxyConfig(nil)
+	h.SetImportService(services.NewImportService(db, contentService))
+	h.SetWebhookService(webhookService)
+	h.SetCommentService(commentService)
+	h.SetLockService(services.NewLockService(db))
+	h.SetForkService(services.NewForkService(db, contentService))
+	h.SetApprovalService(services.NewApprovalService(db, contentService, commentService, webhookService))
+	h.SetAnalyticsService(services.NewAnalyticsService(context.Background(), db, "http://localhost:8082"))
+	return h
 }
 
 // newTestAPIHandler returns an APIHandler wired to a real test DB, the DB itself
@@ -173,6 +329,19 @@ func newTestAPIHandler(t *testing.T) (*APIHandler, *database.DB, func()) {
 
 	ah := NewAPIHandler(contentService, templateService, assetService, settingsService, apiKeyService, auditService, snippetService)
 	ah.SetSearchService(searchService)
+
+	// Wire the optional services exercised by the forks/webhooks/comments/
+	// locks/imports/approvals/link-check API handlers.
+	webhookService := services.NewWebhookService(db)
+	commentService := services.NewCommentService(db)
+	ah.SetForkService(services.NewForkService(db, contentService))
+	ah.SetWebhookServiceAPI(webhookService)
+	ah.SetCommentService(commentService)
+	ah.SetLockServiceAPI(services.NewLockService(db))
+	ah.SetLinkCheckerService(services.NewLinkCheckerService(db))
+	ah.SetImportService(services.NewImportService(db, contentService))
+	ah.SetUserService(services.NewUserService(db))
+	ah.SetApprovalService(services.NewApprovalService(db, contentService, commentService, webhookService))
 
 	cleanup := func() {
 		cleanupCollections(t, db)

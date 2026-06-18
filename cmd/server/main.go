@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
 	"syscall"
 	"time"
 
@@ -25,6 +26,7 @@ import (
 	"github.com/gorilla/csrf"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/sessions"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
@@ -419,8 +421,26 @@ func main() {
 				}, nil
 			}
 		}
-		// System/legacy key without user — return nil (no permission enforcement)
-		return nil, nil
+		// Legacy key without user association — auto-migrate by associating with the first admin user.
+		log.Printf("[security] API key %s... has no user — attempting auto-migration to admin user", rawKey[:min(10, len(rawKey))])
+		if adminUsers, err := userService.ListUsers(ctx); err == nil {
+			for _, u := range adminUsers {
+				if u.Role == models.RoleAdmin && !u.Disabled {
+					uid := u.ID
+					db.UpdateOne(ctx, "api_keys", bson.M{"_id": apiKey.ID}, bson.M{"$set": bson.M{"user_id": uid}})
+					log.Printf("[security] Auto-migrated legacy API key to admin user %s", u.Email)
+					go analyticsService.RecordActivity(context.Background(), u.ID.Hex())
+					return &auth.SessionUser{
+						ID:    u.ID.Hex(),
+						Email: u.Email,
+						Role:  u.Role,
+						ViaAPIKey: true,
+					}, nil
+				}
+			}
+		}
+		// No admin user found — reject the key
+		return nil, fmt.Errorf("legacy key has no user and no admin user available for migration")
 	})
 
 	// OAuth 2.1 setup for MCP Cowork connector support
@@ -678,8 +698,22 @@ func main() {
 	// Public asset serving
 	r.PathPrefix("/assets/").HandlerFunc(h.ServeAsset).Methods("GET")
 
-	// Simple health check for Fly.io TCP probes
+	// Health check for Fly.io — fails if the server is resource-exhausted
+	// so Fly restarts the machine instead of routing traffic to a stuck instance.
 	r.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		if n := runtime.NumGoroutine(); n > 10000 {
+			log.Printf("[health] FAIL: goroutine count %d exceeds threshold", n)
+			http.Error(w, "unhealthy: goroutine leak", http.StatusServiceUnavailable)
+			return
+		}
+		// Quick DB ping to confirm we can actually serve requests.
+		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+		defer cancel()
+		if err := db.Collection("content").Database().Client().Ping(ctx, nil); err != nil {
+			log.Printf("[health] FAIL: db ping: %v", err)
+			http.Error(w, "unhealthy: db unreachable", http.StatusServiceUnavailable)
+			return
+		}
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
 	}).Methods("GET")

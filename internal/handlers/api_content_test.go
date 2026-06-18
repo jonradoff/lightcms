@@ -20,7 +20,7 @@ func createContentViaAPI(t *testing.T, ah *APIHandler, templateID primitive.Obje
 	t.Helper()
 	payload := `{"template_id":"` + templateID.Hex() + `","title":"` + title + `","slug":"` + slug + `"}`
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/content", strings.NewReader(payload))
+	req := authReq(http.MethodPost, "/api/v1/content", strings.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APICreateContent(rr, req)
 	if rr.Code != http.StatusCreated {
@@ -50,7 +50,7 @@ func TestAPIListContent_Empty(t *testing.T) {
 	defer cleanup()
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/content", nil)
+	req := authReq(http.MethodGet, "/api/v1/content", nil)
 	ah.APIListContent(rr, req)
 
 	if rr.Code != http.StatusOK {
@@ -71,7 +71,7 @@ func TestAPIListContent_WithSeededContent(t *testing.T) {
 	seedContent(t, db, tmplID, "Hello World", "hello-world", "/hello-world")
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/content", nil)
+	req := authReq(http.MethodGet, "/api/v1/content", nil)
 	ah.APIListContent(rr, req)
 
 	if rr.Code != http.StatusOK {
@@ -92,7 +92,7 @@ func TestAPIListContent_IncludeData(t *testing.T) {
 	seedContent(t, db, tmplID, "Data Test", "data-test", "/data-test")
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/content?include_data=true", nil)
+	req := authReq(http.MethodGet, "/api/v1/content?include_data=true", nil)
 	ah.APIListContent(rr, req)
 
 	if rr.Code != http.StatusOK {
@@ -118,7 +118,7 @@ func TestAPIListContent_CategoryFilter(t *testing.T) {
 	seedContent(t, db, tmplID, "Post A", "post-a", "/post-a")
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/content?category=nonexistent", nil)
+	req := authReq(http.MethodGet, "/api/v1/content?category=nonexistent", nil)
 	ah.APIListContent(rr, req)
 
 	if rr.Code != http.StatusOK {
@@ -136,7 +136,7 @@ func TestAPIListContent_InvalidFolderID(t *testing.T) {
 	defer cleanup()
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/content?folder_id=not-a-hex-id", nil)
+	req := authReq(http.MethodGet, "/api/v1/content?folder_id=not-a-hex-id", nil)
 	ah.APIListContent(rr, req)
 
 	if rr.Code != http.StatusBadRequest {
@@ -159,7 +159,7 @@ func TestAPIGetContent_Valid(t *testing.T) {
 	router.HandleFunc("/api/v1/content/{id}", ah.APIGetContent).Methods(http.MethodGet)
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/content/"+id.Hex(), nil)
+	req := authReq(http.MethodGet, "/api/v1/content/"+id.Hex(), nil)
 	router.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusOK {
@@ -180,7 +180,7 @@ func TestAPIGetContent_InvalidID(t *testing.T) {
 	router.HandleFunc("/api/v1/content/{id}", ah.APIGetContent).Methods(http.MethodGet)
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/content/bad-id", nil)
+	req := authReq(http.MethodGet, "/api/v1/content/bad-id", nil)
 	router.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusBadRequest {
@@ -197,7 +197,7 @@ func TestAPIGetContent_NotFound(t *testing.T) {
 
 	fakeID := primitive.NewObjectID().Hex()
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/content/"+fakeID, nil)
+	req := authReq(http.MethodGet, "/api/v1/content/"+fakeID, nil)
 	router.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusNotFound {
@@ -217,7 +217,7 @@ func TestAPIGetContentByPath_Valid(t *testing.T) {
 	seedContent(t, db, tmplID, "By Path", "by-path", "/by-path")
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/content/by-path?path=/by-path", nil)
+	req := authReq(http.MethodGet, "/api/v1/content/by-path?path=/by-path", nil)
 	ah.APIGetContentByPath(rr, req)
 
 	if rr.Code != http.StatusOK {
@@ -235,7 +235,7 @@ func TestAPIGetContentByPath_MissingPath(t *testing.T) {
 	defer cleanup()
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/content/by-path", nil)
+	req := authReq(http.MethodGet, "/api/v1/content/by-path", nil)
 	ah.APIGetContentByPath(rr, req)
 
 	if rr.Code != http.StatusBadRequest {
@@ -248,7 +248,7 @@ func TestAPIGetContentByPath_NotFound(t *testing.T) {
 	defer cleanup()
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/content/by-path?path=/nonexistent", nil)
+	req := authReq(http.MethodGet, "/api/v1/content/by-path?path=/nonexistent", nil)
 	ah.APIGetContentByPath(rr, req)
 
 	if rr.Code != http.StatusNotFound {
@@ -265,7 +265,7 @@ func TestAPIGetBacklinks_MissingPath(t *testing.T) {
 	defer cleanup()
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/backlinks", nil)
+	req := authReq(http.MethodGet, "/api/v1/backlinks", nil)
 	ah.APIGetBacklinks(rr, req)
 
 	if rr.Code != http.StatusBadRequest {
@@ -278,7 +278,7 @@ func TestAPIGetBacklinks_ValidPath_EmptyResults(t *testing.T) {
 	defer cleanup()
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/backlinks?path=/some-page", nil)
+	req := authReq(http.MethodGet, "/api/v1/backlinks?path=/some-page", nil)
 	ah.APIGetBacklinks(rr, req)
 
 	if rr.Code != http.StatusOK {
@@ -298,7 +298,7 @@ func TestAPICreateContent_Full(t *testing.T) {
 
 	payload := `{"template_id":"` + tmplID.Hex() + `","title":"New Post","slug":"new-post","category":"blog","version_comment":"initial"}`
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/content", strings.NewReader(payload))
+	req := authReq(http.MethodPost, "/api/v1/content", strings.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APICreateContent(rr, req)
 
@@ -321,7 +321,7 @@ func TestAPICreateContent_MissingFields(t *testing.T) {
 
 	payload := `{"title":"No Template"}`
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/content", strings.NewReader(payload))
+	req := authReq(http.MethodPost, "/api/v1/content", strings.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APICreateContent(rr, req)
 
@@ -336,7 +336,7 @@ func TestAPICreateContent_InvalidTemplateID(t *testing.T) {
 
 	payload := `{"template_id":"not-valid","title":"Bad Tmpl","slug":"bad-tmpl"}`
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/content", strings.NewReader(payload))
+	req := authReq(http.MethodPost, "/api/v1/content", strings.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APICreateContent(rr, req)
 
@@ -352,7 +352,7 @@ func TestAPICreateContent_TemplateNotFound(t *testing.T) {
 	fakeID := primitive.NewObjectID().Hex()
 	payload := `{"template_id":"` + fakeID + `","title":"No Tmpl","slug":"no-tmpl"}`
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/content", strings.NewReader(payload))
+	req := authReq(http.MethodPost, "/api/v1/content", strings.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APICreateContent(rr, req)
 
@@ -366,7 +366,7 @@ func TestAPICreateContent_InvalidBody(t *testing.T) {
 	defer cleanup()
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/content", strings.NewReader(`{broken json`))
+	req := authReq(http.MethodPost, "/api/v1/content", strings.NewReader(`{broken json`))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APICreateContent(rr, req)
 
@@ -392,7 +392,7 @@ func TestAPIUpdateContent_UpdateTitle(t *testing.T) {
 
 	payload := `{"title":"Updated Title","version_comment":"rename"}`
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/content/"+id, strings.NewReader(payload))
+	req := authReq(http.MethodPut, "/api/v1/content/"+id, strings.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(rr, req)
 
@@ -416,7 +416,7 @@ func TestAPIUpdateContent_NotFound(t *testing.T) {
 	fakeID := primitive.NewObjectID().Hex()
 	payload := `{"title":"Nope"}`
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/content/"+fakeID, strings.NewReader(payload))
+	req := authReq(http.MethodPut, "/api/v1/content/"+fakeID, strings.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(rr, req)
 
@@ -437,7 +437,7 @@ func TestAPIUpdateContent_InvalidBody(t *testing.T) {
 	router.HandleFunc("/api/v1/content/{id}", ah.APIUpdateContent).Methods(http.MethodPut)
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/content/"+id, strings.NewReader(`not json`))
+	req := authReq(http.MethodPut, "/api/v1/content/"+id, strings.NewReader(`not json`))
 	req.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(rr, req)
 
@@ -454,7 +454,7 @@ func TestAPIUpdateContent_InvalidID(t *testing.T) {
 	router.HandleFunc("/api/v1/content/{id}", ah.APIUpdateContent).Methods(http.MethodPut)
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/content/bad-id", strings.NewReader(`{"title":"x"}`))
+	req := authReq(http.MethodPut, "/api/v1/content/bad-id", strings.NewReader(`{"title":"x"}`))
 	req.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(rr, req)
 
@@ -479,7 +479,7 @@ func TestAPIDeleteContent_Success(t *testing.T) {
 	router.HandleFunc("/api/v1/content/{id}", ah.APIDeleteContent).Methods(http.MethodDelete)
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/content/"+id, nil)
+	req := authReq(http.MethodDelete, "/api/v1/content/"+id, nil)
 	router.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusOK {
@@ -501,7 +501,7 @@ func TestAPIDeleteContent_NotFound(t *testing.T) {
 
 	fakeID := primitive.NewObjectID().Hex()
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/content/"+fakeID, nil)
+	req := authReq(http.MethodDelete, "/api/v1/content/"+fakeID, nil)
 	router.ServeHTTP(rr, req)
 
 	// DeleteContent on non-existent may return 500 (service error) or 200
@@ -519,7 +519,7 @@ func TestAPIDeleteContent_InvalidID(t *testing.T) {
 	router.HandleFunc("/api/v1/content/{id}", ah.APIDeleteContent).Methods(http.MethodDelete)
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/content/bad-id", nil)
+	req := authReq(http.MethodDelete, "/api/v1/content/bad-id", nil)
 	router.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusBadRequest {
@@ -545,7 +545,7 @@ func TestAPIRestoreContent_DeleteThenRestore(t *testing.T) {
 
 	// Delete
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/"+id+"/delete", nil)
+	req := authReq(http.MethodPost, "/api/v1/content/"+id+"/delete", nil)
 	router.ServeHTTP(rr, req)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("delete: expected 200, got %d; body: %s", rr.Code, rr.Body.String())
@@ -553,7 +553,7 @@ func TestAPIRestoreContent_DeleteThenRestore(t *testing.T) {
 
 	// Restore
 	rr = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodPost, "/api/v1/content/"+id+"/restore", nil)
+	req = authReq(http.MethodPost, "/api/v1/content/"+id+"/restore", nil)
 	router.ServeHTTP(rr, req)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("restore: expected 200, got %d; body: %s", rr.Code, rr.Body.String())
@@ -574,7 +574,7 @@ func TestAPIRestoreContent_NotFound(t *testing.T) {
 
 	fakeID := primitive.NewObjectID().Hex()
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/"+fakeID+"/restore", nil)
+	req := authReq(http.MethodPost, "/api/v1/content/"+fakeID+"/restore", nil)
 	router.ServeHTTP(rr, req)
 
 	// RestoreContent on non-existent: may be 500 from service
@@ -591,7 +591,7 @@ func TestAPIRestoreContent_InvalidID(t *testing.T) {
 	router.HandleFunc("/api/v1/content/{id}/restore", ah.APIRestoreContent).Methods(http.MethodPost)
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/bad-id/restore", nil)
+	req := authReq(http.MethodPost, "/api/v1/content/bad-id/restore", nil)
 	router.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusBadRequest {
@@ -615,7 +615,7 @@ func TestAPIPublishContent_ValidID(t *testing.T) {
 	router.HandleFunc("/api/v1/content/{id}/publish", ah.APIPublishContent).Methods(http.MethodPost)
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/"+id+"/publish", nil)
+	req := authReq(http.MethodPost, "/api/v1/content/"+id+"/publish", nil)
 	router.ServeHTTP(rr, req)
 
 	// Publishing may succeed (200) or fail (500) if content directory is not set up.
@@ -644,7 +644,7 @@ func TestAPIPublishContent_InvalidID(t *testing.T) {
 	router.HandleFunc("/api/v1/content/{id}/publish", ah.APIPublishContent).Methods(http.MethodPost)
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/bad-id/publish", nil)
+	req := authReq(http.MethodPost, "/api/v1/content/bad-id/publish", nil)
 	router.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusBadRequest {
@@ -668,7 +668,7 @@ func TestAPIUnpublishContent_ValidID(t *testing.T) {
 	router.HandleFunc("/api/v1/content/{id}/unpublish", ah.APIUnpublishContent).Methods(http.MethodPost)
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/"+id+"/unpublish", nil)
+	req := authReq(http.MethodPost, "/api/v1/content/"+id+"/unpublish", nil)
 	router.ServeHTTP(rr, req)
 
 	// Similar to publish — may succeed or error if content dir missing
@@ -685,7 +685,7 @@ func TestAPIUnpublishContent_InvalidID(t *testing.T) {
 	router.HandleFunc("/api/v1/content/{id}/unpublish", ah.APIUnpublishContent).Methods(http.MethodPost)
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/bad-id/unpublish", nil)
+	req := authReq(http.MethodPost, "/api/v1/content/bad-id/unpublish", nil)
 	router.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusBadRequest {
@@ -709,7 +709,7 @@ func TestAPIListContentVersions_AfterUpdate(t *testing.T) {
 	updateRouter := mux.NewRouter()
 	updateRouter.HandleFunc("/api/v1/content/{id}", ah.APIUpdateContent).Methods(http.MethodPut)
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/content/"+id, strings.NewReader(`{"title":"Versioned v2"}`))
+	req := authReq(http.MethodPut, "/api/v1/content/"+id, strings.NewReader(`{"title":"Versioned v2"}`))
 	req.Header.Set("Content-Type", "application/json")
 	updateRouter.ServeHTTP(rr, req)
 	if rr.Code != http.StatusOK {
@@ -720,7 +720,7 @@ func TestAPIListContentVersions_AfterUpdate(t *testing.T) {
 	versionsRouter := mux.NewRouter()
 	versionsRouter.HandleFunc("/api/v1/content/{id}/versions", ah.APIListContentVersions).Methods(http.MethodGet)
 	rr = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodGet, "/api/v1/content/"+id+"/versions", nil)
+	req = authReq(http.MethodGet, "/api/v1/content/"+id+"/versions", nil)
 	versionsRouter.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusOK {
@@ -742,7 +742,7 @@ func TestAPIListContentVersions_InvalidID(t *testing.T) {
 	router.HandleFunc("/api/v1/content/{id}/versions", ah.APIListContentVersions).Methods(http.MethodGet)
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/content/bad-id/versions", nil)
+	req := authReq(http.MethodGet, "/api/v1/content/bad-id/versions", nil)
 	router.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusBadRequest {
@@ -763,7 +763,7 @@ func TestAPIGetContentVersion_InvalidVersion(t *testing.T) {
 
 	fakeID := primitive.NewObjectID().Hex()
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/content/"+fakeID+"/versions/abc", nil)
+	req := authReq(http.MethodGet, "/api/v1/content/"+fakeID+"/versions/abc", nil)
 	router.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusBadRequest {
@@ -783,7 +783,7 @@ func TestAPIGetContentVersion_NotFound(t *testing.T) {
 	router.HandleFunc("/api/v1/content/{id}/versions/{version}", ah.APIGetContentVersion).Methods(http.MethodGet)
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/content/"+id+"/versions/999", nil)
+	req := authReq(http.MethodGet, "/api/v1/content/"+id+"/versions/999", nil)
 	router.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusNotFound {
@@ -799,7 +799,7 @@ func TestAPIGetContentVersion_InvalidContentID(t *testing.T) {
 	router.HandleFunc("/api/v1/content/{id}/versions/{version}", ah.APIGetContentVersion).Methods(http.MethodGet)
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/content/bad-id/versions/1", nil)
+	req := authReq(http.MethodGet, "/api/v1/content/bad-id/versions/1", nil)
 	router.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusBadRequest {
@@ -816,7 +816,7 @@ func TestAPISearchContent_MissingQuery(t *testing.T) {
 	defer cleanup()
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/content/search", nil)
+	req := authReq(http.MethodGet, "/api/v1/content/search", nil)
 	ah.APISearchContent(rr, req)
 
 	if rr.Code != http.StatusBadRequest {
@@ -829,7 +829,7 @@ func TestAPISearchContent_EmptyResults(t *testing.T) {
 	defer cleanup()
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/content/search?q=xyznonexistent", nil)
+	req := authReq(http.MethodGet, "/api/v1/content/search?q=xyznonexistent", nil)
 	ah.APISearchContent(rr, req)
 
 	if rr.Code != http.StatusOK {
@@ -854,7 +854,7 @@ func TestAPISearchContent_MatchByTitle(t *testing.T) {
 	seedContent(t, db, tmplID, "Unique Banana Title", "banana", "/banana")
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/content/search?q=banana", nil)
+	req := authReq(http.MethodGet, "/api/v1/content/search?q=banana", nil)
 	ah.APISearchContent(rr, req)
 
 	if rr.Code != http.StatusOK {
@@ -877,7 +877,7 @@ func TestAPIBatchPublishContent_InvalidBody(t *testing.T) {
 	defer cleanup()
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/batch-publish", strings.NewReader(`{broken`))
+	req := authReq(http.MethodPost, "/api/v1/content/batch-publish", strings.NewReader(`{broken`))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APIBatchPublishContent(rr, req)
 
@@ -892,7 +892,7 @@ func TestAPIBatchPublishContent_InvalidIDs(t *testing.T) {
 
 	payload := `{"ids":["not-a-hex"]}`
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/batch-publish", strings.NewReader(payload))
+	req := authReq(http.MethodPost, "/api/v1/content/batch-publish", strings.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APIBatchPublishContent(rr, req)
 
@@ -907,7 +907,7 @@ func TestAPIBatchPublishContent_EmptyIDs(t *testing.T) {
 
 	payload := `{"ids":[]}`
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/batch-publish", strings.NewReader(payload))
+	req := authReq(http.MethodPost, "/api/v1/content/batch-publish", strings.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APIBatchPublishContent(rr, req)
 
@@ -933,7 +933,7 @@ func TestAPIBatchPublishContent_WithValidIDs(t *testing.T) {
 
 	payload := `{"ids":["` + id + `"]}`
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/batch-publish", strings.NewReader(payload))
+	req := authReq(http.MethodPost, "/api/v1/content/batch-publish", strings.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APIBatchPublishContent(rr, req)
 
@@ -965,7 +965,7 @@ func TestAPIPreviewContent_Valid(t *testing.T) {
 	router.HandleFunc("/api/v1/content/{id}/preview", ah.APIPreviewContent).Methods(http.MethodGet)
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/content/"+id+"/preview", nil)
+	req := authReq(http.MethodGet, "/api/v1/content/"+id+"/preview", nil)
 	router.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusOK {
@@ -990,7 +990,7 @@ func TestAPIPreviewContent_NotFound(t *testing.T) {
 
 	fakeID := primitive.NewObjectID().Hex()
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/content/"+fakeID+"/preview", nil)
+	req := authReq(http.MethodGet, "/api/v1/content/"+fakeID+"/preview", nil)
 	router.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusNotFound {
@@ -1006,7 +1006,7 @@ func TestAPIPreviewContent_InvalidID(t *testing.T) {
 	router.HandleFunc("/api/v1/content/{id}/preview", ah.APIPreviewContent).Methods(http.MethodGet)
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/content/bad-id/preview", nil)
+	req := authReq(http.MethodGet, "/api/v1/content/bad-id/preview", nil)
 	router.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusBadRequest {
@@ -1027,7 +1027,7 @@ func TestAPIUpdateContentByPath_Valid(t *testing.T) {
 
 	payload := `{"title":"Path Updated"}`
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/content/by-path?path=/path-update", strings.NewReader(payload))
+	req := authReq(http.MethodPut, "/api/v1/content/by-path?path=/path-update", strings.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APIUpdateContentByPath(rr, req)
 
@@ -1046,7 +1046,7 @@ func TestAPIUpdateContentByPath_MissingPath(t *testing.T) {
 	defer cleanup()
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/content/by-path", strings.NewReader(`{"title":"x"}`))
+	req := authReq(http.MethodPut, "/api/v1/content/by-path", strings.NewReader(`{"title":"x"}`))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APIUpdateContentByPath(rr, req)
 
@@ -1061,7 +1061,7 @@ func TestAPIUpdateContentByPath_NotFound(t *testing.T) {
 
 	payload := `{"title":"Nope"}`
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/content/by-path?path=/nonexistent", strings.NewReader(payload))
+	req := authReq(http.MethodPut, "/api/v1/content/by-path?path=/nonexistent", strings.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APIUpdateContentByPath(rr, req)
 
@@ -1078,7 +1078,7 @@ func TestAPIUpdateContentByPath_InvalidBody(t *testing.T) {
 	createContentViaAPI(t, ah, tmplID, "Bad Body", "bad-body")
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/content/by-path?path=/bad-body", strings.NewReader(`{not json`))
+	req := authReq(http.MethodPut, "/api/v1/content/by-path?path=/bad-body", strings.NewReader(`{not json`))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APIUpdateContentByPath(rr, req)
 
@@ -1100,7 +1100,7 @@ func TestAPIExportContent_All(t *testing.T) {
 	seedContent(t, db, tmplID, "Export B", "export-b", "/export-b")
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/content/export", nil)
+	req := authReq(http.MethodGet, "/api/v1/content/export", nil)
 	ah.APIExportContent(rr, req)
 
 	if rr.Code != http.StatusOK {
@@ -1131,7 +1131,7 @@ func TestAPIExportContent_WithTemplateFilter(t *testing.T) {
 
 	payload := `{"template_name":"Blog"}`
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/export", strings.NewReader(payload))
+	req := authReq(http.MethodPost, "/api/v1/content/export", strings.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APIExportContent(rr, req)
 
@@ -1158,7 +1158,7 @@ func TestAPIExportContent_Empty(t *testing.T) {
 	defer cleanup()
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/content/export", nil)
+	req := authReq(http.MethodGet, "/api/v1/content/export", nil)
 	ah.APIExportContent(rr, req)
 
 	if rr.Code != http.StatusOK {
@@ -1177,7 +1177,7 @@ func TestAPIExportContent_InvalidBody(t *testing.T) {
 	defer cleanup()
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/export", strings.NewReader(`{broken`))
+	req := authReq(http.MethodPost, "/api/v1/content/export", strings.NewReader(`{broken`))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APIExportContent(rr, req)
 
@@ -1198,7 +1198,7 @@ func TestAPIListContent_IncludeFields(t *testing.T) {
 	seedContent(t, db, tmplID, "Fields Test", "fields-test", "/fields-test")
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/content?include_fields=body,hero_image", nil)
+	req := authReq(http.MethodGet, "/api/v1/content?include_fields=body,hero_image", nil)
 	ah.APIListContent(rr, req)
 
 	if rr.Code != http.StatusOK {
@@ -1224,7 +1224,7 @@ func TestAPIGetContent_IncludeRendered(t *testing.T) {
 	router.HandleFunc("/api/v1/content/{id}", ah.APIGetContent).Methods(http.MethodGet)
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/content/"+id+"?include_rendered=true", nil)
+	req := authReq(http.MethodGet, "/api/v1/content/"+id+"?include_rendered=true", nil)
 	router.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusOK {
@@ -1245,7 +1245,7 @@ func TestAPISearchContent_TypeParam(t *testing.T) {
 	seedContent(t, db, tmplID, "Search Type Test", "search-type", "/search-type")
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/content/search?q=Search+Type&type=title_only", nil)
+	req := authReq(http.MethodGet, "/api/v1/content/search?q=Search+Type&type=title_only", nil)
 	ah.APISearchContent(rr, req)
 
 	if rr.Code != http.StatusOK {
@@ -1269,7 +1269,7 @@ func TestAPIRevertContentVersion_InvalidID(t *testing.T) {
 	r := mux.NewRouter()
 	r.HandleFunc("/api/v1/content/{id}/versions/{version}/revert", ah.APIRevertContentVersion).Methods("POST")
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/invalidid/versions/1/revert", strings.NewReader(`{}`))
+	req := authReq(http.MethodPost, "/api/v1/content/invalidid/versions/1/revert", strings.NewReader(`{}`))
 	req.Header.Set("Content-Type", "application/json")
 	r.ServeHTTP(rr, req)
 	if rr.Code != http.StatusBadRequest {
@@ -1285,7 +1285,7 @@ func TestAPIRevertContentVersion_InvalidVersion(t *testing.T) {
 	r := mux.NewRouter()
 	r.HandleFunc("/api/v1/content/{id}/versions/{version}/revert", ah.APIRevertContentVersion).Methods("POST")
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/"+id.Hex()+"/versions/notanumber/revert", strings.NewReader(`{}`))
+	req := authReq(http.MethodPost, "/api/v1/content/"+id.Hex()+"/versions/notanumber/revert", strings.NewReader(`{}`))
 	req.Header.Set("Content-Type", "application/json")
 	r.ServeHTTP(rr, req)
 	if rr.Code != http.StatusBadRequest {
@@ -1301,7 +1301,7 @@ func TestAPIRevertContentVersion_NotFound(t *testing.T) {
 	r := mux.NewRouter()
 	r.HandleFunc("/api/v1/content/{id}/versions/{version}/revert", ah.APIRevertContentVersion).Methods("POST")
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/"+id.Hex()+"/versions/99/revert", strings.NewReader(`{}`))
+	req := authReq(http.MethodPost, "/api/v1/content/"+id.Hex()+"/versions/99/revert", strings.NewReader(`{}`))
 	req.Header.Set("Content-Type", "application/json")
 	r.ServeHTTP(rr, req)
 	if rr.Code != http.StatusInternalServerError && rr.Code != http.StatusNotFound {
@@ -1318,7 +1318,7 @@ func TestAPISearchReplacePreview_EmptySearch(t *testing.T) {
 	defer cleanup()
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/search-replace/preview",
+	req := authReq(http.MethodPost, "/api/v1/content/search-replace/preview",
 		strings.NewReader(`{"search":"","replace":"bar"}`))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APISearchReplacePreview(rr, req)
@@ -1335,7 +1335,7 @@ func TestAPISearchReplacePreview_ValidSearch(t *testing.T) {
 	seedContent(t, db, tmplID, "SearchReplace Page", "searchreplace-page", "/searchreplace-page")
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/search-replace/preview",
+	req := authReq(http.MethodPost, "/api/v1/content/search-replace/preview",
 		strings.NewReader(`{"search":"SearchReplace","replace":"Changed"}`))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APISearchReplacePreview(rr, req)
@@ -1357,7 +1357,7 @@ func TestAPISearchReplacePreview_RegexSearch(t *testing.T) {
 	seedContent(t, db, tmplID, "Regex Test 123", "regex-test", "/regex-test")
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/search-replace/preview",
+	req := authReq(http.MethodPost, "/api/v1/content/search-replace/preview",
 		strings.NewReader(`{"search":"[0-9]+","replace":"NUM","regex":true}`))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APISearchReplacePreview(rr, req)
@@ -1371,7 +1371,7 @@ func TestAPISearchReplacePreview_InvalidRegex(t *testing.T) {
 	defer cleanup()
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/search-replace/preview",
+	req := authReq(http.MethodPost, "/api/v1/content/search-replace/preview",
 		strings.NewReader(`{"search":"[invalid","replace":"bar","regex":true}`))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APISearchReplacePreview(rr, req)
@@ -1385,7 +1385,7 @@ func TestAPISearchReplacePreview_InvalidBody(t *testing.T) {
 	defer cleanup()
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/search-replace/preview",
+	req := authReq(http.MethodPost, "/api/v1/content/search-replace/preview",
 		strings.NewReader(`not-json`))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APISearchReplacePreview(rr, req)
@@ -1403,7 +1403,7 @@ func TestAPISearchReplaceExecute_EmptySearch(t *testing.T) {
 	defer cleanup()
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/search-replace/execute",
+	req := authReq(http.MethodPost, "/api/v1/content/search-replace/execute",
 		strings.NewReader(`{"search":"","replace":"bar"}`))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APISearchReplaceExecute(rr, req)
@@ -1420,7 +1420,7 @@ func TestAPISearchReplaceExecute_ValidSearch(t *testing.T) {
 	seedContent(t, db, tmplID, "Execute Replace Page", "execute-replace-page", "/execute-replace-page")
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/search-replace/execute",
+	req := authReq(http.MethodPost, "/api/v1/content/search-replace/execute",
 		strings.NewReader(`{"search":"Execute Replace","replace":"Done Replace","dry_run":true}`))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APISearchReplaceExecute(rr, req)
@@ -1434,7 +1434,7 @@ func TestAPISearchReplaceExecute_InvalidBody(t *testing.T) {
 	defer cleanup()
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/search-replace/execute",
+	req := authReq(http.MethodPost, "/api/v1/content/search-replace/execute",
 		strings.NewReader(`not-json`))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APISearchReplaceExecute(rr, req)
@@ -1452,7 +1452,7 @@ func TestAPIBulkUpdateContent_EmptyUpdates(t *testing.T) {
 	defer cleanup()
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/bulk-update",
+	req := authReq(http.MethodPost, "/api/v1/content/bulk-update",
 		strings.NewReader(`{"updates":[]}`))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APIBulkUpdateContent(rr, req)
@@ -1470,7 +1470,7 @@ func TestAPIBulkUpdateContent_DryRun(t *testing.T) {
 
 	payload := `{"updates":[{"id":"` + id.Hex() + `","title":"New Title"}],"dry_run":true}`
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/bulk-update",
+	req := authReq(http.MethodPost, "/api/v1/content/bulk-update",
 		strings.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APIBulkUpdateContent(rr, req)
@@ -1485,7 +1485,7 @@ func TestAPIBulkUpdateContent_WithInvalidID(t *testing.T) {
 
 	payload := `{"updates":[{"id":"notanid","title":"Title"}]}`
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/bulk-update",
+	req := authReq(http.MethodPost, "/api/v1/content/bulk-update",
 		strings.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APIBulkUpdateContent(rr, req)
@@ -1504,7 +1504,7 @@ func TestAPIBulkUpdateContent_TooManyUpdates(t *testing.T) {
 	}
 	payload := `{"updates":[` + strings.Join(updates, ",") + `]}`
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/bulk-update",
+	req := authReq(http.MethodPost, "/api/v1/content/bulk-update",
 		strings.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APIBulkUpdateContent(rr, req)
@@ -1518,7 +1518,7 @@ func TestAPIBulkUpdateContent_InvalidBody(t *testing.T) {
 	defer cleanup()
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/bulk-update",
+	req := authReq(http.MethodPost, "/api/v1/content/bulk-update",
 		strings.NewReader(`not-json`))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APIBulkUpdateContent(rr, req)
@@ -1536,7 +1536,7 @@ func TestAPIScopedSearchReplacePreview_EmptySearch(t *testing.T) {
 	defer cleanup()
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/scoped-search-replace/preview",
+	req := authReq(http.MethodPost, "/api/v1/content/scoped-search-replace/preview",
 		strings.NewReader(`{"search":"","replace":"bar","scope":{}}`))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APIScopedSearchReplacePreview(rr, req)
@@ -1553,7 +1553,7 @@ func TestAPIScopedSearchReplacePreview_WithScope(t *testing.T) {
 	_ = seedContent(t, db, tmplID, "Scoped Replace Page", "scoped-replace", "/scoped-replace")
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/scoped-search-replace/preview",
+	req := authReq(http.MethodPost, "/api/v1/content/scoped-search-replace/preview",
 		strings.NewReader(`{"search":"Scoped","replace":"Changed","scope":{"folder_path":"/"}}`))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APIScopedSearchReplacePreview(rr, req)
@@ -1571,7 +1571,7 @@ func TestAPIScopedSearchReplacePreview_ValidRequest(t *testing.T) {
 
 	payload := `{"search":"Scoped","replace":"Changed","scope":{"content_ids":["` + id.Hex() + `"]}}`
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/scoped-search-replace/preview",
+	req := authReq(http.MethodPost, "/api/v1/content/scoped-search-replace/preview",
 		strings.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APIScopedSearchReplacePreview(rr, req)
@@ -1589,7 +1589,7 @@ func TestAPIScopedSearchReplaceExecute_EmptySearch(t *testing.T) {
 	defer cleanup()
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/scoped-search-replace/execute",
+	req := authReq(http.MethodPost, "/api/v1/content/scoped-search-replace/execute",
 		strings.NewReader(`{"search":"","replace":"bar","content_ids":["` + primitive.NewObjectID().Hex() + `"]}`))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APIScopedSearchReplaceExecute(rr, req)
@@ -1607,7 +1607,7 @@ func TestAPIScopedSearchReplaceExecute_ValidRequest(t *testing.T) {
 
 	payload := `{"search":"Scoped Execute","replace":"Done","scope":{"content_ids":["` + id.Hex() + `"]},"dry_run":true}`
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/scoped-search-replace/execute",
+	req := authReq(http.MethodPost, "/api/v1/content/scoped-search-replace/execute",
 		strings.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APIScopedSearchReplaceExecute(rr, req)
@@ -1625,7 +1625,7 @@ func TestAPIBulkFieldOperation_EmptyUpdates(t *testing.T) {
 	defer cleanup()
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/bulk-field",
+	req := authReq(http.MethodPost, "/api/v1/content/bulk-field",
 		strings.NewReader(`{"operation":"","field":"body"}`))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APIBulkFieldOperation(rr, req)
@@ -1639,7 +1639,7 @@ func TestAPIBulkFieldOperation_InvalidBody(t *testing.T) {
 	defer cleanup()
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/bulk-field",
+	req := authReq(http.MethodPost, "/api/v1/content/bulk-field",
 		strings.NewReader(`not-json`))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APIBulkFieldOperation(rr, req)
@@ -1657,7 +1657,7 @@ func TestAPIBulkFieldOperation_ValidOperation(t *testing.T) {
 
 	payload := `{"operation":"set","field":"body","value":"Updated body","scope":{"content_ids":["` + id.Hex() + `"]}}`
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/content/bulk-field",
+	req := authReq(http.MethodPost, "/api/v1/content/bulk-field",
 		strings.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APIBulkFieldOperation(rr, req)

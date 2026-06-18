@@ -1350,6 +1350,21 @@ var editorSafePolicy = func() *bluemonday.Policy {
 	return p
 }()
 
+// SanitizeContentData strips script-execution vectors from all string fields in
+// content Data when the script policy requires it. Called at write time as
+// defense-in-depth (the primary enforcement is at render/generation time).
+func SanitizeContentData(data map[string]interface{}) map[string]interface{} {
+	if data == nil {
+		return data
+	}
+	for k, v := range data {
+		if s, ok := v.(string); ok {
+			data[k] = editorSafePolicy.Sanitize(s)
+		}
+	}
+	return data
+}
+
 // markdownToHTML converts markdown text to HTML using goldmark with GFM extensions.
 // If allowUnsafe is true, raw HTML pass-through is enabled (goldmark WithUnsafe).
 // If allowUnsafe is false, the output is sanitized by editorSafePolicy.

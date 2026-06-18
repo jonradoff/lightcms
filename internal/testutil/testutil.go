@@ -120,6 +120,41 @@ func MustConnectTestDB(t *testing.T) (*database.DB, func()) {
 	return sharedDB, cleanup
 }
 
+var (
+	brokenOnce sync.Once
+	brokenDB   *database.DB
+)
+
+// MustConnectBrokenDB returns a database connection that has been disconnected,
+// so every operation returns an error. It lets tests exercise the database-error
+// branches of service methods. Skips if MONGODB_URI is not set.
+func MustConnectBrokenDB(t *testing.T) *database.DB {
+	t.Helper()
+	brokenOnce.Do(func() {
+		loadEnvTest()
+		uri := os.Getenv("MONGODB_URI")
+		if uri == "" {
+			return
+		}
+		dbName := os.Getenv("DATABASE_NAME")
+		if dbName == "" {
+			dbName = testDBName
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		db, err := database.Connect(ctx, uri, dbName, options.Client().SetWriteConcern(writeconcern.New(writeconcern.WMajority())))
+		if err != nil {
+			return
+		}
+		_ = db.Disconnect(context.Background())
+		brokenDB = db
+	})
+	if brokenDB == nil {
+		t.Skip("skipping: MONGODB_URI not set")
+	}
+	return brokenDB
+}
+
 // CleanupCollections drops test collections for isolation between tests.
 // Dropping ensures unique indexes (e.g. users.email) are also cleared, preventing
 // duplicate key errors when MigrateToMultiUser runs in subsequent tests.
@@ -134,6 +169,9 @@ func CleanupCollections(t *testing.T, db *database.DB) {
 		"login_attempts", "assets", "api_keys", "redirects", "snippets",
 		"users", "audit_logs", "user_activity",
 		"oauth_clients", "oauth_auth_codes", "oauth_access_tokens", "oauth_refresh_tokens",
+		"content_comments", "content_locks", "webhooks", "webhook_deliveries",
+		"content_forks", "approval_workflows", "approval_requests",
+		"import_sources", "import_jobs", "link_check_jobs", "regen_jobs",
 	}
 	for _, name := range collections {
 		db.Collection(name).Drop(ctx) //nolint:errcheck

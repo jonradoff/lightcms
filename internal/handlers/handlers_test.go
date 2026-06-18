@@ -3653,9 +3653,9 @@ func TestAPIListAPIKeys_NoAuth(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/api-keys", nil)
 	rr := httptest.NewRecorder()
 	ah.APIListAPIKeys(rr, req)
-	// No API key → backward compat allows (returns 200 with empty list)
-	if rr.Code != http.StatusOK && rr.Code != http.StatusUnauthorized {
-		t.Fatalf("expected 200 or 401, got %d", rr.Code)
+	// No user context → denied (legacy keys without a user are rejected).
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for missing user context, got %d", rr.Code)
 	}
 }
 

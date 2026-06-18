@@ -4,6 +4,19 @@ All notable changes to LightCMS are documented here, organized by version.
 
 ---
 
+## [6.1.1] - 2026-03-31
+
+### Security
+- **Search/replace input validation**: Pairs array capped at 100 per request. Search and replace text capped at 100K characters. Regex patterns capped at 1,000 characters to prevent ReDoS.
+- **Legacy API keys deprecated**: API keys without an associated user now return 403 instead of bypassing all permission checks. Keys must be re-created with a user owner.
+- **Script policy enforced at write time**: Bulk create and bulk update operations now sanitize content data fields (bluemonday) when the script policy is `admin_only` or `none`, as defense-in-depth alongside the existing render-time enforcement.
+- **Bulk field operation field validation**: System fields (`_id`, `published`, `template_id`, `full_path`, etc.) are blocked from modification via the bulk field operation endpoint.
+- **Per-page locking in concurrent operations**: Search/replace, bulk update, and bulk field operations now use per-page mutual exclusion to prevent race conditions when multiple workers target the same content item.
+- **Error message sanitization**: Bulk operation error responses no longer expose MongoDB internals, field names, or collection structure. Detailed errors are logged server-side only.
+- **Enhanced audit logging**: Bulk create operations now include a sample of created content IDs (up to 10) in the audit trail.
+
+---
+
 ## [6.1.0] - 2026-03-31
 
 ### Added
@@ -19,7 +32,6 @@ All notable changes to LightCMS are documented here, organized by version.
 ### Changed
 - **Search/Replace now returns counts**: Both preview and execute responses include `pages_scanned`, `pages_modified` (execute), `total_replacements`, and per-pair summaries in multi-pair mode.
 - **Conditional Republish**: Static HTML generation now uses SHA-256 content hashing. Pages whose rendered output hasn't changed are skipped during regeneration. `RegenerateAllContent` clears all hashes first to force full regeneration when theme/template/snippet changes affect output globally.
-- **Fly.io memory upgraded**: Production machine upgraded from 512MB to 1GB RAM.
 - **Deploy script hardened**: Orphan machine cleanup now catches machines in any state (created, starting, stopped), not just created.
 
 ### Fixed

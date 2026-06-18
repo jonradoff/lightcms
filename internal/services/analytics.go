@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/url"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -49,7 +50,9 @@ type AnalyticsService struct {
 
 	// Write buffer for page views, referrers, and user agents.
 	bufMu              sync.Mutex
-	bufPageViews       map[string]map[string]int // hourKey → escapedPath → count
+	bufPageViews       map[string]map[string]int // hourKey → escapedPath → count (combined)
+	bufPageViewsHuman  map[string]map[string]int // hourKey → escapedPath → count (non-bot)
+	bufPageViewsBot    map[string]map[string]int // hourKey → escapedPath → count (bot)
 	bufRefHuman        map[string]map[string]int // hourKey → source → count (non-bot)
 	bufRefBot          map[string]map[string]int // hourKey → source → count (bot)
 	bufPageRefHuman    map[string]map[string]int // hourKey → "path||source" → count (non-bot)
@@ -72,8 +75,10 @@ func NewAnalyticsService(ctx context.Context, db *database.DB, baseURL string) *
 		db:           db,
 		stop:         make(chan struct{}),
 		siteHosts:    hosts,
-		bufPageViews:    make(map[string]map[string]int),
-		bufRefHuman:     make(map[string]map[string]int),
+		bufPageViews:      make(map[string]map[string]int),
+		bufPageViewsHuman: make(map[string]map[string]int),
+		bufPageViewsBot:   make(map[string]map[string]int),
+		bufRefHuman:       make(map[string]map[string]int),
 		bufRefBot:       make(map[string]map[string]int),
 		bufPageRefHuman: make(map[string]map[string]int),
 		bufPageRefBot:   make(map[string]map[string]int),
@@ -177,18 +182,29 @@ func (s *AnalyticsService) runBufferFlush() {
 	}
 }
 
+// FlushBufferForTest flushes buffered analytics writes to MongoDB synchronously.
+// It is intended for tests that need recorded page views to be queryable
+// immediately, without waiting for the background flush ticker.
+func (s *AnalyticsService) FlushBufferForTest() {
+	s.flushBuffer()
+}
+
 // flushBuffer writes all buffered page views and referrers to MongoDB in one
 // UpdateOne per hourly bucket. The buffer is swapped under the lock so new
 // writes don't block on the DB round-trip.
 func (s *AnalyticsService) flushBuffer() {
 	s.bufMu.Lock()
 	pv := s.bufPageViews
+	pvH := s.bufPageViewsHuman
+	pvB := s.bufPageViewsBot
 	refH := s.bufRefHuman
 	refB := s.bufRefBot
 	prH := s.bufPageRefHuman
 	prB := s.bufPageRefBot
 	ua := s.bufUserAgents
 	s.bufPageViews = make(map[string]map[string]int)
+	s.bufPageViewsHuman = make(map[string]map[string]int)
+	s.bufPageViewsBot = make(map[string]map[string]int)
 	s.bufRefHuman = make(map[string]map[string]int)
 	s.bufRefBot = make(map[string]map[string]int)
 	s.bufPageRefHuman = make(map[string]map[string]int)
@@ -198,7 +214,7 @@ func (s *AnalyticsService) flushBuffer() {
 
 	// Collect all hour keys across all maps.
 	hourKeys := make(map[string]struct{})
-	for _, m := range []map[string]map[string]int{pv, refH, refB, prH, prB, ua} {
+	for _, m := range []map[string]map[string]int{pv, pvH, pvB, refH, refB, prH, prB, ua} {
 		for hk := range m {
 			hourKeys[hk] = struct{}{}
 		}
@@ -215,10 +231,22 @@ func (s *AnalyticsService) flushBuffer() {
 	for hk := range hourKeys {
 		inc := bson.M{}
 
-		// Page views
+		// Page views (combined)
 		if m, ok := pv[hk]; ok {
 			for path, count := range m {
 				inc["page_views."+path] = count
+			}
+		}
+		// Page views (human)
+		if m, ok := pvH[hk]; ok {
+			for path, count := range m {
+				inc["page_views_human."+path] = count
+			}
+		}
+		// Page views (bot)
+		if m, ok := pvB[hk]; ok {
+			for path, count := range m {
+				inc["page_views_bot."+path] = count
 			}
 		}
 
@@ -305,7 +333,9 @@ func (s *AnalyticsService) RecordActivity(ctx context.Context, userID string) {
 }
 
 // RecordHourlyVisitor records a unique visitor (by hashed IP) for the current hour.
-func (s *AnalyticsService) RecordHourlyVisitor(ctx context.Context, ipHash string) {
+// It classifies the visitor as bot or human based on the User-Agent string and
+// stores them in separate arrays for filtered analytics.
+func (s *AnalyticsService) RecordHourlyVisitor(ctx context.Context, ipHash, rawUA string) {
 	if ipHash == "" {
 		return
 	}
@@ -315,11 +345,16 @@ func (s *AnalyticsService) RecordHourlyVisitor(ctx context.Context, ipHash strin
 	if _, loaded := s.visited.LoadOrStore(cacheKey, struct{}{}); loaded {
 		return
 	}
+	isBot := classifyUserAgent(rawUA) == "Bot"
+	field := "visitors_human"
+	if isBot {
+		field = "visitors_bot"
+	}
 	col := s.db.Collection(activityCollection)
 	_, err := col.UpdateOne(ctx,
 		bson.M{"user_id": hourlyUserID, "date": hk},
 		bson.M{
-			"$addToSet":    bson.M{"visitors": ipHash},
+			"$addToSet":    bson.M{field: ipHash, "visitors": ipHash},
 			"$setOnInsert": bson.M{"created_at": time.Now().UTC(), "uptime_pings": 0},
 		},
 		options.Update().SetUpsert(true),
@@ -354,11 +389,22 @@ func (s *AnalyticsService) RecordPageView(ctx context.Context, pagePath, rawRefe
 	prKey := safeKey + "||" + source
 
 	s.bufMu.Lock()
-	// Page views
+	// Page views (combined + split)
 	if s.bufPageViews[hk] == nil {
 		s.bufPageViews[hk] = make(map[string]int)
 	}
 	s.bufPageViews[hk][safeKey]++
+	if isBot {
+		if s.bufPageViewsBot[hk] == nil {
+			s.bufPageViewsBot[hk] = make(map[string]int)
+		}
+		s.bufPageViewsBot[hk][safeKey]++
+	} else {
+		if s.bufPageViewsHuman[hk] == nil {
+			s.bufPageViewsHuman[hk] = make(map[string]int)
+		}
+		s.bufPageViewsHuman[hk][safeKey]++
+	}
 
 	// Referrers — split into human/bot buckets
 	if isBot {
@@ -545,9 +591,11 @@ func (s *AnalyticsService) GetContentCreatedToday(ctx context.Context) int64 {
 
 // HourlyStat is the read model for hourly analytics data.
 type HourlyStat struct {
-	Hour         time.Time `bson:"hour" json:"hour"`
-	VisitorCount int       `bson:"visitor_count" json:"visitor_count"`
-	UptimePings  int       `bson:"uptime_pings" json:"uptime_pings"`
+	Hour              time.Time `bson:"hour" json:"hour"`
+	VisitorCount      int       `bson:"visitor_count" json:"visitor_count"`
+	VisitorCountHuman int       `bson:"visitor_count_human" json:"visitor_count_human"`
+	VisitorCountBot   int       `bson:"visitor_count_bot" json:"visitor_count_bot"`
+	UptimePings       int       `bson:"uptime_pings" json:"uptime_pings"`
 }
 
 // GetHourlyStats returns stats for the given time range, one entry per hour.
@@ -560,17 +608,21 @@ func (s *AnalyticsService) GetHourlyStats(ctx context.Context, since, until time
 			"date":    bson.M{"$gte": sinceKey, "$lt": untilKey},
 		}},
 		bson.M{"$project": bson.M{
-			"date":          1,
-			"visitor_count": bson.M{"$size": bson.M{"$ifNull": bson.A{"$visitors", bson.A{}}}},
-			"uptime_pings":  1,
+			"date":                1,
+			"visitor_count":       bson.M{"$size": bson.M{"$ifNull": bson.A{"$visitors", bson.A{}}}},
+			"visitor_count_human": bson.M{"$size": bson.M{"$ifNull": bson.A{"$visitors_human", bson.A{}}}},
+			"visitor_count_bot":   bson.M{"$size": bson.M{"$ifNull": bson.A{"$visitors_bot", bson.A{}}}},
+			"uptime_pings":       1,
 		}},
 		bson.M{"$sort": bson.M{"date": 1}},
 	}
 
 	var raw []struct {
-		Date         string `bson:"date"`
-		VisitorCount int    `bson:"visitor_count"`
-		UptimePings  int    `bson:"uptime_pings"`
+		Date              string `bson:"date"`
+		VisitorCount      int    `bson:"visitor_count"`
+		VisitorCountHuman int    `bson:"visitor_count_human"`
+		VisitorCountBot   int    `bson:"visitor_count_bot"`
+		UptimePings       int    `bson:"uptime_pings"`
 	}
 	if err := s.db.Aggregate(ctx, activityCollection, pipeline, &raw); err != nil {
 		return nil, err
@@ -583,25 +635,27 @@ func (s *AnalyticsService) GetHourlyStats(ctx context.Context, since, until time
 			continue
 		}
 		results = append(results, HourlyStat{
-			Hour:         t,
-			VisitorCount: r.VisitorCount,
-			UptimePings:  r.UptimePings,
+			Hour:              t,
+			VisitorCount:      r.VisitorCount,
+			VisitorCountHuman: r.VisitorCountHuman,
+			VisitorCountBot:   r.VisitorCountBot,
+			UptimePings:       r.UptimePings,
 		})
 	}
 	return results, nil
 }
 
-// GetUptimeSummary returns uptime percentage and total visitors for a time range.
-func (s *AnalyticsService) GetUptimeSummary(ctx context.Context, since time.Time) (uptimePct float64, totalVisitors int) {
+// GetUptimeSummary returns uptime percentage, total visitors, and human-only visitors for a time range.
+func (s *AnalyticsService) GetUptimeSummary(ctx context.Context, since time.Time) (uptimePct float64, totalVisitors, humanVisitors int) {
 	now := time.Now().UTC()
 	totalHours := int(now.Sub(since).Hours())
 	if totalHours <= 0 {
-		return 100.0, 0
+		return 100.0, 0, 0
 	}
 
 	stats, err := s.GetHourlyStats(ctx, since, now)
 	if err != nil {
-		return 0, 0
+		return 0, 0, 0
 	}
 
 	upHours := 0
@@ -610,9 +664,10 @@ func (s *AnalyticsService) GetUptimeSummary(ctx context.Context, since time.Time
 			upHours++
 		}
 		totalVisitors += st.VisitorCount
+		humanVisitors += st.VisitorCountHuman
 	}
 	uptimePct = float64(upHours) / float64(totalHours) * 100
-	return uptimePct, totalVisitors
+	return uptimePct, totalVisitors, humanVisitors
 }
 
 // PageStat represents a page path and its total view count.
@@ -623,18 +678,48 @@ type PageStat struct {
 }
 
 // GetTopPages returns the top N pages by view count in the given time range.
-func (s *AnalyticsService) GetTopPages(ctx context.Context, since, until time.Time, limit int) ([]PageStat, error) {
+func (s *AnalyticsService) GetTopPages(ctx context.Context, since, until time.Time, limit int, filter BotFilter) ([]PageStat, error) {
 	sinceKey := hourKey(since)
 	untilKey := hourKey(until)
 
+	// For "all", merge human + bot + legacy combined field
+	if filter == BotFilterAll {
+		h, _ := s.GetTopPages(ctx, since, until, limit*2, BotFilterHuman)
+		b, _ := s.GetTopPages(ctx, since, until, limit*2, BotFilterBot)
+		legacy := s.queryTopPagesField(ctx, sinceKey, untilKey, "page_views", limit*2)
+		merged := make(map[string]int)
+		for _, p := range h {
+			merged[p.Path] += p.Views
+		}
+		for _, p := range b {
+			merged[p.Path] += p.Views
+		}
+		// Use legacy data for paths not present in split data
+		for _, p := range legacy {
+			if _, ok := merged[p.Path]; !ok {
+				merged[p.Path] = p.Views
+			}
+		}
+		results := make([]PageStat, 0, len(merged))
+		for path, views := range merged {
+			results = append(results, PageStat{Path: path, Views: views})
+		}
+		sort.Slice(results, func(i, j int) bool { return results[i].Views > results[j].Views })
+		if len(results) > limit {
+			results = results[:limit]
+		}
+		return results, nil
+	}
+
+	field := pvField(filter)
 	pipeline := bson.A{
 		bson.M{"$match": bson.M{
-			"user_id":    hourlyUserID,
-			"date":       bson.M{"$gte": sinceKey, "$lt": untilKey},
-			"page_views": bson.M{"$exists": true},
+			"user_id": hourlyUserID,
+			"date":    bson.M{"$gte": sinceKey, "$lt": untilKey},
+			field:     bson.M{"$exists": true},
 		}},
 		bson.M{"$project": bson.M{
-			"pv_array": bson.M{"$objectToArray": "$page_views"},
+			"pv_array": bson.M{"$objectToArray": "$" + field},
 		}},
 		bson.M{"$unwind": "$pv_array"},
 		bson.M{"$group": bson.M{
@@ -661,6 +746,39 @@ func (s *AnalyticsService) GetTopPages(ctx context.Context, since, until time.Ti
 		})
 	}
 	return results, nil
+}
+
+// queryTopPagesField runs the standard page views aggregation on a specific field name.
+func (s *AnalyticsService) queryTopPagesField(ctx context.Context, sinceKey, untilKey, field string, limit int) []PageStat {
+	pipeline := bson.A{
+		bson.M{"$match": bson.M{
+			"user_id": hourlyUserID,
+			"date":    bson.M{"$gte": sinceKey, "$lt": untilKey},
+			field:     bson.M{"$exists": true},
+		}},
+		bson.M{"$project": bson.M{
+			"pv_array": bson.M{"$objectToArray": "$" + field},
+		}},
+		bson.M{"$unwind": "$pv_array"},
+		bson.M{"$group": bson.M{
+			"_id":   "$pv_array.k",
+			"views": bson.M{"$sum": "$pv_array.v"},
+		}},
+		bson.M{"$sort": bson.M{"views": -1}},
+		bson.M{"$limit": limit},
+	}
+	var raw []struct {
+		Key   string `bson:"_id"`
+		Views int    `bson:"views"`
+	}
+	if err := s.db.Aggregate(ctx, activityCollection, pipeline, &raw); err != nil {
+		return nil
+	}
+	results := make([]PageStat, 0, len(raw))
+	for _, r := range raw {
+		results = append(results, PageStat{Path: unescapeMongoKey(r.Key), Views: r.Views})
+	}
+	return results
 }
 
 // ReferrerStat represents a referrer domain and its hit count.
@@ -981,6 +1099,18 @@ const (
 	BotFilterBot   BotFilter = "bot"
 	BotFilterAll   BotFilter = "all"
 )
+
+// pvField returns the MongoDB field name for page views based on filter.
+func pvField(filter BotFilter) string {
+	switch filter {
+	case BotFilterBot:
+		return "page_views_bot"
+	case BotFilterHuman:
+		return "page_views_human"
+	default:
+		return "page_views"
+	}
+}
 
 // refField returns the MongoDB field name for site-wide referrers based on filter.
 func refField(filter BotFilter) string {

@@ -26,7 +26,7 @@ primary_region = 'ord'
   [[http_service.checks]]
     interval = "10s"
     timeout = "5s"
-    grace_period = "5s"
+    grace_period = "10s"
     path = "/health"
 
 [http_service.http_options]
@@ -34,7 +34,7 @@ primary_region = 'ord'
   response_header_timeout = 300
 
 [[vm]]
-  memory = '512mb'
+  memory = '1gb'
   cpu_kind = 'shared'
   cpus = 1
 

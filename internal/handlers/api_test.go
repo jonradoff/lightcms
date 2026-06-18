@@ -60,7 +60,7 @@ func TestDecodeJSON(t *testing.T) {
 	ah, _, cleanup := newTestAPIHandler(t)
 	defer cleanup()
 
-	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"name":"test"}`))
+	req := authReq(http.MethodPost, "/", strings.NewReader(`{"name":"test"}`))
 	req.Header.Set("Content-Type", "application/json")
 
 	var target struct {
@@ -91,9 +91,12 @@ func TestRequirePermission_NilUser(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	// No user in context => should allow (backward compat)
-	if !ah.requirePermission(rr, req, "anything") {
-		t.Fatal("expected requirePermission to return true for nil user")
+	// No user in context => denied (legacy keys without a user are rejected).
+	if ah.requirePermission(rr, req, "anything") {
+		t.Fatal("expected requirePermission to return false for nil user")
+	}
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for nil user, got %d", rr.Code)
 	}
 }
 
@@ -106,7 +109,7 @@ func TestHealthz_OK(t *testing.T) {
 	defer cleanup()
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	req := authReq(http.MethodGet, "/healthz", nil)
 	h.Healthz(rr, req)
 
 	if rr.Code != http.StatusOK {
@@ -141,7 +144,7 @@ func TestAPIListTemplates_Empty(t *testing.T) {
 	defer cleanup()
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/templates", nil)
+	req := authReq(http.MethodGet, "/api/v1/templates", nil)
 	ah.APIListTemplates(rr, req)
 
 	if rr.Code != http.StatusOK {
@@ -163,7 +166,7 @@ func TestAPIListTemplates_WithData(t *testing.T) {
 	seedTemplate(t, db, "Blog", "blog")
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/templates", nil)
+	req := authReq(http.MethodGet, "/api/v1/templates", nil)
 	ah.APIListTemplates(rr, req)
 
 	if rr.Code != http.StatusOK {
@@ -182,7 +185,7 @@ func TestAPICreateTemplate(t *testing.T) {
 
 	payload := `{"name":"Page","slug":"page","html_layout":"<html></html>"}`
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/templates", strings.NewReader(payload))
+	req := authReq(http.MethodPost, "/api/v1/templates", strings.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APICreateTemplate(rr, req)
 
@@ -202,7 +205,7 @@ func TestAPICreateTemplate_MissingFields(t *testing.T) {
 
 	payload := `{"name":"OnlyName"}`
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/templates", strings.NewReader(payload))
+	req := authReq(http.MethodPost, "/api/v1/templates", strings.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APICreateTemplate(rr, req)
 
@@ -221,7 +224,7 @@ func TestAPIGetTemplate_ByID(t *testing.T) {
 	router.HandleFunc("/api/v1/templates/{id}", ah.APIGetTemplate).Methods(http.MethodGet)
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/templates/"+id.Hex(), nil)
+	req := authReq(http.MethodGet, "/api/v1/templates/"+id.Hex(), nil)
 	router.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusOK {
@@ -244,7 +247,7 @@ func TestAPIGetTemplate_BySlug(t *testing.T) {
 	router.HandleFunc("/api/v1/templates/{id}", ah.APIGetTemplate).Methods(http.MethodGet)
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/templates/placeholder?slug=by-slug", nil)
+	req := authReq(http.MethodGet, "/api/v1/templates/placeholder?slug=by-slug", nil)
 	router.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusOK {
@@ -268,7 +271,7 @@ func TestAPIUpdateTemplate(t *testing.T) {
 
 	payload := `{"name":"Updated"}`
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/templates/"+id.Hex(), strings.NewReader(payload))
+	req := authReq(http.MethodPut, "/api/v1/templates/"+id.Hex(), strings.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(rr, req)
 
@@ -292,7 +295,7 @@ func TestAPIDeleteTemplate(t *testing.T) {
 	router.HandleFunc("/api/v1/templates/{id}", ah.APIDeleteTemplate).Methods(http.MethodDelete)
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/templates/"+id.Hex(), nil)
+	req := authReq(http.MethodDelete, "/api/v1/templates/"+id.Hex(), nil)
 	router.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusOK {
@@ -314,7 +317,7 @@ func TestAPIListSnippets_Empty(t *testing.T) {
 	defer cleanup()
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/snippets", nil)
+	req := authReq(http.MethodGet, "/api/v1/snippets", nil)
 	ah.APIListSnippets(rr, req)
 
 	if rr.Code != http.StatusOK {
@@ -333,7 +336,7 @@ func TestAPICreateSnippet(t *testing.T) {
 
 	payload := `{"name":"footer","html":"<footer>bye</footer>"}`
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/snippets", strings.NewReader(payload))
+	req := authReq(http.MethodPost, "/api/v1/snippets", strings.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APICreateSnippet(rr, req)
 
@@ -353,7 +356,7 @@ func TestAPICreateSnippet_MissingName(t *testing.T) {
 
 	payload := `{"html":"<p>no name</p>"}`
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/snippets", strings.NewReader(payload))
+	req := authReq(http.MethodPost, "/api/v1/snippets", strings.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APICreateSnippet(rr, req)
 
@@ -369,7 +372,7 @@ func TestAPIGetSnippet(t *testing.T) {
 	// Create first
 	payload := `{"name":"getme","html":"<p>hi</p>"}`
 	createRR := httptest.NewRecorder()
-	createReq := httptest.NewRequest(http.MethodPost, "/api/v1/snippets", strings.NewReader(payload))
+	createReq := authReq(http.MethodPost, "/api/v1/snippets", strings.NewReader(payload))
 	createReq.Header.Set("Content-Type", "application/json")
 	ah.APICreateSnippet(createRR, createReq)
 
@@ -388,7 +391,7 @@ func TestAPIGetSnippet(t *testing.T) {
 	router.HandleFunc("/api/v1/snippets/{id}", ah.APIGetSnippet).Methods(http.MethodGet)
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/snippets/"+id, nil)
+	req := authReq(http.MethodGet, "/api/v1/snippets/"+id, nil)
 	router.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusOK {
@@ -402,7 +405,7 @@ func TestAPIUpdateSnippet(t *testing.T) {
 
 	// Create
 	createRR := httptest.NewRecorder()
-	createReq := httptest.NewRequest(http.MethodPost, "/api/v1/snippets", strings.NewReader(`{"name":"updme","html":"<p>old</p>"}`))
+	createReq := authReq(http.MethodPost, "/api/v1/snippets", strings.NewReader(`{"name":"updme","html":"<p>old</p>"}`))
 	createReq.Header.Set("Content-Type", "application/json")
 	ah.APICreateSnippet(createRR, createReq)
 
@@ -418,7 +421,7 @@ func TestAPIUpdateSnippet(t *testing.T) {
 
 	payload := `{"name":"updme","html":"<p>new</p>"}`
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPut, "/api/v1/snippets/"+id, strings.NewReader(payload))
+	req := authReq(http.MethodPut, "/api/v1/snippets/"+id, strings.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(rr, req)
 
@@ -433,7 +436,7 @@ func TestAPIDeleteSnippet(t *testing.T) {
 
 	// Create
 	createRR := httptest.NewRecorder()
-	createReq := httptest.NewRequest(http.MethodPost, "/api/v1/snippets", strings.NewReader(`{"name":"delme","html":"<p>bye</p>"}`))
+	createReq := authReq(http.MethodPost, "/api/v1/snippets", strings.NewReader(`{"name":"delme","html":"<p>bye</p>"}`))
 	createReq.Header.Set("Content-Type", "application/json")
 	ah.APICreateSnippet(createRR, createReq)
 
@@ -448,7 +451,7 @@ func TestAPIDeleteSnippet(t *testing.T) {
 	router.HandleFunc("/api/v1/snippets/{id}", ah.APIDeleteSnippet).Methods(http.MethodDelete)
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/snippets/"+id, nil)
+	req := authReq(http.MethodDelete, "/api/v1/snippets/"+id, nil)
 	router.ServeHTTP(rr, req)
 
 	if rr.Code != http.StatusOK {
@@ -470,7 +473,7 @@ func TestAPIListAPIKeys_Empty(t *testing.T) {
 	defer cleanup()
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/api-keys", nil)
+	req := authReq(http.MethodGet, "/api/v1/api-keys", nil)
 	ah.APIListAPIKeys(rr, req)
 
 	if rr.Code != http.StatusOK {
@@ -489,7 +492,7 @@ func TestAPICreateAPIKey(t *testing.T) {
 
 	payload := `{"name":"test-key","description":"for testing"}`
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/api-keys", strings.NewReader(payload))
+	req := authReq(http.MethodPost, "/api/v1/api-keys", strings.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APICreateAPIKey(rr, req)
 
@@ -512,7 +515,7 @@ func TestAPICreateAPIKey_MissingName(t *testing.T) {
 
 	payload := `{"description":"no name"}`
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/api-keys", strings.NewReader(payload))
+	req := authReq(http.MethodPost, "/api/v1/api-keys", strings.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APICreateAPIKey(rr, req)
 
@@ -530,7 +533,7 @@ func TestAPIDeleteAPIKey(t *testing.T) {
 
 	// Create first (as admin)
 	createRR := httptest.NewRecorder()
-	createReq := httptest.NewRequest(http.MethodPost, "/api/v1/api-keys", strings.NewReader(`{"name":"del-key"}`))
+	createReq := authReq(http.MethodPost, "/api/v1/api-keys", strings.NewReader(`{"name":"del-key"}`))
 	createReq.Header.Set("Content-Type", "application/json")
 	createReq = createReq.WithContext(middleware.InjectAPIUser(createReq.Context(), adminUser))
 	ah.APICreateAPIKey(createRR, createReq)
@@ -546,7 +549,7 @@ func TestAPIDeleteAPIKey(t *testing.T) {
 	router.HandleFunc("/api/v1/api-keys/{id}", ah.APIDeleteAPIKey).Methods(http.MethodDelete)
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/api-keys/"+id, nil)
+	req := authReq(http.MethodDelete, "/api/v1/api-keys/"+id, nil)
 	req = req.WithContext(middleware.InjectAPIUser(req.Context(), adminUser))
 	router.ServeHTTP(rr, req)
 
@@ -569,7 +572,7 @@ func TestAPIEndUserSearch_MissingQuery(t *testing.T) {
 	defer cleanup()
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/search", nil)
+	req := authReq(http.MethodGet, "/api/v1/search", nil)
 	ah.APIEndUserSearch(rr, req)
 
 	if rr.Code != http.StatusBadRequest {
@@ -587,7 +590,7 @@ func TestAPIEndUserSearch_Empty(t *testing.T) {
 	defer cleanup()
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/search?q=nonexistent", nil)
+	req := authReq(http.MethodGet, "/api/v1/search?q=nonexistent", nil)
 	ah.APIEndUserSearch(rr, req)
 
 	if rr.Code != http.StatusOK {
@@ -612,7 +615,7 @@ func TestAPIReindexEmbeddings_NoVoyageKey(t *testing.T) {
 	defer cleanup()
 
 	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/search/reindex", nil)
+	req := authReq(http.MethodPost, "/api/v1/search/reindex", nil)
 	ah.APIReindexEmbeddings(rr, req)
 
 	// Without a Voyage API key, expect 500
