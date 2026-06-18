@@ -517,9 +517,12 @@ func TestDeleteClientByID(t *testing.T) {
 	svc := NewOAuthService(db)
 	ctx := context.Background()
 
-	client, _, _ := svc.RegisterClient(ctx, "To Delete", []string{"http://localhost/cb"})
+	client, _, err := svc.RegisterClient(ctx, "To Delete", []string{"http://localhost/cb"})
+	if err != nil || client == nil {
+		t.Fatalf("RegisterClient failed: %v", err)
+	}
 
-	err := svc.DeleteClientByID(ctx, client.ID)
+	err = svc.DeleteClientByID(ctx, client.ID)
 	if err != nil {
 		t.Fatalf("DeleteClientByID failed: %v", err)
 	}
