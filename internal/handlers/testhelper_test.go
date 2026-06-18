@@ -17,6 +17,7 @@ import (
 	"lightcms/internal/database"
 	"lightcms/internal/middleware"
 	"lightcms/internal/services"
+	"lightcms/internal/testutil"
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/sessions"
@@ -308,6 +309,33 @@ func newBrokenHandler(t *testing.T) *Handler {
 	h.SetApprovalService(services.NewApprovalService(db, contentService, commentService, webhookService))
 	h.SetAnalyticsService(services.NewAnalyticsService(context.Background(), db, "http://localhost:8082"))
 	return h
+}
+
+// newFaultAPIHandler returns an APIHandler wired to a live fault-injectable DB
+// (via testutil.MustConnectFaultDB) plus the DB so the test can install a fault
+// hook with db.SetFaultHook to exercise handler write-error branches.
+func newFaultAPIHandler(t *testing.T) (*APIHandler, *database.DB) {
+	t.Helper()
+	db := testutil.MustConnectFaultDB(t)
+	cleanupCollections(t, db)
+	contentService := services.NewContentService(db)
+	templateService := services.NewTemplateService(db, contentService)
+	assetService := services.NewAssetService(db)
+	settingsService := services.NewSettingsService(db, contentService)
+	apiKeyService := services.NewAPIKeyService(db)
+	auditService := services.NewAuditService(db)
+	snippetService := services.NewSnippetService(db)
+	webhookService := services.NewWebhookService(db)
+	commentService := services.NewCommentService(db)
+	ah := NewAPIHandler(contentService, templateService, assetService, settingsService, apiKeyService, auditService, snippetService)
+	ah.SetForkService(services.NewForkService(db, contentService))
+	ah.SetWebhookServiceAPI(webhookService)
+	ah.SetCommentService(commentService)
+	ah.SetLockServiceAPI(services.NewLockService(db))
+	ah.SetUserService(services.NewUserService(db))
+	ah.SetApprovalService(services.NewApprovalService(db, contentService, commentService, webhookService))
+	t.Cleanup(func() { db.SetFaultHook(nil); cleanupCollections(t, db) })
+	return ah, db
 }
 
 // newTestAPIHandler returns an APIHandler wired to a real test DB, the DB itself

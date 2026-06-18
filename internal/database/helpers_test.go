@@ -87,6 +87,44 @@ func TestDBHelpers_ChatWidgetConfig(t *testing.T) {
 	}
 }
 
+func TestDBHelpers_FaultHook(t *testing.T) {
+	db := testDB(t)
+	ctx := context.Background()
+	defer db.SetFaultHook(nil)
+
+	// No hook → operation works.
+	if _, err := db.Count(ctx, "settings", bson.M{}); err != nil {
+		t.Fatalf("Count without hook: %v", err)
+	}
+
+	// Hook fails a specific op only.
+	db.SetFaultHook(func(op, _ string) error {
+		if op == "InsertOne" {
+			return errFaultInjected
+		}
+		return nil
+	})
+	if _, err := db.InsertOne(ctx, "test_fault_scratch", bson.M{"x": 1}); err == nil {
+		t.Error("InsertOne should fail with hook")
+	}
+	// A different op is unaffected.
+	if _, err := db.Count(ctx, "settings", bson.M{}); err != nil {
+		t.Errorf("Count should be unaffected by InsertOne hook: %v", err)
+	}
+
+	db.SetFaultHook(nil)
+	if _, err := db.InsertOne(ctx, "test_fault_scratch", bson.M{"x": 2}); err != nil {
+		t.Errorf("InsertOne after clearing hook: %v", err)
+	}
+	_ = db.Collection("test_fault_scratch").Drop(ctx)
+}
+
+var errFaultInjected = &faultErr{}
+
+type faultErr struct{}
+
+func (*faultErr) Error() string { return "injected" }
+
 func TestDBHelpers_LoginAttempts(t *testing.T) {
 	db := testDB(t)
 	ctx := context.Background()

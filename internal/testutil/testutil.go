@@ -155,6 +155,56 @@ func MustConnectBrokenDB(t *testing.T) *database.DB {
 	return brokenDB
 }
 
+var (
+	faultOnce sync.Once
+	faultDB   *database.DB
+)
+
+// MustConnectFaultDB returns a live database connection (separate from the
+// shared test connection) on which tests may install a fault hook via
+// db.SetFaultHook to make specific operations fail. Seed data with the hook
+// cleared, install the hook, exercise the error branch, then clear the hook.
+// Skips if MONGODB_URI is not set.
+func MustConnectFaultDB(t *testing.T) *database.DB {
+	t.Helper()
+	faultOnce.Do(func() {
+		loadEnvTest()
+		uri := os.Getenv("MONGODB_URI")
+		if uri == "" {
+			return
+		}
+		dbName := os.Getenv("DATABASE_NAME")
+		if dbName == "" {
+			dbName = testDBName
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		db, err := database.Connect(ctx, uri, dbName, options.Client().SetWriteConcern(writeconcern.New(writeconcern.WMajority())))
+		if err != nil {
+			return
+		}
+		faultDB = db
+	})
+	if faultDB == nil {
+		t.Skip("skipping: MONGODB_URI not set")
+	}
+	faultDB.SetFaultHook(nil) // ensure a clean slate
+	return faultDB
+}
+
+// FailOp returns a fault hook that fails every call to the named operation
+// (e.g. "UpdateOne", "InsertOne"), letting all other operations succeed. This
+// exercises multi-step error branches where an initial read succeeds but a
+// subsequent write fails.
+func FailOp(op string) func(string, string) error {
+	return func(o, _ string) error {
+		if o == op {
+			return fmt.Errorf("testutil: injected failure for %s", op)
+		}
+		return nil
+	}
+}
+
 // CleanupCollections drops test collections for isolation between tests.
 // Dropping ensures unique indexes (e.g. users.email) are also cleared, preventing
 // duplicate key errors when MigrateToMultiUser runs in subsequent tests.

@@ -14,6 +14,28 @@ import (
 type DB struct {
 	client   *mongo.Client
 	database *mongo.Database
+
+	// faultHook, when set, is consulted at the start of every generic CRUD
+	// helper. If it returns a non-nil error, the operation fails with that
+	// error instead of touching MongoDB. It is nil in production (a single
+	// nil check, no behaviour change) and exists so tests can deterministically
+	// exercise database-error branches, including multi-step ones. See
+	// SetFaultHook.
+	faultHook func(op, collection string) error
+}
+
+// SetFaultHook installs a fault-injection hook for tests. Passing nil clears it.
+// Intended for use in tests only.
+func (db *DB) SetFaultHook(f func(op, collection string) error) {
+	db.faultHook = f
+}
+
+// fault consults the fault hook (if any) for the given operation/collection.
+func (db *DB) fault(op, collection string) error {
+	if db.faultHook != nil {
+		return db.faultHook(op, collection)
+	}
+	return nil
 }
 
 func Connect(ctx context.Context, uri, dbName string, extraOpts ...*options.ClientOptions) (*DB, error) {
@@ -464,6 +486,9 @@ func (db *DB) Settings() *mongo.Collection {
 
 // Generic CRUD helpers
 func (db *DB) InsertOne(ctx context.Context, collection string, doc interface{}) (primitive.ObjectID, error) {
+	if err := db.fault("InsertOne", collection); err != nil {
+		return primitive.NilObjectID, err
+	}
 	result, err := db.database.Collection(collection).InsertOne(ctx, doc)
 	if err != nil {
 		return primitive.NilObjectID, err
@@ -475,6 +500,9 @@ func (db *DB) InsertMany(ctx context.Context, collection string, docs []interfac
 	if len(docs) == 0 {
 		return nil
 	}
+	if err := db.fault("InsertMany", collection); err != nil {
+		return err
+	}
 	_, err := db.database.Collection(collection).InsertMany(ctx, docs)
 	return err
 }
@@ -485,19 +513,31 @@ func (db *DB) InsertManyUnordered(ctx context.Context, collection string, docs [
 	if len(docs) == 0 {
 		return &mongo.InsertManyResult{}, nil
 	}
+	if err := db.fault("InsertManyUnordered", collection); err != nil {
+		return nil, err
+	}
 	opts := options.InsertMany().SetOrdered(false)
 	return db.database.Collection(collection).InsertMany(ctx, docs, opts)
 }
 
 func (db *DB) FindOne(ctx context.Context, collection string, filter interface{}, result interface{}) error {
+	if err := db.fault("FindOne", collection); err != nil {
+		return err
+	}
 	return db.database.Collection(collection).FindOne(ctx, filter).Decode(result)
 }
 
 func (db *DB) FindMany(ctx context.Context, collection string, filter interface{}, opts ...*options.FindOptions) (*mongo.Cursor, error) {
+	if err := db.fault("FindMany", collection); err != nil {
+		return nil, err
+	}
 	return db.database.Collection(collection).Find(ctx, filter, opts...)
 }
 
 func (db *DB) FindAll(ctx context.Context, collection string, filter interface{}, results interface{}) error {
+	if err := db.fault("FindAll", collection); err != nil {
+		return err
+	}
 	cursor, err := db.database.Collection(collection).Find(ctx, filter)
 	if err != nil {
 		return err
@@ -506,6 +546,9 @@ func (db *DB) FindAll(ctx context.Context, collection string, filter interface{}
 }
 
 func (db *DB) Aggregate(ctx context.Context, collection string, pipeline interface{}, results interface{}) error {
+	if err := db.fault("Aggregate", collection); err != nil {
+		return err
+	}
 	cursor, err := db.database.Collection(collection).Aggregate(ctx, pipeline)
 	if err != nil {
 		return err
@@ -514,16 +557,25 @@ func (db *DB) Aggregate(ctx context.Context, collection string, pipeline interfa
 }
 
 func (db *DB) UpdateOne(ctx context.Context, collection string, filter, update interface{}) error {
+	if err := db.fault("UpdateOne", collection); err != nil {
+		return err
+	}
 	_, err := db.database.Collection(collection).UpdateOne(ctx, filter, update)
 	return err
 }
 
 func (db *DB) DeleteOne(ctx context.Context, collection string, filter interface{}) error {
+	if err := db.fault("DeleteOne", collection); err != nil {
+		return err
+	}
 	_, err := db.database.Collection(collection).DeleteOne(ctx, filter)
 	return err
 }
 
 func (db *DB) DeleteMany(ctx context.Context, collection string, filter interface{}) (int64, error) {
+	if err := db.fault("DeleteMany", collection); err != nil {
+		return 0, err
+	}
 	result, err := db.database.Collection(collection).DeleteMany(ctx, filter)
 	if err != nil {
 		return 0, err
@@ -532,6 +584,9 @@ func (db *DB) DeleteMany(ctx context.Context, collection string, filter interfac
 }
 
 func (db *DB) Count(ctx context.Context, collection string, filter interface{}) (int64, error) {
+	if err := db.fault("Count", collection); err != nil {
+		return 0, err
+	}
 	return db.database.Collection(collection).CountDocuments(ctx, filter)
 }
 
