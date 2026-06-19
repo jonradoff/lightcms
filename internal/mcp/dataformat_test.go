@@ -115,6 +115,49 @@ func TestTools_ErrorPaths(t *testing.T) {
 		{"list_audit_logs", map[string]interface{}{}},
 		{"list_scheduled_content", map[string]interface{}{}},
 		{"get_content_lock", map[string]interface{}{"content_id": "x1"}},
+		// Forks
+		{"create_fork", map[string]interface{}{"name": "F"}}, {"get_fork", map[string]interface{}{"id": "f1"}},
+		{"fork_page", map[string]interface{}{"fork_id": "f1", "content_id": "c1"}},
+		{"remove_fork_page", map[string]interface{}{"fork_id": "f1", "page_id": "p1"}},
+		{"merge_fork", map[string]interface{}{"fork_id": "f1"}},
+		{"archive_fork", map[string]interface{}{"fork_id": "f1"}},
+		{"delete_fork", map[string]interface{}{"fork_id": "f1"}},
+		// Webhooks
+		{"create_webhook", map[string]interface{}{"name": "W", "url": "https://x.com/h", "events": []string{"content.published"}}},
+		{"update_webhook", map[string]interface{}{"id": "w1", "name": "W2"}},
+		{"delete_webhook", map[string]interface{}{"id": "w1"}},
+		{"regenerate_webhook_secret", map[string]interface{}{"id": "w1"}},
+		{"list_webhook_deliveries", map[string]interface{}{"id": "w1"}},
+		// Locks
+		{"acquire_content_lock", map[string]interface{}{"content_id": "c1"}},
+		{"release_content_lock", map[string]interface{}{"content_id": "c1"}},
+		{"force_unlock_content", map[string]interface{}{"content_id": "c1"}},
+		// Schedule
+		{"schedule_content_publish", map[string]interface{}{"content_id": "c1", "publish_at": "2099-01-01T00:00:00Z"}},
+		{"cancel_scheduled_publish", map[string]interface{}{"content_id": "c1"}},
+		// Comments
+		{"create_comment", map[string]interface{}{"content_id": "c1", "text": "hi"}},
+		{"delete_comment", map[string]interface{}{"content_id": "c1", "comment_id": "m1"}},
+		// Link check
+		{"start_link_check", map[string]interface{}{}},
+		{"get_link_check_results", map[string]interface{}{"job_id": "j1"}},
+		// Imports
+		{"create_import_source", map[string]interface{}{"name": "S", "url": "https://x.com/rss"}},
+		{"update_import_source", map[string]interface{}{"id": "s1"}},
+		{"delete_import_source", map[string]interface{}{"id": "s1"}},
+		{"trigger_import_source", map[string]interface{}{"id": "s1"}},
+		{"get_import_job", map[string]interface{}{"id": "j1"}},
+		{"cancel_import_job", map[string]interface{}{"id": "j1"}},
+		// Approvals
+		{"get_approval_workflow", map[string]interface{}{"id": "w1"}},
+		{"create_approval_workflow", map[string]interface{}{"name": "W", "trigger": "all_contributor", "mode": "concurrent"}},
+		{"delete_approval_workflow", map[string]interface{}{"id": "w1"}},
+		{"list_approval_requests", map[string]interface{}{}},
+		{"get_approval_request", map[string]interface{}{"id": "r1"}},
+		{"submit_for_approval", map[string]interface{}{"content_id": "c1"}},
+		{"approve_request", map[string]interface{}{"id": "r1"}},
+		{"reject_request", map[string]interface{}{"id": "r1", "comment": "no"}},
+		{"cancel_approval_request", map[string]interface{}{"id": "r1"}},
 	}
 	for _, c := range calls {
 		t.Run(c.tool, func(t *testing.T) {
