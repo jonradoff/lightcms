@@ -745,6 +745,10 @@ func main() {
 	r.HandleFunc("/sitemap.xml", h.ServeSitemap).Methods("GET")
 	r.HandleFunc("/robots.txt", h.ServeRobotsTxt).Methods("GET")
 
+	// llms.txt for AI crawlers/agents (llmstxt.org proposal)
+	r.HandleFunc("/llms.txt", h.ServeLlmsTxt).Methods("GET")
+	r.HandleFunc("/llms-full.txt", h.ServeLlmsFullTxt).Methods("GET")
+
 	// Public content routes - must be last
 	r.HandleFunc("/", h.ServePage).Methods("GET")
 	r.HandleFunc("/{slug:.*}", h.ServePage).Methods("GET")

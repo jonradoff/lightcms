@@ -3609,6 +3609,7 @@ func (h *Handler) servePageContent(w http.ResponseWriter, r *http.Request, conte
 	}
 
 	ogImage := inferOGImage(content, &tmpl)
+	jsonLD := buildJSONLD(content, &tmpl, theme.SiteName, h.resolveBaseURL(r), ogImage)
 
 	// For live pages (no active fork), try static file first
 	if activeFork == nil {
@@ -3616,7 +3617,7 @@ func (h *Handler) servePageContent(w http.ResponseWriter, r *http.Request, conte
 		if _, err := os.Stat(staticPath); err == nil {
 			staticContent, _ := os.ReadFile(staticPath)
 			h.renderPublicWithSEO(w, r, theme, string(staticContent), content.UseHeader, content.UseFooter,
-				content.Title, content.MetaDescription, ogImage, fullPath)
+				content.Title, content.MetaDescription, ogImage, fullPath, jsonLD)
 			return
 		}
 	}
@@ -3626,7 +3627,7 @@ func (h *Handler) servePageContent(w http.ResponseWriter, r *http.Request, conte
 		rendered = forkPreviewBar(activeFork) + rendered
 	}
 	h.renderPublicWithSEO(w, r, theme, rendered, content.UseHeader, content.UseFooter,
-		content.Title, content.MetaDescription, ogImage, fullPath)
+		content.Title, content.MetaDescription, ogImage, fullPath, jsonLD)
 }
 
 // forkPreviewBar returns the HTML for the floating preview bar injected during fork preview.
@@ -3830,7 +3831,7 @@ func (h *Handler) renderPublicWithOptions(w http.ResponseWriter, r *http.Request
 	h.renderPublicWithSEO(w, r, theme, content, useHeader, useFooter, "", "", "", "")
 }
 
-func (h *Handler) renderPublicWithSEO(w http.ResponseWriter, r *http.Request, theme *database.ThemeSettings, content string, useHeader, useFooter bool, title, metaDescription, ogImage, canonicalURL string) {
+func (h *Handler) renderPublicWithSEO(w http.ResponseWriter, r *http.Request, theme *database.ThemeSettings, content string, useHeader, useFooter bool, title, metaDescription, ogImage, canonicalURL string, structuredData ...string) {
 	tmpl := template.Must(template.New("layout").Parse(publicLayout))
 
 	// Get site config for title template
@@ -3866,6 +3867,9 @@ func (h *Handler) renderPublicWithSEO(w http.ResponseWriter, r *http.Request, th
 		"MetaDescription": metaDescription,
 		"OGImage":         ogImage,
 		"CanonicalURL":    canonicalURL,
+	}
+	if len(structuredData) > 0 && structuredData[0] != "" {
+		data["StructuredData"] = template.HTML(structuredData[0])
 	}
 
 	// ETag and caching headers for public pages
@@ -4317,6 +4321,7 @@ const publicLayout = `<!DOCTYPE html>
     <title>{{if .PageTitle}}{{.PageTitle}}{{else}}{{.Theme.SiteName}}{{end}}</title>
     {{if .MetaDescription}}<meta name="description" content="{{.MetaDescription}}">{{end}}
     {{if .CanonicalURL}}<link rel="canonical" href="{{.CanonicalURL}}">{{end}}
+    {{if .StructuredData}}{{.StructuredData}}{{end}}
     <!-- Open Graph / Social Media -->
     <meta property="og:type" content="website">
     <meta property="og:title" content="{{if .PageTitle}}{{.PageTitle}}{{else}}{{.Theme.SiteName}}{{end}}">

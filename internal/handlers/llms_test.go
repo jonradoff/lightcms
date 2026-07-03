@@ -1,0 +1,189 @@
+package handlers
+
+import (
+	"context"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/jonradoff/lightcms/v6/internal/models"
+
+	"github.com/gorilla/mux"
+
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+)
+
+// seedPublishedContent inserts a published live content item.
+func seedPublishedContent(t *testing.T, h *Handler, templateID primitive.ObjectID, title, fullPath, metaDesc, plainText string) primitive.ObjectID {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	now := time.Now()
+	id := primitive.NewObjectID()
+	doc := bson.M{
+		"_id":              id,
+		"template_id":      templateID,
+		"title":            title,
+		"slug":             strings.TrimPrefix(fullPath, "/"),
+		"full_path":        fullPath,
+		"meta_description": metaDesc,
+		"plain_text":       plainText,
+		"published":        true,
+		"published_at":     now,
+		"created_at":       now,
+		"updated_at":       now,
+	}
+	if _, err := h.db.Collection("content").InsertOne(ctx, doc); err != nil {
+		t.Fatalf("seedPublishedContent: %v", err)
+	}
+	return id
+}
+
+func TestServeLlmsTxt(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	tmplID := seedTemplate(t, h.db, "Page", "page")
+	seedPublishedContent(t, h, tmplID, "Alpha Page", "/alpha", "About alpha.", "Alpha body text.")
+	seedPublishedContent(t, h, tmplID, "Beta Page", "/beta", "", "")
+	seedContent(t, h.db, tmplID, "Draft Page", "draft", "/draft") // unpublished
+
+	// A forked copy must not appear.
+	forkID := primitive.NewObjectID()
+	ctx := context.Background()
+	_, _ = h.db.Collection("content").InsertOne(ctx, bson.M{
+		"_id": primitive.NewObjectID(), "template_id": tmplID,
+		"title": "Forked Page", "full_path": "/forked", "published": true,
+		"fork_id": forkID, "created_at": time.Now(), "updated_at": time.Now(),
+	})
+
+	req := httptest.NewRequest("GET", "/llms.txt", nil)
+	rr := httptest.NewRecorder()
+	h.ServeLlmsTxt(rr, req)
+
+	if rr.Code != 200 {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	body := rr.Body.String()
+	for _, want := range []string{
+		"- [Alpha Page](http://localhost:8082/alpha): About alpha.",
+		"- [Beta Page](http://localhost:8082/beta)",
+		"llms-full.txt",
+		"sitemap.xml",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("llms.txt missing %q\nbody:\n%s", want, body)
+		}
+	}
+	for _, absent := range []string{"Draft Page", "Forked Page"} {
+		if strings.Contains(body, absent) {
+			t.Errorf("llms.txt should not contain %q", absent)
+		}
+	}
+	if ct := rr.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/plain") {
+		t.Errorf("Content-Type = %q, want text/plain", ct)
+	}
+}
+
+func TestServeLlmsFullTxt(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	tmplID := seedTemplate(t, h.db, "Page", "page")
+	seedPublishedContent(t, h, tmplID, "Gamma Page", "/gamma", "Gamma desc.", "Full gamma body text here.")
+
+	req := httptest.NewRequest("GET", "/llms-full.txt", nil)
+	rr := httptest.NewRecorder()
+	h.ServeLlmsFullTxt(rr, req)
+
+	if rr.Code != 200 {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	body := rr.Body.String()
+	for _, want := range []string{
+		"## Gamma Page",
+		"URL: http://localhost:8082/gamma",
+		"Description: Gamma desc.",
+		"Full gamma body text here.",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("llms-full.txt missing %q\nbody:\n%s", want, body)
+		}
+	}
+}
+
+func TestBuildJSONLD(t *testing.T) {
+	if got := buildJSONLD(nil, nil, "Site", "http://x", ""); got != "" {
+		t.Errorf("nil content: got %q, want empty", got)
+	}
+
+	now := time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC)
+	content := &models.Content{
+		Title:           "My Post",
+		FullPath:        "/blog/my-post",
+		MetaDescription: "A post about </script> escaping.",
+		PublishedAt:     &now,
+		UpdatedAt:       now,
+	}
+
+	tests := []struct {
+		name     string
+		tmpl     *models.Template
+		wantType string
+	}{
+		{"blog template", &models.Template{Name: "Blog Post"}, `"@type":"BlogPosting"`},
+		{"press template", &models.Template{Name: "Press Release"}, `"@type":"NewsArticle"`},
+		{"plain template", &models.Template{Name: "Standard Page"}, `"@type":"WebPage"`},
+		{"nil template", nil, `"@type":"WebPage"`},
+	}
+	for _, tc := range tests {
+		got := buildJSONLD(content, tc.tmpl, "My Site", "https://example.com/", "https://example.com/img.png")
+		if !strings.Contains(got, tc.wantType) {
+			t.Errorf("%s: missing %s in %s", tc.name, tc.wantType, got)
+		}
+		if !strings.Contains(got, `<script type="application/ld+json">`) {
+			t.Errorf("%s: missing script wrapper", tc.name)
+		}
+		if strings.Contains(got, "</script> escaping") {
+			t.Errorf("%s: unescaped </script> inside JSON payload", tc.name)
+		}
+		for _, want := range []string{
+			`"headline":"My Post"`,
+			`"url":"https://example.com/blog/my-post"`,
+			`"datePublished":"2026-07-01T12:00:00Z"`,
+			`"publisher":{"@type":"Organization","name":"My Site"}`,
+			`"image":"https://example.com/img.png"`,
+		} {
+			if !strings.Contains(got, want) {
+				t.Errorf("%s: missing %s\ngot: %s", tc.name, want, got)
+			}
+		}
+	}
+}
+
+func TestServePage_IncludesJSONLD(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	tmplID := seedTemplate(t, h.db, "Blog Post", "blog-post")
+	seedPublishedContent(t, h, tmplID, "LD Page", "/ld-page", "LD test page.", "")
+
+	req := httptest.NewRequest("GET", "/ld-page", nil)
+	req = mux.SetURLVars(req, map[string]string{"slug": "ld-page"})
+	rr := httptest.NewRecorder()
+	h.ServePage(rr, req)
+
+	if rr.Code != 200 {
+		t.Fatalf("status = %d, want 200", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, `application/ld+json`) {
+		t.Errorf("served page missing JSON-LD script tag")
+	}
+	if !strings.Contains(body, `"@type":"BlogPosting"`) {
+		t.Errorf("served page missing BlogPosting type\nbody head: %.500s", body)
+	}
+}
