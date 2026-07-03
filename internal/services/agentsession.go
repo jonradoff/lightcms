@@ -1,0 +1,174 @@
+package services
+
+import (
+	"context"
+	"fmt"
+	"sort"
+	"time"
+
+	"go.mongodb.org/mongo-driver/bson/primitive"
+)
+
+// AgentSessionService provides the session ledger: everything an AI-agent
+// session changed (grouped from audit logs by the X-Agent-Session header)
+// and a best-effort rollback of those changes as a unit.
+type AgentSessionService struct {
+	audit   *AuditService
+	content *ContentService
+}
+
+func NewAgentSessionService(audit *AuditService, content *ContentService) *AgentSessionService {
+	return &AgentSessionService{audit: audit, content: content}
+}
+
+// AgentSessionChange summarizes what happened to one content item during a session.
+type AgentSessionChange struct {
+	ContentID string    `json:"content_id"`
+	Path      string    `json:"path,omitempty"`
+	Title     string    `json:"title,omitempty"`
+	Actions   []string  `json:"actions"`
+	FirstAt   time.Time `json:"first_at"`
+	LastAt    time.Time `json:"last_at"`
+}
+
+// AgentSessionSummary is the ledger for one agent session.
+type AgentSessionSummary struct {
+	SessionID    string               `json:"session_id"`
+	Entries      int                  `json:"entries"`
+	ContentItems []AgentSessionChange `json:"content_items"`
+	OtherActions []string             `json:"other_actions,omitempty"` // non-content mutations (templates, settings, …)
+}
+
+// Changes returns the ledger for a session.
+func (s *AgentSessionService) Changes(ctx context.Context, sessionID string) (*AgentSessionSummary, error) {
+	if sessionID == "" {
+		return nil, fmt.Errorf("session ID is required")
+	}
+	logs, _, err := s.audit.List(ctx, AuditFilter{AgentSession: sessionID, Limit: 5000})
+	if err != nil {
+		return nil, err
+	}
+	// List returns newest-first; process oldest-first.
+	sort.Slice(logs, func(i, j int) bool { return logs[i].CreatedAt.Before(logs[j].CreatedAt) })
+
+	summary := &AgentSessionSummary{SessionID: sessionID, Entries: len(logs)}
+	byContent := map[string]*AgentSessionChange{}
+	var order []string
+
+	for _, l := range logs {
+		if l.Resource != "content" || l.ResourceID == "" {
+			if l.Resource != "" && l.Action != "" {
+				summary.OtherActions = append(summary.OtherActions, l.Action+" "+l.Resource+"/"+l.ResourceID)
+			}
+			continue
+		}
+		c, ok := byContent[l.ResourceID]
+		if !ok {
+			c = &AgentSessionChange{ContentID: l.ResourceID, FirstAt: l.CreatedAt}
+			byContent[l.ResourceID] = c
+			order = append(order, l.ResourceID)
+		}
+		c.Actions = append(c.Actions, l.Action)
+		c.LastAt = l.CreatedAt
+		if p, ok := l.Details["path"].(string); ok && p != "" {
+			c.Path = p
+		}
+		if t, ok := l.Details["title"].(string); ok && t != "" {
+			c.Title = t
+		}
+	}
+	for _, id := range order {
+		summary.ContentItems = append(summary.ContentItems, *byContent[id])
+	}
+	return summary, nil
+}
+
+// RollbackResult reports what a session rollback did per content item.
+type RollbackResult struct {
+	SessionID string               `json:"session_id"`
+	Reverted  []string             `json:"reverted,omitempty"` // content updated → reverted to pre-session version
+	Deleted   []string             `json:"deleted,omitempty"`  // content created → soft-deleted
+	Restored  []string             `json:"restored,omitempty"` // content deleted → restored
+	Skipped   []RollbackSkipReason `json:"skipped,omitempty"`
+}
+
+type RollbackSkipReason struct {
+	ContentID string `json:"content_id"`
+	Reason    string `json:"reason"`
+}
+
+// Rollback undoes a session's content changes: items the session created
+// are soft-deleted, deleted items are restored, and updated items revert
+// to their latest version predating the session's first touch. Non-content
+// changes (templates, settings, …) are reported but not auto-reverted.
+func (s *AgentSessionService) Rollback(ctx context.Context, sessionID string) (*RollbackResult, error) {
+	summary, err := s.Changes(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if summary.Entries == 0 {
+		return nil, fmt.Errorf("no audit entries found for session %s", sessionID)
+	}
+
+	result := &RollbackResult{SessionID: sessionID}
+	comment := "Rollback of agent session " + sessionID
+
+	for _, item := range summary.ContentItems {
+		id, err := primitive.ObjectIDFromHex(item.ContentID)
+		if err != nil {
+			result.Skipped = append(result.Skipped, RollbackSkipReason{item.ContentID, "invalid content ID"})
+			continue
+		}
+
+		created, deleted := false, false
+		for _, a := range item.Actions {
+			switch a {
+			case "content.create", "content.created":
+				created = true
+			case "content.delete":
+				deleted = true
+			}
+		}
+
+		switch {
+		case created:
+			// The session created it — remove it (soft delete keeps recovery possible).
+			if err := s.content.DeleteContent(ctx, id); err != nil {
+				result.Skipped = append(result.Skipped, RollbackSkipReason{item.ContentID, "delete failed: " + err.Error()})
+			} else {
+				result.Deleted = append(result.Deleted, item.ContentID)
+			}
+		case deleted:
+			if err := s.content.RestoreContent(ctx, id); err != nil {
+				result.Skipped = append(result.Skipped, RollbackSkipReason{item.ContentID, "restore failed: " + err.Error()})
+			} else {
+				result.Restored = append(result.Restored, item.ContentID)
+			}
+		default:
+			// Updated: revert to the newest version that predates the session.
+			versions, err := s.content.GetVersions(ctx, id)
+			if err != nil || len(versions) == 0 {
+				result.Skipped = append(result.Skipped, RollbackSkipReason{item.ContentID, "no version history"})
+				continue
+			}
+			target := -1
+			for _, v := range versions { // newest first
+				if v.CreatedAt.Before(item.FirstAt) {
+					target = v.Version
+					break
+				}
+			}
+			if target < 0 {
+				result.Skipped = append(result.Skipped, RollbackSkipReason{item.ContentID, "no version predates the session"})
+				continue
+			}
+			if err := s.content.RevertToVersion(ctx, id, target, comment); err != nil {
+				result.Skipped = append(result.Skipped, RollbackSkipReason{item.ContentID, "revert failed: " + err.Error()})
+			} else {
+				result.Reverted = append(result.Reverted, item.ContentID)
+			}
+		}
+	}
+
+	return result, nil
+}

@@ -404,6 +404,7 @@ func main() {
 	apiHandler.SetCommentService(commentService)
 	apiHandler.SetApprovalService(approvalService)
 	apiHandler.SetUserService(userService)
+	apiHandler.SetAgentSessionService(services.NewAgentSessionService(auditService, contentService))
 	apiAuthMiddleware := middleware.NewAPIAuth(func(ctx context.Context, rawKey string) (interface{}, error) {
 		apiKey, err := apiKeyService.ValidateAPIKey(ctx, rawKey)
 		if err != nil {
@@ -415,10 +416,12 @@ func main() {
 			if err == nil && user != nil {
 				go analyticsService.RecordActivity(context.Background(), user.ID.Hex())
 				return &auth.SessionUser{
-					ID:        user.ID.Hex(),
-					Email:     user.Email,
-					Role:      user.Role,
-					ViaAPIKey: true,
+					ID:          user.ID.Hex(),
+					Email:       user.Email,
+					Role:        user.Role,
+					ViaAPIKey:   true,
+					Scopes:      apiKey.Scopes,
+					SandboxOnly: apiKey.SandboxOnly,
 				}, nil
 			}
 		}
@@ -599,6 +602,10 @@ func main() {
 	apiv1.HandleFunc("/forks/{id}/pages", apiHandler.APIListForkPages).Methods("GET")
 	apiv1.HandleFunc("/forks/{id}/pages/{pageID}", apiHandler.APIRemoveForkPage).Methods("DELETE")
 	apiv1.HandleFunc("/forks/{id}/diff", apiHandler.APIForkDiff).Methods("GET")
+
+	// Agent session ledger & rollback
+	apiv1.HandleFunc("/agent-sessions/{id}/changes", apiHandler.APIAgentSessionChanges).Methods("GET")
+	apiv1.HandleFunc("/agent-sessions/{id}/rollback", apiHandler.APIAgentSessionRollback).Methods("POST")
 	apiv1.HandleFunc("/forks/{id}/merge", apiHandler.APIMergeFork).Methods("POST")
 	apiv1.HandleFunc("/forks/{id}/archive", apiHandler.APIArchiveFork).Methods("POST")
 

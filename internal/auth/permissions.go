@@ -128,8 +128,62 @@ func HasPermission(role, perm string) bool {
 
 // SessionUser represents the authenticated user extracted from a session or API context
 type SessionUser struct {
-	ID        string `json:"id"`
-	Email     string `json:"email"`
-	Role      string `json:"role"`
-	ViaAPIKey bool   `json:"via_api_key,omitempty"` // true when authenticated via API key (not session)
+	ID          string   `json:"id"`
+	Email       string   `json:"email"`
+	Role        string   `json:"role"`
+	ViaAPIKey   bool     `json:"via_api_key,omitempty"`  // true when authenticated via API key (not session)
+	Scopes      []string `json:"scopes,omitempty"`       // API-key permission allowlist; empty = full role permissions
+	SandboxOnly bool     `json:"sandbox_only,omitempty"` // API key restricted to fork-sandboxed content writes
+}
+
+// sandboxAllowedPerms is the permission set available to sandbox-only API
+// keys: reading, creating/editing content (fork-scoped, enforced by the
+// content handlers), uploading assets, and working with forks. Everything
+// that mutates the live site directly is excluded.
+var sandboxAllowedPerms = map[string]bool{
+	PermContentView:    true,
+	PermContentCreate:  true,
+	PermContentEdit:    true,
+	PermTemplateView:   true,
+	PermAssetView:      true,
+	PermAssetUpload:    true,
+	PermSettingsView:   true,
+	PermForkCreate:     true,
+	PermDiscussionPost: true,
+}
+
+// UserHasPermission checks a permission against the user's role, then
+// narrows by the API key's scopes (when set) and sandbox-only restriction.
+func UserHasPermission(u *SessionUser, perm string) bool {
+	if u == nil {
+		return false
+	}
+	if !HasPermission(u.Role, perm) {
+		return false
+	}
+	if u.SandboxOnly && !sandboxAllowedPerms[perm] {
+		return false
+	}
+	if len(u.Scopes) > 0 {
+		for _, s := range u.Scopes {
+			if s == perm {
+				return true
+			}
+		}
+		return false
+	}
+	return true
+}
+
+// IsKnownPermission reports whether perm is one of the defined permission
+// constants — used to validate API-key scope allowlists at creation time.
+func IsKnownPermission(perm string) bool {
+	for _, perms := range RolePermissions {
+		for _, p := range perms {
+			if p == perm {
+				return true
+			}
+		}
+	}
+	return false
 }

@@ -44,14 +44,15 @@ func (s *AuditService) LogAsync(entry models.AuditLog) {
 
 // AuditFilter defines filters for listing audit logs
 type AuditFilter struct {
-	UserID     *primitive.ObjectID
-	Action     string
-	Resource   string
-	ResourceID string
-	Since      *time.Time
-	Until      *time.Time
-	Limit      int
-	Offset     int
+	UserID       *primitive.ObjectID
+	Action       string
+	Resource     string
+	ResourceID   string
+	AgentSession string
+	Since        *time.Time
+	Until        *time.Time
+	Limit        int
+	Offset       int
 }
 
 // List returns audit log entries matching the filter
@@ -68,6 +69,9 @@ func (s *AuditService) List(ctx context.Context, f AuditFilter) ([]models.AuditL
 	}
 	if f.ResourceID != "" {
 		filter["resource_id"] = f.ResourceID
+	}
+	if f.AgentSession != "" {
+		filter["agent_session"] = f.AgentSession
 	}
 	if f.Since != nil || f.Until != nil {
 		dateFilter := bson.M{}

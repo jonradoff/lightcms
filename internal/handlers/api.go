@@ -15,22 +15,23 @@ import (
 
 // APIHandler handles REST API endpoints (JSON-only, no sessions/templates)
 type APIHandler struct {
-	contentService     *services.ContentService
-	templateService    *services.TemplateService
-	assetService       *services.AssetService
-	settingsService    *services.SettingsService
-	apiKeyService      *services.APIKeyService
-	searchService      *services.SearchService
-	auditService       *services.AuditService
-	snippetService     *services.SnippetService
-	forkService        *services.ForkService
-	importService      *services.ImportService
-	webhookService     *services.WebhookService
-	lockService        *services.LockService
-	linkCheckerService *services.LinkCheckerService
-	commentService     *services.CommentService
-	approvalService    *services.ApprovalService
-	userService        *services.UserService
+	contentService      *services.ContentService
+	templateService     *services.TemplateService
+	assetService        *services.AssetService
+	settingsService     *services.SettingsService
+	apiKeyService       *services.APIKeyService
+	searchService       *services.SearchService
+	auditService        *services.AuditService
+	snippetService      *services.SnippetService
+	forkService         *services.ForkService
+	importService       *services.ImportService
+	webhookService      *services.WebhookService
+	lockService         *services.LockService
+	linkCheckerService  *services.LinkCheckerService
+	commentService      *services.CommentService
+	approvalService     *services.ApprovalService
+	userService         *services.UserService
+	agentSessionService *services.AgentSessionService
 }
 
 // SetCommentService wires in the comment service.
@@ -81,8 +82,12 @@ func (a *APIHandler) requirePermission(w http.ResponseWriter, r *http.Request, p
 		a.jsonError(w, http.StatusForbidden, "API key must be associated with a user — legacy keys without user context are no longer supported")
 		return false
 	}
-	if !auth.HasPermission(user.Role, perm) {
-		a.jsonError(w, http.StatusForbidden, "insufficient permissions")
+	if !auth.UserHasPermission(user, perm) {
+		msg := "insufficient permissions"
+		if user.SandboxOnly && auth.HasPermission(user.Role, perm) {
+			msg = "this API key is sandbox-only: live mutations are not permitted — work inside a fork and submit it for human review"
+		}
+		a.jsonError(w, http.StatusForbidden, msg)
 		return false
 	}
 	return true
@@ -92,10 +97,11 @@ func (a *APIHandler) requirePermission(w http.ResponseWriter, r *http.Request, p
 func (a *APIHandler) auditLog(r *http.Request, action, resource, resourceID string, details map[string]interface{}) {
 	user := a.getAPIUser(r)
 	entry := models.AuditLog{
-		Action:     action,
-		Resource:   resource,
-		ResourceID: resourceID,
-		Details:    details,
+		Action:       action,
+		Resource:     resource,
+		ResourceID:   resourceID,
+		Details:      details,
+		AgentSession: r.Header.Get("X-Agent-Session"),
 	}
 	if user != nil {
 		if oid, err := primitive.ObjectIDFromHex(user.ID); err == nil {

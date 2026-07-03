@@ -28,6 +28,13 @@ func NewAPIKeyService(db *database.DB) *APIKeyService {
 
 // CreateAPIKeyForUser generates a new API key owned by a user, stores its hash, and returns the raw key (shown once)
 func (s *APIKeyService) CreateAPIKeyForUser(ctx context.Context, name, description string, userID *primitive.ObjectID) (string, *models.APIKey, error) {
+	return s.CreateScopedAPIKey(ctx, name, description, userID, nil, false)
+}
+
+// CreateScopedAPIKey creates an API key with an optional permission
+// allowlist (scopes) and sandbox-only restriction — the governance surface
+// for keys handed to AI agents.
+func (s *APIKeyService) CreateScopedAPIKey(ctx context.Context, name, description string, userID *primitive.ObjectID, scopes []string, sandboxOnly bool) (string, *models.APIKey, error) {
 	if name == "" {
 		return "", nil, fmt.Errorf("name is required")
 	}
@@ -53,6 +60,8 @@ func (s *APIKeyService) CreateAPIKeyForUser(ctx context.Context, name, descripti
 		Prefix:      prefix,
 		KeyHash:     keyHash,
 		UserID:      userID,
+		Scopes:      scopes,
+		SandboxOnly: sandboxOnly,
 		CreatedAt:   now,
 	}
 

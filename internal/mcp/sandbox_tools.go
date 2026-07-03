@@ -234,3 +234,59 @@ Recommended for any multi-page or risky editing task. End with end_agent_sandbox
 		return jsonResult(diff), nil, nil
 	})
 }
+
+type AgentSessionInput struct {
+	SessionID string `json:"session_id,omitempty" jsonschema:"Agent session ID. Defaults to this MCP session's own ID."`
+}
+
+// registerGovernanceTools adds the agent-session ledger tools.
+func (s *Server) registerGovernanceTools() {
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "get_agent_session_changes",
+		Title:       "Get Agent Session Changes",
+		Description: "The audit ledger for an agent session: every content item it changed, with actions and timestamps. Defaults to the current MCP session. Requires audit permissions.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:        "Get Agent Session Changes",
+			ReadOnlyHint: true,
+		},
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args AgentSessionInput) (*mcp.CallToolResult, any, error) {
+		sessionID := args.SessionID
+		if sessionID == "" {
+			sessionID = s.client.AgentSession()
+		}
+		if sessionID == "" {
+			return textResult("no session_id given and this MCP session has no agent-session ID"), nil, nil
+		}
+		changes, err := s.client.GetAgentSessionChanges(ctx, sessionID)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		return jsonResult(changes), nil, nil
+	})
+
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "rollback_agent_session",
+		Title:       "Rollback Agent Session",
+		Description: `Undo every content change made by an agent session as a unit: content the session created is soft-deleted, deleted content is restored, and updated content reverts to its latest pre-session version. Defaults to the current MCP session ("undo everything I did"). Non-content changes (templates, settings) are listed for manual review but not auto-reverted.`,
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Rollback Agent Session",
+			ReadOnlyHint:    false,
+			DestructiveHint: boolPtr(true),
+			IdempotentHint:  true,
+			OpenWorldHint:   boolPtr(false),
+		},
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args AgentSessionInput) (*mcp.CallToolResult, any, error) {
+		sessionID := args.SessionID
+		if sessionID == "" {
+			sessionID = s.client.AgentSession()
+		}
+		if sessionID == "" {
+			return textResult("no session_id given and this MCP session has no agent-session ID"), nil, nil
+		}
+		result, err := s.client.RollbackAgentSession(ctx, sessionID)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		return jsonResult(result), nil, nil
+	})
+}

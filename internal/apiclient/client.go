@@ -15,10 +15,18 @@ import (
 
 // Client is an HTTP client for the LightCMS REST API
 type Client struct {
-	baseURL    string
-	apiKey     string
-	httpClient *http.Client
+	baseURL      string
+	apiKey       string
+	agentSession string
+	httpClient   *http.Client
 }
+
+// SetAgentSession sets the agent session ID sent as X-Agent-Session on
+// every request, letting the server group and audit this session's changes.
+func (c *Client) SetAgentSession(id string) { c.agentSession = id }
+
+// AgentSession returns the session ID configured via SetAgentSession.
+func (c *Client) AgentSession() string { return c.agentSession }
 
 // New creates a new API client
 func New(baseURL, apiKey string) *Client {
@@ -48,6 +56,9 @@ func (c *Client) do(ctx context.Context, method, path string, body interface{}, 
 	}
 
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	if c.agentSession != "" {
+		req.Header.Set("X-Agent-Session", c.agentSession)
+	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -954,6 +965,24 @@ func (c *Client) GetForkDiff(ctx context.Context, forkID string) (*ForkDiff, err
 		return nil, err
 	}
 	return &result, nil
+}
+
+// GetAgentSessionChanges returns the audit ledger for an agent session.
+func (c *Client) GetAgentSessionChanges(ctx context.Context, sessionID string) (map[string]interface{}, error) {
+	var result map[string]interface{}
+	if err := c.do(ctx, "GET", "/agent-sessions/"+url.PathEscape(sessionID)+"/changes", nil, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// RollbackAgentSession reverts all content changes made by an agent session.
+func (c *Client) RollbackAgentSession(ctx context.Context, sessionID string) (map[string]interface{}, error) {
+	var result map[string]interface{}
+	if err := c.do(ctx, "POST", "/agent-sessions/"+url.PathEscape(sessionID)+"/rollback", nil, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 // ---------------------------------------------------------------------------

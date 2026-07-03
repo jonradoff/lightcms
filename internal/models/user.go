@@ -32,7 +32,11 @@ type AuditLog struct {
 	ResourceID string                 `bson:"resource_id,omitempty" json:"resource_id,omitempty"`
 	Details    map[string]interface{} `bson:"details,omitempty" json:"details,omitempty"`
 	IPAddress  string                 `bson:"ip_address,omitempty" json:"ip_address,omitempty"`
-	CreatedAt  time.Time              `bson:"created_at" json:"created_at"`
+	// AgentSession groups all changes made by one AI-agent session (from the
+	// X-Agent-Session request header) so they can be reviewed and rolled
+	// back as a unit.
+	AgentSession string    `bson:"agent_session,omitempty" json:"agent_session,omitempty"`
+	CreatedAt    time.Time `bson:"created_at" json:"created_at"`
 }
 
 // Role constants
