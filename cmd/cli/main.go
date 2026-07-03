@@ -1,3 +1,4 @@
+// Command lightcms-cli is the command-line client for administering a LightCMS instance over its REST API.
 package main
 
 import (

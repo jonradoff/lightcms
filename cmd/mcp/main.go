@@ -1,3 +1,4 @@
+// Command lightcms-mcp runs the LightCMS MCP server over stdio, exposing content management tools to MCP clients.
 package main
 
 import (

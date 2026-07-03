@@ -1,3 +1,4 @@
+// Command server runs the LightCMS HTTP server: the admin dashboard, REST API, and public site.
 package main
 
 import (

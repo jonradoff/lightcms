@@ -1,3 +1,4 @@
+// Package config loads LightCMS configuration from environment variables or a JSON config file.
 package config
 
 import (

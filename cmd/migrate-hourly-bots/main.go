@@ -1,3 +1,4 @@
+// Command migrate-hourly-bots backfills hourly analytics documents with bot-traffic classification.
 package main
 
 import (
