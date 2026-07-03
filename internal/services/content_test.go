@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"lightcms/internal/models"
-	"lightcms/internal/testutil"
+	"github.com/jonradoff/lightcms/v6/internal/models"
+	"github.com/jonradoff/lightcms/v6/internal/testutil"
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
@@ -1806,7 +1806,7 @@ func TestContentService_GenerateStaticPage_AdminOnlyPolicy(t *testing.T) {
 
 	// Set admin_only markdown script policy
 	db.Collection("settings").InsertOne(ctx, map[string]interface{}{
-		"type":                    "site_config",
+		"type":                   "site_config",
 		"markdown_script_policy": "admin_only",
 	})
 

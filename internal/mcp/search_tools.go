@@ -34,12 +34,12 @@ type SearchReplacePreviewInput struct {
 }
 
 type SearchReplaceExecuteInput struct {
-	Search          string              `json:"search,omitempty" jsonschema:"Text to search for (single-pair mode)"`
-	Replace         string              `json:"replace,omitempty" jsonschema:"Text to replace with (single-pair mode)"`
-	Regex           bool                `json:"regex,omitempty" jsonschema:"If true, treat search as regex (single-pair mode)"`
-	Pairs           []SearchReplacePair `json:"pairs,omitempty" jsonschema:"Array of {search, replace, regex} pairs for bulk mode. Applies all replacements in a single pass per page."`
-	VersionComment  string              `json:"version_comment,omitempty" jsonschema:"Comment for version history"`
-	AutoRepublish   bool                `json:"auto_republish,omitempty" jsonschema:"If true, re-publish updated pages immediately"`
+	Search         string              `json:"search,omitempty" jsonschema:"Text to search for (single-pair mode)"`
+	Replace        string              `json:"replace,omitempty" jsonschema:"Text to replace with (single-pair mode)"`
+	Regex          bool                `json:"regex,omitempty" jsonschema:"If true, treat search as regex (single-pair mode)"`
+	Pairs          []SearchReplacePair `json:"pairs,omitempty" jsonschema:"Array of {search, replace, regex} pairs for bulk mode. Applies all replacements in a single pass per page."`
+	VersionComment string              `json:"version_comment,omitempty" jsonschema:"Comment for version history"`
+	AutoRepublish  bool                `json:"auto_republish,omitempty" jsonschema:"If true, re-publish updated pages immediately"`
 }
 
 func (s *Server) registerSearchTools() {

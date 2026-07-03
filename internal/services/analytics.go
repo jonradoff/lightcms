@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"lightcms/internal/database"
+	"github.com/jonradoff/lightcms/v6/internal/database"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -49,15 +49,15 @@ type AnalyticsService struct {
 	siteHosts map[string]bool
 
 	// Write buffer for page views, referrers, and user agents.
-	bufMu              sync.Mutex
-	bufPageViews       map[string]map[string]int // hourKey → escapedPath → count (combined)
-	bufPageViewsHuman  map[string]map[string]int // hourKey → escapedPath → count (non-bot)
-	bufPageViewsBot    map[string]map[string]int // hourKey → escapedPath → count (bot)
-	bufRefHuman        map[string]map[string]int // hourKey → source → count (non-bot)
-	bufRefBot          map[string]map[string]int // hourKey → source → count (bot)
-	bufPageRefHuman    map[string]map[string]int // hourKey → "path||source" → count (non-bot)
-	bufPageRefBot      map[string]map[string]int // hourKey → "path||source" → count (bot)
-	bufUserAgents      map[string]map[string]int // hourKey → category → count
+	bufMu             sync.Mutex
+	bufPageViews      map[string]map[string]int // hourKey → escapedPath → count (combined)
+	bufPageViewsHuman map[string]map[string]int // hourKey → escapedPath → count (non-bot)
+	bufPageViewsBot   map[string]map[string]int // hourKey → escapedPath → count (bot)
+	bufRefHuman       map[string]map[string]int // hourKey → source → count (non-bot)
+	bufRefBot         map[string]map[string]int // hourKey → source → count (bot)
+	bufPageRefHuman   map[string]map[string]int // hourKey → "path||source" → count (non-bot)
+	bufPageRefBot     map[string]map[string]int // hourKey → "path||source" → count (bot)
+	bufUserAgents     map[string]map[string]int // hourKey → category → count
 }
 
 // NewAnalyticsService creates a new AnalyticsService, ensures required indexes
@@ -72,17 +72,17 @@ func NewAnalyticsService(ctx context.Context, db *database.DB, baseURL string) *
 	}
 
 	svc := &AnalyticsService{
-		db:           db,
-		stop:         make(chan struct{}),
-		siteHosts:    hosts,
+		db:                db,
+		stop:              make(chan struct{}),
+		siteHosts:         hosts,
 		bufPageViews:      make(map[string]map[string]int),
 		bufPageViewsHuman: make(map[string]map[string]int),
 		bufPageViewsBot:   make(map[string]map[string]int),
 		bufRefHuman:       make(map[string]map[string]int),
-		bufRefBot:       make(map[string]map[string]int),
-		bufPageRefHuman: make(map[string]map[string]int),
-		bufPageRefBot:   make(map[string]map[string]int),
-		bufUserAgents:   make(map[string]map[string]int),
+		bufRefBot:         make(map[string]map[string]int),
+		bufPageRefHuman:   make(map[string]map[string]int),
+		bufPageRefBot:     make(map[string]map[string]int),
+		bufUserAgents:     make(map[string]map[string]int),
 	}
 
 	col := db.Collection(activityCollection)
@@ -612,7 +612,7 @@ func (s *AnalyticsService) GetHourlyStats(ctx context.Context, since, until time
 			"visitor_count":       bson.M{"$size": bson.M{"$ifNull": bson.A{"$visitors", bson.A{}}}},
 			"visitor_count_human": bson.M{"$size": bson.M{"$ifNull": bson.A{"$visitors_human", bson.A{}}}},
 			"visitor_count_bot":   bson.M{"$size": bson.M{"$ifNull": bson.A{"$visitors_bot", bson.A{}}}},
-			"uptime_pings":       1,
+			"uptime_pings":        1,
 		}},
 		bson.M{"$sort": bson.M{"date": 1}},
 	}
@@ -672,9 +672,9 @@ func (s *AnalyticsService) GetUptimeSummary(ctx context.Context, since time.Time
 
 // PageStat represents a page path and its total view count.
 type PageStat struct {
-	Path     string `json:"path"`
-	Views    int    `json:"views"`
-	EditID   string `json:"edit_id,omitempty"`
+	Path   string `json:"path"`
+	Views  int    `json:"views"`
+	EditID string `json:"edit_id,omitempty"`
 }
 
 // GetTopPages returns the top N pages by view count in the given time range.
@@ -1044,8 +1044,8 @@ func (s *AnalyticsService) GetReferrerHits(ctx context.Context, since, until tim
 
 	pipeline := bson.A{
 		bson.M{"$match": bson.M{
-			"user_id":                       hourlyUserID,
-			"date":                          bson.M{"$gte": sinceKey, "$lt": untilKey},
+			"user_id":             hourlyUserID,
+			"date":                bson.M{"$gte": sinceKey, "$lt": untilKey},
 			field + "." + safeKey: bson.M{"$exists": true},
 		}},
 		bson.M{"$group": bson.M{
@@ -1071,8 +1071,8 @@ func (s *AnalyticsService) GetPageViews(ctx context.Context, since, until time.T
 
 	pipeline := bson.A{
 		bson.M{"$match": bson.M{
-			"user_id":                      hourlyUserID,
-			"date":                         bson.M{"$gte": sinceKey, "$lt": untilKey},
+			"user_id":               hourlyUserID,
+			"date":                  bson.M{"$gte": sinceKey, "$lt": untilKey},
 			"page_views." + safeKey: bson.M{"$exists": true},
 		}},
 		bson.M{"$group": bson.M{
@@ -1248,8 +1248,8 @@ func (s *AnalyticsService) queryPrefFieldByRef(ctx context.Context, sinceKey, un
 func (s *AnalyticsService) queryRefFieldSum(ctx context.Context, sinceKey, untilKey, field, safeKey string) int {
 	pipeline := bson.A{
 		bson.M{"$match": bson.M{
-			"user_id":                       hourlyUserID,
-			"date":                          bson.M{"$gte": sinceKey, "$lt": untilKey},
+			"user_id":             hourlyUserID,
+			"date":                bson.M{"$gte": sinceKey, "$lt": untilKey},
 			field + "." + safeKey: bson.M{"$exists": true},
 		}},
 		bson.M{"$group": bson.M{
@@ -1300,9 +1300,9 @@ func (s *AnalyticsService) GetUserAgents(ctx context.Context, since, until time.
 
 	pipeline := bson.A{
 		bson.M{"$match": bson.M{
-			"user_id":      hourlyUserID,
-			"date":         bson.M{"$gte": sinceKey, "$lt": untilKey},
-			"user_agents":  bson.M{"$exists": true},
+			"user_id":     hourlyUserID,
+			"date":        bson.M{"$gte": sinceKey, "$lt": untilKey},
+			"user_agents": bson.M{"$exists": true},
 		}},
 		bson.M{"$project": bson.M{
 			"ua_array": bson.M{"$objectToArray": "$user_agents"},

@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"lightcms/internal/apiclient"
+	"github.com/jonradoff/lightcms/v6/internal/apiclient"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -20,22 +20,22 @@ type GetTemplateInput struct {
 }
 
 type CreateTemplateInput struct {
-	Name        string                   `json:"name" jsonschema:"Template name,required"`
-	Slug        string                   `json:"slug" jsonschema:"Template slug for URLs,required"`
-	Description string                   `json:"description,omitempty" jsonschema:"Template description"`
-	Category    string                   `json:"category,omitempty" jsonschema:"Template category for grouping"`
+	Name        string                    `json:"name" jsonschema:"Template name,required"`
+	Slug        string                    `json:"slug" jsonschema:"Template slug for URLs,required"`
+	Description string                    `json:"description,omitempty" jsonschema:"Template description"`
+	Category    string                    `json:"category,omitempty" jsonschema:"Template category for grouping"`
 	Fields      []apiclient.TemplateField `json:"fields" jsonschema:"Template fields definition,required"`
-	HTMLLayout  string                   `json:"html_layout" jsonschema:"HTML layout with {{.FieldName}} placeholders,required"`
+	HTMLLayout  string                    `json:"html_layout" jsonschema:"HTML layout with {{.FieldName}} placeholders,required"`
 }
 
 type UpdateTemplateInput struct {
-	ID          string                   `json:"id" jsonschema:"Template ID (MongoDB ObjectID),required"`
-	Name        string                   `json:"name,omitempty" jsonschema:"Template name"`
-	Slug        string                   `json:"slug,omitempty" jsonschema:"Template slug"`
-	Description string                   `json:"description,omitempty" jsonschema:"Template description"`
-	Category    string                   `json:"category,omitempty" jsonschema:"Template category"`
+	ID          string                    `json:"id" jsonschema:"Template ID (MongoDB ObjectID),required"`
+	Name        string                    `json:"name,omitempty" jsonschema:"Template name"`
+	Slug        string                    `json:"slug,omitempty" jsonschema:"Template slug"`
+	Description string                    `json:"description,omitempty" jsonschema:"Template description"`
+	Category    string                    `json:"category,omitempty" jsonschema:"Template category"`
 	Fields      []apiclient.TemplateField `json:"fields,omitempty" jsonschema:"Template fields definition"`
-	HTMLLayout  string                   `json:"html_layout,omitempty" jsonschema:"HTML layout (changing this regenerates all content using this template)"`
+	HTMLLayout  string                    `json:"html_layout,omitempty" jsonschema:"HTML layout (changing this regenerates all content using this template)"`
 }
 
 func (s *Server) registerTemplateTools() {

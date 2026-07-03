@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"lightcms/internal/apiclient"
+	"github.com/jonradoff/lightcms/v6/internal/apiclient"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -217,7 +217,7 @@ func (s *Server) registerImportTools() {
 
 	// Tool 6: import_markdown
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name: "import_markdown",
+		Name:  "import_markdown",
 		Title: "Import Markdown",
 		Description: `Import one or more Markdown pages into LightCMS. Each page can include YAML frontmatter (title, slug, folder, template, published, publish_at). Ideal for bulk content creation by AI agents — generate markdown with frontmatter and import directly.
 

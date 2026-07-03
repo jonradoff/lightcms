@@ -18,13 +18,13 @@ import (
 	"sync"
 	"time"
 
-	"lightcms/internal/auth"
-	"lightcms/internal/build"
-	"lightcms/internal/database"
-	"lightcms/internal/errors"
-	"lightcms/internal/middleware"
-	"lightcms/internal/models"
-	"lightcms/internal/services"
+	"github.com/jonradoff/lightcms/v6/internal/auth"
+	"github.com/jonradoff/lightcms/v6/internal/build"
+	"github.com/jonradoff/lightcms/v6/internal/database"
+	"github.com/jonradoff/lightcms/v6/internal/errors"
+	"github.com/jonradoff/lightcms/v6/internal/middleware"
+	"github.com/jonradoff/lightcms/v6/internal/models"
+	"github.com/jonradoff/lightcms/v6/internal/services"
 
 	"github.com/gorilla/csrf"
 	"github.com/gorilla/mux"
@@ -36,8 +36,8 @@ import (
 
 // adminTemplateFuncMap is built once and shared across all cached templates.
 var adminTemplateFuncMap = template.FuncMap{
-	"split": func(s, sep string) []string { return strings.Split(s, sep) },
-	"join":  func(items []string, sep string) string { return strings.Join(items, sep) },
+	"split":    func(s, sep string) []string { return strings.Split(s, sep) },
+	"join":     func(items []string, sep string) string { return strings.Join(items, sep) },
 	"multiply": func(a, b int) int { return a * b },
 	"divide": func(a, b int64) int64 {
 		if b == 0 {
@@ -45,9 +45,9 @@ var adminTemplateFuncMap = template.FuncMap{
 		}
 		return a / b
 	},
-	"safeHTML":  func(s string) template.HTML { return template.HTML(s) },
-	"subtract":  func(a, b interface{}) int64 { return templateToInt64(a) - templateToInt64(b) },
-	"add":       func(a, b interface{}) int64 { return templateToInt64(a) + templateToInt64(b) },
+	"safeHTML":    func(s string) template.HTML { return template.HTML(s) },
+	"subtract":    func(a, b interface{}) int64 { return templateToInt64(a) - templateToInt64(b) },
+	"add":         func(a, b interface{}) int64 { return templateToInt64(a) + templateToInt64(b) },
 	"formatBytes": func(n interface{}) string { return formatBytes(templateToInt64(n)) },
 }
 
@@ -263,12 +263,12 @@ func (h *Handler) SeedDefaults(ctx context.Context) error {
 	}
 	if collCount == 0 {
 		blogCollection := models.Collection{
-			Name:        "Blog",
-			Slug:        "blog",
-			Description: "All blog posts",
-			Category:    "blog",
-			SortField:   "published_at",
-			SortOrder:   "desc",
+			Name:         "Blog",
+			Slug:         "blog",
+			Description:  "All blog posts",
+			Category:     "blog",
+			SortField:    "published_at",
+			SortOrder:    "desc",
 			ItemsPerPage: 10,
 			ItemTemplate: `<article class="collection-item">
 	<a href="/{{.slug}}">
@@ -1205,21 +1205,21 @@ func (h *Handler) EditContent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.renderAdmin(w, r, "content_form", map[string]interface{}{
-		"IsNew":              false,
-		"Template":           tmpl,
-		"Content":            content,
-		"Folders":            folders,
-		"Versions":           versions,
-		"SameSlugPages":      sameSlugPages,
-		"AllTemplates":       allTemplates,
-		"Error":              errorMsg,
-		"ForkPageID":         forkPageID,
-		"Comments":           comments,
-		"CurrentUserRole":    currentUserRole,
-		"CurrentUserEmail":   currentUserEmail,
-		"PageViews30d":       pageViews30d,
-		"PageViews7d":        pageViews7d,
-		"PageReferrersJSON":  pageReferrersJSON,
+		"IsNew":             false,
+		"Template":          tmpl,
+		"Content":           content,
+		"Folders":           folders,
+		"Versions":          versions,
+		"SameSlugPages":     sameSlugPages,
+		"AllTemplates":      allTemplates,
+		"Error":             errorMsg,
+		"ForkPageID":        forkPageID,
+		"Comments":          comments,
+		"CurrentUserRole":   currentUserRole,
+		"CurrentUserEmail":  currentUserEmail,
+		"PageViews30d":      pageViews30d,
+		"PageViews7d":       pageViews7d,
+		"PageReferrersJSON": pageReferrersJSON,
 	})
 }
 
@@ -1619,7 +1619,7 @@ func (h *Handler) DeleteContent(w http.ResponseWriter, r *http.Request) {
 		"$set": bson.M{
 			"deleted":    true,
 			"deleted_at": now,
-			"published":  false,     // Unpublish when deleting
+			"published":  false,       // Unpublish when deleting
 			"full_path":  deletedPath, // Unique path for deleted items
 			"updated_at": now,
 		},
@@ -2317,16 +2317,16 @@ func (h *Handler) UpdateCollection(w http.ResponseWriter, r *http.Request) {
 
 	update := bson.M{
 		"$set": bson.M{
-			"name":          r.FormValue("name"),
-			"slug":          slugify(r.FormValue("name")),
-			"description":   r.FormValue("description"),
-			"category":      r.FormValue("category"),
-			"sort_field":    r.FormValue("sort_field"),
-			"sort_order":    r.FormValue("sort_order"),
-			"item_template": r.FormValue("item_template"),
-			"page_template": r.FormValue("page_template"),
+			"name":           r.FormValue("name"),
+			"slug":           slugify(r.FormValue("name")),
+			"description":    r.FormValue("description"),
+			"category":       r.FormValue("category"),
+			"sort_field":     r.FormValue("sort_field"),
+			"sort_order":     r.FormValue("sort_order"),
+			"item_template":  r.FormValue("item_template"),
+			"page_template":  r.FormValue("page_template"),
 			"items_per_page": itemsPerPage,
-			"updated_at":    time.Now(),
+			"updated_at":     time.Now(),
 		},
 	}
 
@@ -3087,10 +3087,10 @@ func (h *Handler) UpdatePassword(w http.ResponseWriter, r *http.Request) {
 	// Audit log
 	if h.auditService != nil {
 		h.auditService.LogAsync(models.AuditLog{
-			UserID:    userID,
-			UserEmail: user.Email,
-			Action:    "password.change",
-			Resource:  "user",
+			UserID:     userID,
+			UserEmail:  user.Email,
+			Action:     "password.change",
+			Resource:   "user",
 			ResourceID: user.ID,
 		})
 	}
@@ -3147,10 +3147,10 @@ func (h *Handler) ForceChangePasswordHandler(w http.ResponseWriter, r *http.Requ
 
 	if h.auditService != nil {
 		h.auditService.LogAsync(models.AuditLog{
-			UserID:    userID,
-			UserEmail: user.Email,
-			Action:    "password.change",
-			Resource:  "user",
+			UserID:     userID,
+			UserEmail:  user.Email,
+			Action:     "password.change",
+			Resource:   "user",
 			ResourceID: user.ID,
 		})
 	}

@@ -3,7 +3,7 @@ package handlers
 import (
 	"net/http"
 
-	"lightcms/internal/auth"
+	"github.com/jonradoff/lightcms/v6/internal/auth"
 
 	"github.com/gorilla/mux"
 	"go.mongodb.org/mongo-driver/bson/primitive"

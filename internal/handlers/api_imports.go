@@ -5,10 +5,10 @@ import (
 	"strconv"
 	"strings"
 
-	"lightcms/internal/auth"
-	"lightcms/internal/models"
-	"lightcms/internal/services"
-	"lightcms/internal/services/importer"
+	"github.com/jonradoff/lightcms/v6/internal/auth"
+	"github.com/jonradoff/lightcms/v6/internal/models"
+	"github.com/jonradoff/lightcms/v6/internal/services"
+	"github.com/jonradoff/lightcms/v6/internal/services/importer"
 
 	"github.com/gorilla/mux"
 	"go.mongodb.org/mongo-driver/bson"
@@ -576,4 +576,3 @@ func (a *APIHandler) resolveTemplateIDByName(r *http.Request, name string) primi
 	}
 	return primitive.NilObjectID
 }
-

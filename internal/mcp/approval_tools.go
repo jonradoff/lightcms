@@ -3,7 +3,7 @@ package mcp
 import (
 	"context"
 
-	"lightcms/internal/apiclient"
+	"github.com/jonradoff/lightcms/v6/internal/apiclient"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -19,22 +19,22 @@ type GetApprovalWorkflowInput struct {
 }
 
 type CreateApprovalWorkflowInput struct {
-	Name         string                      `json:"name" jsonschema:"required,Workflow name"`
-	Description  string                      `json:"description,omitempty" jsonschema:"Optional description"`
-	Trigger      string                      `json:"trigger" jsonschema:"required,Trigger type: all_contributor | folder_path | template_id | tag"`
-	TriggerValue string                      `json:"trigger_value,omitempty" jsonschema:"Value for the trigger (e.g. folder path or template ID)"`
+	Name         string                       `json:"name" jsonschema:"required,Workflow name"`
+	Description  string                       `json:"description,omitempty" jsonschema:"Optional description"`
+	Trigger      string                       `json:"trigger" jsonschema:"required,Trigger type: all_contributor | folder_path | template_id | tag"`
+	TriggerValue string                       `json:"trigger_value,omitempty" jsonschema:"Value for the trigger (e.g. folder path or template ID)"`
 	Approvers    []apiclient.WorkflowApprover `json:"approvers,omitempty" jsonschema:"Ordered list of approvers"`
-	Mode         string                      `json:"mode" jsonschema:"required,sequential or concurrent"`
+	Mode         string                       `json:"mode" jsonschema:"required,sequential or concurrent"`
 }
 
 type UpdateApprovalWorkflowInput struct {
-	ID           string                      `json:"id" jsonschema:"required,Workflow ID to update"`
-	Name         string                      `json:"name" jsonschema:"required,Workflow name"`
-	Description  string                      `json:"description,omitempty" jsonschema:"Optional description"`
-	Trigger      string                      `json:"trigger" jsonschema:"required,Trigger type: all_contributor | folder_path | template_id | tag"`
-	TriggerValue string                      `json:"trigger_value,omitempty" jsonschema:"Value for the trigger"`
+	ID           string                       `json:"id" jsonschema:"required,Workflow ID to update"`
+	Name         string                       `json:"name" jsonschema:"required,Workflow name"`
+	Description  string                       `json:"description,omitempty" jsonschema:"Optional description"`
+	Trigger      string                       `json:"trigger" jsonschema:"required,Trigger type: all_contributor | folder_path | template_id | tag"`
+	TriggerValue string                       `json:"trigger_value,omitempty" jsonschema:"Value for the trigger"`
 	Approvers    []apiclient.WorkflowApprover `json:"approvers,omitempty" jsonschema:"Ordered list of approvers"`
-	Mode         string                      `json:"mode" jsonschema:"required,sequential or concurrent"`
+	Mode         string                       `json:"mode" jsonschema:"required,sequential or concurrent"`
 }
 
 type DeleteApprovalWorkflowInput struct {

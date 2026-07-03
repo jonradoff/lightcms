@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"lightcms/internal/auth"
-	"lightcms/internal/middleware"
+	"github.com/jonradoff/lightcms/v6/internal/auth"
+	"github.com/jonradoff/lightcms/v6/internal/middleware"
 
 	"github.com/gorilla/mux"
 )

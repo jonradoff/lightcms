@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"lightcms/internal/apiclient"
-	"lightcms/internal/cli"
+	"github.com/jonradoff/lightcms/v6/internal/apiclient"
+	"github.com/jonradoff/lightcms/v6/internal/cli"
 )
 
 func main() {

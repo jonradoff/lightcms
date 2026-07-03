@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"lightcms/internal/models"
+	"github.com/jonradoff/lightcms/v6/internal/models"
 )
 
 // ---------------------------------------------------------------------------

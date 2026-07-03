@@ -7,7 +7,7 @@ import (
 	"math"
 	"time"
 
-	"lightcms/internal/dbutil"
+	"github.com/jonradoff/lightcms/v6/internal/dbutil"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"

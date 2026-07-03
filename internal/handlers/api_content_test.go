@@ -1590,7 +1590,7 @@ func TestAPIScopedSearchReplaceExecute_EmptySearch(t *testing.T) {
 
 	rr := httptest.NewRecorder()
 	req := authReq(http.MethodPost, "/api/v1/content/scoped-search-replace/execute",
-		strings.NewReader(`{"search":"","replace":"bar","content_ids":["` + primitive.NewObjectID().Hex() + `"]}`))
+		strings.NewReader(`{"search":"","replace":"bar","content_ids":["`+primitive.NewObjectID().Hex()+`"]}`))
 	req.Header.Set("Content-Type", "application/json")
 	ah.APIScopedSearchReplaceExecute(rr, req)
 	if rr.Code != http.StatusBadRequest {

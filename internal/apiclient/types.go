@@ -376,18 +376,18 @@ type ForkMergeConflict struct {
 // Import types
 
 type ImportSource struct {
-	ID           string     `json:"id,omitempty"`
-	Name         string     `json:"name"`
-	URL          string     `json:"url"`
-	TemplateName string     `json:"template_name,omitempty"`
-	FolderPath   string     `json:"folder_path,omitempty"`
-	AutoPublish  bool       `json:"auto_publish"`
-	Schedule     string     `json:"schedule"`
-	Active       bool       `json:"active"`
-	LastRunAt    *time.Time `json:"last_run_at,omitempty"`
-	LastRunStatus string    `json:"last_run_status,omitempty"`
-	CreatedAt    time.Time  `json:"created_at"`
-	UpdatedAt    time.Time  `json:"updated_at"`
+	ID            string     `json:"id,omitempty"`
+	Name          string     `json:"name"`
+	URL           string     `json:"url"`
+	TemplateName  string     `json:"template_name,omitempty"`
+	FolderPath    string     `json:"folder_path,omitempty"`
+	AutoPublish   bool       `json:"auto_publish"`
+	Schedule      string     `json:"schedule"`
+	Active        bool       `json:"active"`
+	LastRunAt     *time.Time `json:"last_run_at,omitempty"`
+	LastRunStatus string     `json:"last_run_status,omitempty"`
+	CreatedAt     time.Time  `json:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
 }
 
 type ImportJob struct {
@@ -417,8 +417,8 @@ type ImportLog struct {
 }
 
 type ImportJobDetail struct {
-	Job  *ImportJob   `json:"job"`
-	Logs []ImportLog  `json:"logs,omitempty"`
+	Job  *ImportJob  `json:"job"`
+	Logs []ImportLog `json:"logs,omitempty"`
 }
 
 type CreateImportSourceRequest struct {
@@ -566,12 +566,12 @@ type BrokenLink struct {
 }
 
 type LinkCheckJob struct {
-	ID          string      `json:"id"`
-	Status      string      `json:"status"`
-	TotalPages  int         `json:"total_pages"`
+	ID          string       `json:"id"`
+	Status      string       `json:"status"`
+	TotalPages  int          `json:"total_pages"`
 	BrokenLinks []BrokenLink `json:"broken_links"`
-	StartedAt   time.Time   `json:"started_at"`
-	FinishedAt  *time.Time  `json:"finished_at,omitempty"`
+	StartedAt   time.Time    `json:"started_at"`
+	FinishedAt  *time.Time   `json:"finished_at,omitempty"`
 }
 
 // Comment & Approval types

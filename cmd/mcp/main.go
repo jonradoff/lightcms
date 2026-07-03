@@ -6,8 +6,8 @@ import (
 	"log"
 	"os"
 
-	"lightcms/internal/apiclient"
-	"lightcms/internal/mcp"
+	"github.com/jonradoff/lightcms/v6/internal/apiclient"
+	"github.com/jonradoff/lightcms/v6/internal/mcp"
 )
 
 func main() {

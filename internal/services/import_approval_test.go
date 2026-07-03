@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"lightcms/internal/models"
-	"lightcms/internal/services/importer"
-	"lightcms/internal/testutil"
+	"github.com/jonradoff/lightcms/v6/internal/models"
+	"github.com/jonradoff/lightcms/v6/internal/services/importer"
+	"github.com/jonradoff/lightcms/v6/internal/testutil"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"

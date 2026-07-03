@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"lightcms/internal/apiclient"
+	"github.com/jonradoff/lightcms/v6/internal/apiclient"
 )
 
 // dataServer returns a backend that replies with realistic, populated JSON so

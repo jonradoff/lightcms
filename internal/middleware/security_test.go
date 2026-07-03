@@ -187,15 +187,15 @@ func TestValidateMIMEType(t *testing.T) {
 		{".js", "application/javascript", true},
 		{".js", "text/javascript", true},
 		{".woff2", "application/octet-stream", true}, // font fallback
-		{".svg", "text/xml", true},                    // SVG special case
-		{".svg", "text/plain", true},                  // SVG special case
-		{".css", "text/plain", true},                  // text/plain fallback for CSS
-		{".js", "text/plain", true},                   // text/plain fallback for JS
-		{".json", "text/plain", true},                 // text/plain fallback for JSON
-		{".xml", "text/plain", true},                  // text/plain fallback for XML
-		{".csv", "text/plain", true},                  // text/plain fallback for CSV
-		{".html", "text/plain", true},                 // text/plain fallback for HTML
-		{".exe", "application/octet-stream", false},   // not allowed extension
+		{".svg", "text/xml", true},                   // SVG special case
+		{".svg", "text/plain", true},                 // SVG special case
+		{".css", "text/plain", true},                 // text/plain fallback for CSS
+		{".js", "text/plain", true},                  // text/plain fallback for JS
+		{".json", "text/plain", true},                // text/plain fallback for JSON
+		{".xml", "text/plain", true},                 // text/plain fallback for XML
+		{".csv", "text/plain", true},                 // text/plain fallback for CSV
+		{".html", "text/plain", true},                // text/plain fallback for HTML
+		{".exe", "application/octet-stream", false},  // not allowed extension
 	}
 
 	for _, tt := range tests {

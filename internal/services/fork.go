@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"time"
 
-	"lightcms/internal/database"
-	"lightcms/internal/models"
+	"github.com/jonradoff/lightcms/v6/internal/database"
+	"github.com/jonradoff/lightcms/v6/internal/models"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -287,10 +287,10 @@ func (s *ForkService) Merge(ctx context.Context, forkID primitive.ObjectID, merg
 	// Mark fork as merged
 	now := time.Now()
 	_ = s.db.UpdateOne(ctx, "content_forks", bson.M{"_id": forkID}, bson.M{"$set": bson.M{
-		"status":           "merged",
-		"merged_at":        now,
-		"merged_by":        mergedByID,
-		"merged_by_email":  mergedByEmail,
+		"status":          "merged",
+		"merged_at":       now,
+		"merged_by":       mergedByID,
+		"merged_by_email": mergedByEmail,
 	}})
 
 	return result, nil

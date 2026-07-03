@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"lightcms/internal/models"
-	"lightcms/internal/testutil"
+	"github.com/jonradoff/lightcms/v6/internal/models"
+	"github.com/jonradoff/lightcms/v6/internal/testutil"
 
 	"golang.org/x/crypto/bcrypt"
 

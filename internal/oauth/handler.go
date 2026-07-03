@@ -13,8 +13,8 @@ import (
 	"strconv"
 	"time"
 
-	"lightcms/internal/auth"
-	"lightcms/internal/services"
+	"github.com/jonradoff/lightcms/v6/internal/auth"
+	"github.com/jonradoff/lightcms/v6/internal/services"
 )
 
 const loginProofMaxAge = 5 * time.Minute
@@ -44,9 +44,9 @@ func NewHandler(oauthService *services.OAuthService, authManager *auth.Manager, 
 // POST /oauth/register
 func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		ClientName   string   `json:"client_name"`
-		RedirectURIs []string `json:"redirect_uris"`
-		GrantTypes   []string `json:"grant_types"`
+		ClientName    string   `json:"client_name"`
+		RedirectURIs  []string `json:"redirect_uris"`
+		GrantTypes    []string `json:"grant_types"`
 		ResponseTypes []string `json:"response_types"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -73,14 +73,14 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"client_id":                client.ClientID,
-		"client_secret":            rawSecret,
-		"client_id_issued_at":      client.CreatedAt.Unix(),
-		"client_secret_expires_at": 0,
-		"client_name":              client.ClientName,
-		"redirect_uris":            client.RedirectURIs,
-		"grant_types":              []string{"authorization_code", "refresh_token"},
-		"response_types":           []string{"code"},
+		"client_id":                  client.ClientID,
+		"client_secret":              rawSecret,
+		"client_id_issued_at":        client.CreatedAt.Unix(),
+		"client_secret_expires_at":   0,
+		"client_name":                client.ClientName,
+		"redirect_uris":              client.RedirectURIs,
+		"grant_types":                []string{"authorization_code", "refresh_token"},
+		"response_types":             []string{"code"},
 		"token_endpoint_auth_method": "client_secret_post",
 	})
 }

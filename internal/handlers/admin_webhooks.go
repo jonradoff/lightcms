@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"lightcms/internal/auth"
+	"github.com/jonradoff/lightcms/v6/internal/auth"
 
 	"github.com/gorilla/mux"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -283,10 +283,10 @@ func (h *Handler) RegenerateWebhookSecret(w http.ResponseWriter, r *http.Request
 	// Re-fetch to get fresh doc
 	wh, _ = h.webhookService.Get(r.Context(), id)
 	h.renderAdmin(w, r, "webhook_form", map[string]interface{}{
-		"IsNew":              false,
-		"Webhook":            wh,
-		"RegeneratedSecret":  newSecret,
-		"Success":            "Secret regenerated. Save the new secret below — it will not be shown again.",
+		"IsNew":             false,
+		"Webhook":           wh,
+		"RegeneratedSecret": newSecret,
+		"Success":           "Secret regenerated. Save the new secret below — it will not be shown again.",
 	})
 }
 

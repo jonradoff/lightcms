@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"time"
 
-	"lightcms/internal/database"
-	"lightcms/internal/models"
+	"github.com/jonradoff/lightcms/v6/internal/database"
+	"github.com/jonradoff/lightcms/v6/internal/models"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"

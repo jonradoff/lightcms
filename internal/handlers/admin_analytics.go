@@ -6,16 +6,21 @@ import (
 	"net/http"
 	"time"
 
-	"lightcms/internal/auth"
-	"lightcms/internal/models"
-	"lightcms/internal/services"
+	"github.com/jonradoff/lightcms/v6/internal/auth"
+	"github.com/jonradoff/lightcms/v6/internal/models"
+	"github.com/jonradoff/lightcms/v6/internal/services"
 
 	"go.mongodb.org/mongo-driver/bson"
 )
 
 // resolveEditIDs looks up content IDs by full_path for the given page stats
 // so the template can link to the edit page.
-func (h *Handler) resolveEditIDs(ctx interface{ Deadline() (time.Time, bool); Done() <-chan struct{}; Err() error; Value(interface{}) interface{} }, pages []services.PageStat) {
+func (h *Handler) resolveEditIDs(ctx interface {
+	Deadline() (time.Time, bool)
+	Done() <-chan struct{}
+	Err() error
+	Value(interface{}) interface{}
+}, pages []services.PageStat) {
 	if len(pages) == 0 {
 		return
 	}
@@ -112,21 +117,21 @@ func (h *Handler) AnalyticsPage(w http.ResponseWriter, r *http.Request) {
 	userAgentsJSON, _ := json.Marshal(userAgents)
 
 	h.renderAdmin(w, r, "analytics", map[string]interface{}{
-		"Stats":          stats,
-		"StatsJSON":      services.HourlyStatsJSON(stats),
-		"Range":          rangeParam,
-		"UptimePercent":  uptimePct,
-		"TotalVisitors":  totalVisitors,
-		"HumanVisitors":  humanVisitors,
-		"PeakHour":       peakHour,
-		"PeakVisitors":   peakVisitors,
+		"Stats":             stats,
+		"StatsJSON":         services.HourlyStatsJSON(stats),
+		"Range":             rangeParam,
+		"UptimePercent":     uptimePct,
+		"TotalVisitors":     totalVisitors,
+		"HumanVisitors":     humanVisitors,
+		"PeakHour":          peakHour,
+		"PeakVisitors":      peakVisitors,
 		"TopPagesHumanJSON": string(topPagesHumanJSON),
 		"TopPagesBotJSON":   string(topPagesBotJSON),
 		"TopPagesAllJSON":   string(topPagesAllJSON),
-		"RefHumanJSON":   string(refHumanJSON),
-		"RefBotJSON":     string(refBotJSON),
-		"RefAllJSON":     string(refAllJSON),
-		"UserAgentsJSON": string(userAgentsJSON),
+		"RefHumanJSON":      string(refHumanJSON),
+		"RefBotJSON":        string(refBotJSON),
+		"RefAllJSON":        string(refAllJSON),
+		"UserAgentsJSON":    string(userAgentsJSON),
 	})
 }
 
@@ -176,13 +181,13 @@ func (h *Handler) AnalyticsPageDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.renderAdmin(w, r, "analytics_page", map[string]interface{}{
-		"PagePath":      pagePath,
-		"Range":         rangeParam,
-		"TotalViews":    totalViews,
-		"RefHumanJSON":  string(prHumanJSON),
-		"RefBotJSON":    string(prBotJSON),
-		"RefAllJSON":    string(prAllJSON),
-		"EditID":        editID,
+		"PagePath":     pagePath,
+		"Range":        rangeParam,
+		"TotalViews":   totalViews,
+		"RefHumanJSON": string(prHumanJSON),
+		"RefBotJSON":   string(prBotJSON),
+		"RefAllJSON":   string(prAllJSON),
+		"EditID":       editID,
 	})
 }
 

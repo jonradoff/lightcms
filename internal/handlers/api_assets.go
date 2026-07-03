@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"lightcms/internal/auth"
+	"github.com/jonradoff/lightcms/v6/internal/auth"
 
 	"github.com/gorilla/mux"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -22,18 +22,18 @@ import (
 var ssrfBlockedCIDRs = func() []*net.IPNet {
 	var blocks []*net.IPNet
 	for _, cidr := range []string{
-		"0.0.0.0/8",        // "this" network
-		"10.0.0.0/8",       // RFC1918 private
-		"100.64.0.0/10",    // CGNAT shared address space
-		"127.0.0.0/8",      // IPv4 loopback
-		"169.254.0.0/16",   // link-local / AWS EC2 metadata
-		"172.16.0.0/12",    // RFC1918 private
-		"192.168.0.0/16",   // RFC1918 private
-		"198.18.0.0/15",    // benchmarking
-		"240.0.0.0/4",      // reserved
-		"::1/128",           // IPv6 loopback
-		"fc00::/7",          // IPv6 ULA (includes fd00::/8)
-		"fe80::/10",         // IPv6 link-local
+		"0.0.0.0/8",      // "this" network
+		"10.0.0.0/8",     // RFC1918 private
+		"100.64.0.0/10",  // CGNAT shared address space
+		"127.0.0.0/8",    // IPv4 loopback
+		"169.254.0.0/16", // link-local / AWS EC2 metadata
+		"172.16.0.0/12",  // RFC1918 private
+		"192.168.0.0/16", // RFC1918 private
+		"198.18.0.0/15",  // benchmarking
+		"240.0.0.0/4",    // reserved
+		"::1/128",        // IPv6 loopback
+		"fc00::/7",       // IPv6 ULA (includes fd00::/8)
+		"fe80::/10",      // IPv6 link-local
 	} {
 		_, block, err := net.ParseCIDR(cidr)
 		if err == nil {
@@ -111,15 +111,15 @@ func (a *APIHandler) APIListAssets(w http.ResponseWriter, r *http.Request) {
 
 	// Strip binary data from response
 	type AssetSummary struct {
-		ID          string  `json:"id"`
-		Filename    string  `json:"filename"`
-		Folder      string  `json:"folder"`
-		FullPath    string  `json:"full_path"`
-		ServePath   string  `json:"serve_path"`
-		MimeType    string  `json:"mime_type"`
-		Size        int64   `json:"size"`
-		Description string  `json:"description"`
-		CreatedAt   string  `json:"created_at"`
+		ID          string `json:"id"`
+		Filename    string `json:"filename"`
+		Folder      string `json:"folder"`
+		FullPath    string `json:"full_path"`
+		ServePath   string `json:"serve_path"`
+		MimeType    string `json:"mime_type"`
+		Size        int64  `json:"size"`
+		Description string `json:"description"`
+		CreatedAt   string `json:"created_at"`
 	}
 
 	result := make([]AssetSummary, 0, len(assets))

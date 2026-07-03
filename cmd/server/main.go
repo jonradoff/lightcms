@@ -12,16 +12,16 @@ import (
 	"syscall"
 	"time"
 
-	"lightcms/config"
-	"lightcms/internal/auth"
-	"lightcms/internal/build"
-	"lightcms/internal/database"
-	"lightcms/internal/handlers"
-	lightmcp "lightcms/internal/mcp"
-	"lightcms/internal/middleware"
-	"lightcms/internal/models"
-	"lightcms/internal/oauth"
-	"lightcms/internal/services"
+	"github.com/jonradoff/lightcms/v6/config"
+	"github.com/jonradoff/lightcms/v6/internal/auth"
+	"github.com/jonradoff/lightcms/v6/internal/build"
+	"github.com/jonradoff/lightcms/v6/internal/database"
+	"github.com/jonradoff/lightcms/v6/internal/handlers"
+	lightmcp "github.com/jonradoff/lightcms/v6/internal/mcp"
+	"github.com/jonradoff/lightcms/v6/internal/middleware"
+	"github.com/jonradoff/lightcms/v6/internal/models"
+	"github.com/jonradoff/lightcms/v6/internal/oauth"
+	"github.com/jonradoff/lightcms/v6/internal/services"
 
 	"github.com/gorilla/csrf"
 	"github.com/gorilla/mux"
@@ -78,7 +78,7 @@ func main() {
 		Path:     "/",
 		MaxAge:   86400, // 24 hours (reduced from 7 days for security)
 		HttpOnly: true,
-		Secure:   cfg.SecureCookies,  // true in production (requires HTTPS)
+		Secure:   cfg.SecureCookies,       // true in production (requires HTTPS)
 		SameSite: http.SameSiteStrictMode, // Prevent CSRF via cookies
 	}
 
@@ -414,10 +414,10 @@ func main() {
 			if err == nil && user != nil {
 				go analyticsService.RecordActivity(context.Background(), user.ID.Hex())
 				return &auth.SessionUser{
-					ID:         user.ID.Hex(),
-					Email:      user.Email,
-					Role:       user.Role,
-					ViaAPIKey:  true,
+					ID:        user.ID.Hex(),
+					Email:     user.Email,
+					Role:      user.Role,
+					ViaAPIKey: true,
 				}, nil
 			}
 		}
@@ -431,9 +431,9 @@ func main() {
 					log.Printf("[security] Auto-migrated legacy API key to admin user %s", u.Email)
 					go analyticsService.RecordActivity(context.Background(), u.ID.Hex())
 					return &auth.SessionUser{
-						ID:    u.ID.Hex(),
-						Email: u.Email,
-						Role:  u.Role,
+						ID:        u.ID.Hex(),
+						Email:     u.Email,
+						Role:      u.Role,
 						ViaAPIKey: true,
 					}, nil
 				}
@@ -667,20 +667,20 @@ func main() {
 	// Note: Most API routes require authentication (checked in handlers)
 	// The /api/contact route is public for contact form submissions
 	api := r.PathPrefix("/api").Subrouter()
-	api.HandleFunc("/template/{id}/fields", h.GetTemplateFields).Methods("GET")    // Auth checked in handler
-	api.HandleFunc("/slugs", h.GetAllSlugs).Methods("GET")                         // Auth checked in handler
-	api.HandleFunc("/folders", h.GetAllFoldersAPI).Methods("GET")                  // Auth checked in handler
+	api.HandleFunc("/template/{id}/fields", h.GetTemplateFields).Methods("GET")            // Auth checked in handler
+	api.HandleFunc("/slugs", h.GetAllSlugs).Methods("GET")                                 // Auth checked in handler
+	api.HandleFunc("/folders", h.GetAllFoldersAPI).Methods("GET")                          // Auth checked in handler
 	api.HandleFunc("/contact", h.ContactFormSubmitWithConfig(proxyConfig)).Methods("POST") // Public, uses trusted proxy config
-	api.HandleFunc("/content/search", h.SearchContent).Methods("GET")              // Auth checked in handler
-	api.HandleFunc("/content/check-slug", h.CheckSlug).Methods("GET")              // Auth checked in handler
-	api.HandleFunc("/content/replace-preview", h.ReplacePreview).Methods("GET")    // Auth checked in handler
-	api.HandleFunc("/content/replace-execute", h.ReplaceExecute).Methods("POST")   // Auth checked in handler
-	api.HandleFunc("/tools/broken-links/scan", h.BrokenLinkScan).Methods("GET")    // Auth checked in handler
-	api.HandleFunc("/tools/fix-link", h.FixBrokenLink).Methods("POST")             // Auth checked in handler
-	api.HandleFunc("/search", h.EndUserSearch).Methods("GET")                       // Public end-user search
-	api.HandleFunc("/search/suggest", h.EndUserSearchSuggest).Methods("GET")       // Public typeahead suggestions
-	api.HandleFunc("/chat", h.ChatWidgetQuery).Methods("GET", "OPTIONS")            // Public chat widget query
-	api.HandleFunc("/chat/config", h.ChatWidgetConfigPublic).Methods("GET")         // Public chat widget config (for JS widget)
+	api.HandleFunc("/content/search", h.SearchContent).Methods("GET")                      // Auth checked in handler
+	api.HandleFunc("/content/check-slug", h.CheckSlug).Methods("GET")                      // Auth checked in handler
+	api.HandleFunc("/content/replace-preview", h.ReplacePreview).Methods("GET")            // Auth checked in handler
+	api.HandleFunc("/content/replace-execute", h.ReplaceExecute).Methods("POST")           // Auth checked in handler
+	api.HandleFunc("/tools/broken-links/scan", h.BrokenLinkScan).Methods("GET")            // Auth checked in handler
+	api.HandleFunc("/tools/fix-link", h.FixBrokenLink).Methods("POST")                     // Auth checked in handler
+	api.HandleFunc("/search", h.EndUserSearch).Methods("GET")                              // Public end-user search
+	api.HandleFunc("/search/suggest", h.EndUserSearchSuggest).Methods("GET")               // Public typeahead suggestions
+	api.HandleFunc("/chat", h.ChatWidgetQuery).Methods("GET", "OPTIONS")                   // Public chat widget query
+	api.HandleFunc("/chat/config", h.ChatWidgetConfigPublic).Methods("GET")                // Public chat widget config (for JS widget)
 
 	// OAuth 2.1 endpoints (no auth middleware — these implement their own auth)
 	r.HandleFunc("/oauth/register", oauthHandler.Register).Methods("POST")

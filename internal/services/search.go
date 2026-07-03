@@ -16,8 +16,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"lightcms/internal/database"
-	"lightcms/internal/models"
+	"github.com/jonradoff/lightcms/v6/internal/database"
+	"github.com/jonradoff/lightcms/v6/internal/models"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -72,8 +72,8 @@ type SearchResult struct {
 
 // SuggestResult holds typeahead suggestions
 type SuggestResult struct {
-	Keywords []string       `json:"keywords"`
-	Pages    []SuggestPage  `json:"pages"`
+	Keywords []string      `json:"keywords"`
+	Pages    []SuggestPage `json:"pages"`
 }
 
 // SuggestPage is a title+path pair for direct navigation
@@ -92,7 +92,7 @@ type SearchService struct {
 	keywords   []string // cached extracted keywords, sorted by frequency desc
 
 	navPathsMu       sync.RWMutex
-	navPaths         []string  // cached internal paths from site nav header HTML
+	navPaths         []string // cached internal paths from site nav header HTML
 	navPathsCachedAt time.Time
 
 	searchConfigMu       sync.RWMutex

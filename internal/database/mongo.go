@@ -738,11 +738,11 @@ type AdminSettings struct {
 
 // LoginAttempt tracks failed login attempts for rate limiting
 type LoginAttempt struct {
-	ID        primitive.ObjectID `bson:"_id,omitempty"`
-	IP        string             `bson:"ip"`
-	Attempts  int                `bson:"attempts"`
-	LastAttempt time.Time        `bson:"last_attempt"`
-	LockedUntil *time.Time       `bson:"locked_until,omitempty"`
+	ID          primitive.ObjectID `bson:"_id,omitempty"`
+	IP          string             `bson:"ip"`
+	Attempts    int                `bson:"attempts"`
+	LastAttempt time.Time          `bson:"last_attempt"`
+	LockedUntil *time.Time         `bson:"locked_until,omitempty"`
 }
 
 func (db *DB) GetAdminSettings(ctx context.Context) (*AdminSettings, error) {
@@ -768,10 +768,10 @@ func (db *DB) SaveAdminSettings(ctx context.Context, settings *AdminSettings) er
 // SiteConfig stores site-wide configuration settings
 type SiteConfig struct {
 	ID                   primitive.ObjectID `bson:"_id,omitempty"`
-	TitleTemplate        string             `bson:"title_template"`          // Template when page has title, e.g. "{{title}} | {{site_name}}"
-	TitleTemplateNoTitle string             `bson:"title_template_no_title"` // Template when page has no title, e.g. "{{site_name}}"
+	TitleTemplate        string             `bson:"title_template"`                                       // Template when page has title, e.g. "{{title}} | {{site_name}}"
+	TitleTemplateNoTitle string             `bson:"title_template_no_title"`                              // Template when page has no title, e.g. "{{site_name}}"
 	MarkdownScriptPolicy string             `bson:"markdown_script_policy" json:"markdown_script_policy"` // Values: "all" (default), "admin_only", "none"
-	MaxUploadBytes       int64              `bson:"max_upload_bytes" json:"max_upload_bytes"` // Max file upload size in bytes (default: 1 MiB)
+	MaxUploadBytes       int64              `bson:"max_upload_bytes" json:"max_upload_bytes"`             // Max file upload size in bytes (default: 1 MiB)
 	CloudflareZoneID     string             `bson:"cloudflare_zone_id,omitempty" json:"cloudflare_zone_id,omitempty"`
 	CloudflareAPIToken   string             `bson:"cloudflare_api_token,omitempty" json:"cloudflare_api_token,omitempty"`
 	CFCacheEnabled       bool               `bson:"cf_cache_enabled,omitempty" json:"cf_cache_enabled,omitempty"`
@@ -811,17 +811,17 @@ func (db *DB) SaveSiteConfig(ctx context.Context, config *SiteConfig) error {
 
 // SearchConfig stores configurable search ranking parameters
 type SearchConfig struct {
-	ID                  primitive.ObjectID `bson:"_id,omitempty"`
-	NavBoost            float64            `bson:"nav_boost"`             // Score bonus for nav-linked pages (default 0.15)
-	TitleBoost          float64            `bson:"title_boost"`           // Score bonus when query appears in title (default 0.20)
-	BoostTemplates      []string           `bson:"boost_templates"`       // Template name substrings that get a boost (default ["concept"])
-	BoostTemplateScore  float64            `bson:"boost_template_score"`  // Score bonus for boosted templates (default 0.05)
-	BoostPaths          []string           `bson:"boost_paths"`           // Specific page paths to always boost (exact match, default [])
-	BoostPathScore      float64            `bson:"boost_path_score"`      // Score bonus for boosted pages (default 0.15)
-	DemotePaths         []string           `bson:"demote_paths"`          // Specific page paths to always demote (exact match, default [])
-	DemotePathPrefixes  []string           `bson:"demote_path_prefixes"`  // URL path prefixes to deprioritise (default ["/videos/", "/video/"])
-	DemoteScore         float64            `bson:"demote_score"`          // Score penalty for demoted pages (default -0.05)
-	UpdatedAt           time.Time          `bson:"updated_at"`
+	ID                 primitive.ObjectID `bson:"_id,omitempty"`
+	NavBoost           float64            `bson:"nav_boost"`            // Score bonus for nav-linked pages (default 0.15)
+	TitleBoost         float64            `bson:"title_boost"`          // Score bonus when query appears in title (default 0.20)
+	BoostTemplates     []string           `bson:"boost_templates"`      // Template name substrings that get a boost (default ["concept"])
+	BoostTemplateScore float64            `bson:"boost_template_score"` // Score bonus for boosted templates (default 0.05)
+	BoostPaths         []string           `bson:"boost_paths"`          // Specific page paths to always boost (exact match, default [])
+	BoostPathScore     float64            `bson:"boost_path_score"`     // Score bonus for boosted pages (default 0.15)
+	DemotePaths        []string           `bson:"demote_paths"`         // Specific page paths to always demote (exact match, default [])
+	DemotePathPrefixes []string           `bson:"demote_path_prefixes"` // URL path prefixes to deprioritise (default ["/videos/", "/video/"])
+	DemoteScore        float64            `bson:"demote_score"`         // Score penalty for demoted pages (default -0.05)
+	UpdatedAt          time.Time          `bson:"updated_at"`
 }
 
 // DefaultSearchConfig returns the built-in default search ranking configuration.
@@ -889,10 +889,10 @@ type ChatWidgetConfig struct {
 	PrimaryColor       string             `bson:"primary_color"`
 	Position           string             `bson:"position"` // "bottom-right" | "bottom-left"
 	MaxResults         int                `bson:"max_results"`
-	RateLimitPerIP     int                `bson:"rate_limit_per_ip"`      // max queries/minute per IP (default 5)
-	RateLimitGlobal    int                `bson:"rate_limit_global"`      // max queries/minute total (default 30)
-	SystemPrompt       string             `bson:"system_prompt"`          // editable system prompt; {siteName} replaced at runtime
-	UserPromptTemplate string             `bson:"user_prompt_template"`   // editable user prompt; {excerpts} and {question} replaced at runtime
+	RateLimitPerIP     int                `bson:"rate_limit_per_ip"`    // max queries/minute per IP (default 5)
+	RateLimitGlobal    int                `bson:"rate_limit_global"`    // max queries/minute total (default 30)
+	SystemPrompt       string             `bson:"system_prompt"`        // editable system prompt; {siteName} replaced at runtime
+	UserPromptTemplate string             `bson:"user_prompt_template"` // editable user prompt; {excerpts} and {question} replaced at runtime
 	UpdatedAt          time.Time          `bson:"updated_at"`
 }
 

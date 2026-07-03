@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"lightcms/internal/database"
-	"lightcms/internal/models"
-	"lightcms/internal/testutil"
+	"github.com/jonradoff/lightcms/v6/internal/database"
+	"github.com/jonradoff/lightcms/v6/internal/models"
+	"github.com/jonradoff/lightcms/v6/internal/testutil"
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )

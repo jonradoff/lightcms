@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"lightcms/internal/auth"
-	"lightcms/internal/services"
-	"lightcms/internal/testutil"
+	"github.com/jonradoff/lightcms/v6/internal/auth"
+	"github.com/jonradoff/lightcms/v6/internal/services"
+	"github.com/jonradoff/lightcms/v6/internal/testutil"
 
 	"github.com/gorilla/sessions"
 )
@@ -126,10 +126,10 @@ func TestAuthorize_ValidParams(t *testing.T) {
 	params := url.Values{
 		"response_type":         {"code"},
 		"client_id":             {client.ClientID},
-		"redirect_uri":         {"http://localhost/cb"},
-		"code_challenge":       {"test-challenge"},
+		"redirect_uri":          {"http://localhost/cb"},
+		"code_challenge":        {"test-challenge"},
 		"code_challenge_method": {"S256"},
-		"state":                {"test-state"},
+		"state":                 {"test-state"},
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/oauth/authorize?"+params.Encode(), nil)
@@ -196,8 +196,8 @@ func TestAuthorize_InvalidClient(t *testing.T) {
 	params := url.Values{
 		"response_type":         {"code"},
 		"client_id":             {"nonexistent"},
-		"redirect_uri":         {"http://localhost/cb"},
-		"code_challenge":       {"challenge"},
+		"redirect_uri":          {"http://localhost/cb"},
+		"code_challenge":        {"challenge"},
 		"code_challenge_method": {"S256"},
 	}
 
@@ -458,14 +458,14 @@ func TestAuthorizeSubmit_LoginSuccess(t *testing.T) {
 
 	form := url.Values{
 		"client_id":             {client.ClientID},
-		"redirect_uri":         {"http://localhost/cb"},
-		"response_type":        {"code"},
-		"state":                {"test-state"},
-		"code_challenge":       {"challenge123"},
+		"redirect_uri":          {"http://localhost/cb"},
+		"response_type":         {"code"},
+		"state":                 {"test-state"},
+		"code_challenge":        {"challenge123"},
 		"code_challenge_method": {"S256"},
-		"action":               {"login"},
-		"email":                {"admin@localhost"},
-		"password":             {"admin123"},
+		"action":                {"login"},
+		"email":                 {"admin@localhost"},
+		"password":              {"admin123"},
 	}
 
 	req := httptest.NewRequest(http.MethodPost, "/oauth/authorize", strings.NewReader(form.Encode()))
@@ -496,13 +496,13 @@ func TestAuthorizeSubmit_LoginWrongPassword(t *testing.T) {
 
 	form := url.Values{
 		"client_id":             {client.ClientID},
-		"redirect_uri":         {"http://localhost/cb"},
-		"response_type":        {"code"},
-		"code_challenge":       {"challenge"},
+		"redirect_uri":          {"http://localhost/cb"},
+		"response_type":         {"code"},
+		"code_challenge":        {"challenge"},
 		"code_challenge_method": {"S256"},
-		"action":               {"login"},
-		"email":                {"admin@localhost"},
-		"password":             {"wrongpassword"},
+		"action":                {"login"},
+		"email":                 {"admin@localhost"},
+		"password":              {"wrongpassword"},
 	}
 
 	req := httptest.NewRequest(http.MethodPost, "/oauth/authorize", strings.NewReader(form.Encode()))
@@ -536,14 +536,14 @@ func TestAuthorizeSubmit_Approve(t *testing.T) {
 
 	form := url.Values{
 		"client_id":             {client.ClientID},
-		"redirect_uri":         {"http://localhost/cb"},
-		"response_type":        {"code"},
-		"state":                {"mystate"},
-		"code_challenge":       {"challenge"},
+		"redirect_uri":          {"http://localhost/cb"},
+		"response_type":         {"code"},
+		"state":                 {"mystate"},
+		"code_challenge":        {"challenge"},
 		"code_challenge_method": {"S256"},
-		"action":               {"approve"},
-		"login_proof":          {proof},
-		"login_ts":             {ts},
+		"action":                {"approve"},
+		"login_proof":           {proof},
+		"login_ts":              {ts},
 	}
 
 	req := httptest.NewRequest(http.MethodPost, "/oauth/authorize", strings.NewReader(form.Encode()))
@@ -586,13 +586,13 @@ func TestAuthorizeSubmit_ApproveExpiredProof(t *testing.T) {
 
 	form := url.Values{
 		"client_id":             {client.ClientID},
-		"redirect_uri":         {"http://localhost/cb"},
-		"response_type":        {"code"},
-		"code_challenge":       {"challenge"},
+		"redirect_uri":          {"http://localhost/cb"},
+		"response_type":         {"code"},
+		"code_challenge":        {"challenge"},
 		"code_challenge_method": {"S256"},
-		"action":               {"approve"},
-		"login_proof":          {proof},
-		"login_ts":             {ts},
+		"action":                {"approve"},
+		"login_proof":           {proof},
+		"login_ts":              {ts},
 	}
 
 	req := httptest.NewRequest(http.MethodPost, "/oauth/authorize", strings.NewReader(form.Encode()))
@@ -618,12 +618,12 @@ func TestAuthorizeSubmit_Deny(t *testing.T) {
 
 	form := url.Values{
 		"client_id":             {client.ClientID},
-		"redirect_uri":         {"http://localhost/cb"},
-		"response_type":        {"code"},
-		"state":                {"mystate"},
-		"code_challenge":       {"challenge"},
+		"redirect_uri":          {"http://localhost/cb"},
+		"response_type":         {"code"},
+		"state":                 {"mystate"},
+		"code_challenge":        {"challenge"},
 		"code_challenge_method": {"S256"},
-		"action":               {"deny"},
+		"action":                {"deny"},
 	}
 
 	req := httptest.NewRequest(http.MethodPost, "/oauth/authorize", strings.NewReader(form.Encode()))
@@ -654,11 +654,11 @@ func TestAuthorizeSubmit_UnknownAction(t *testing.T) {
 
 	form := url.Values{
 		"client_id":             {client.ClientID},
-		"redirect_uri":         {"http://localhost/cb"},
-		"response_type":        {"code"},
-		"code_challenge":       {"challenge"},
+		"redirect_uri":          {"http://localhost/cb"},
+		"response_type":         {"code"},
+		"code_challenge":        {"challenge"},
 		"code_challenge_method": {"S256"},
-		"action":               {"unknown"},
+		"action":                {"unknown"},
 	}
 
 	req := httptest.NewRequest(http.MethodPost, "/oauth/authorize", strings.NewReader(form.Encode()))
@@ -678,12 +678,12 @@ func TestAuthorizeSubmit_InvalidClient(t *testing.T) {
 
 	form := url.Values{
 		"client_id":             {"nonexistent"},
-		"redirect_uri":         {"http://localhost/cb"},
-		"response_type":        {"code"},
-		"code_challenge":       {"challenge"},
+		"redirect_uri":          {"http://localhost/cb"},
+		"response_type":         {"code"},
+		"code_challenge":        {"challenge"},
 		"code_challenge_method": {"S256"},
-		"action":               {"login"},
-		"password":             {"admin123"},
+		"action":                {"login"},
+		"password":              {"admin123"},
 	}
 
 	req := httptest.NewRequest(http.MethodPost, "/oauth/authorize", strings.NewReader(form.Encode()))
@@ -908,14 +908,14 @@ func TestAuthorizeSubmit_ApproveNoState(t *testing.T) {
 
 	form := url.Values{
 		"client_id":             {client.ClientID},
-		"redirect_uri":         {"http://localhost/cb"},
-		"response_type":        {"code"},
-		"state":                {""},
-		"code_challenge":       {"challenge"},
+		"redirect_uri":          {"http://localhost/cb"},
+		"response_type":         {"code"},
+		"state":                 {""},
+		"code_challenge":        {"challenge"},
 		"code_challenge_method": {"S256"},
-		"action":               {"approve"},
-		"login_proof":          {proof},
-		"login_ts":             {ts},
+		"action":                {"approve"},
+		"login_proof":           {proof},
+		"login_ts":              {ts},
 	}
 
 	req := httptest.NewRequest(http.MethodPost, "/oauth/authorize", strings.NewReader(form.Encode()))

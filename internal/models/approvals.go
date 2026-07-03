@@ -24,9 +24,9 @@ type ContentComment struct {
 // Collection: "approval_workflows"
 // Indexes: {trigger,trigger_value}, {created_at desc}
 type ApprovalWorkflow struct {
-	ID           primitive.ObjectID `bson:"_id,omitempty" json:"id"`
-	Name         string             `bson:"name" json:"name"`
-	Description  string             `bson:"description,omitempty" json:"description,omitempty"`
+	ID          primitive.ObjectID `bson:"_id,omitempty" json:"id"`
+	Name        string             `bson:"name" json:"name"`
+	Description string             `bson:"description,omitempty" json:"description,omitempty"`
 	// Trigger controls which content submissions this workflow applies to.
 	// "all_contributor" — any contributor submission
 	// "folder_path"    — content whose FolderPath starts with TriggerValue
@@ -36,10 +36,10 @@ type ApprovalWorkflow struct {
 	TriggerValue string             `bson:"trigger_value,omitempty" json:"trigger_value,omitempty"`
 	Approvers    []WorkflowApprover `bson:"approvers" json:"approvers"`
 	// Mode: "sequential" (each approver in order) or "concurrent" (any N of M)
-	Mode         string             `bson:"mode" json:"mode"`
-	CreatedBy    primitive.ObjectID `bson:"created_by" json:"created_by"`
-	CreatedAt    time.Time          `bson:"created_at" json:"created_at"`
-	UpdatedAt    time.Time          `bson:"updated_at" json:"updated_at"`
+	Mode      string             `bson:"mode" json:"mode"`
+	CreatedBy primitive.ObjectID `bson:"created_by" json:"created_by"`
+	CreatedAt time.Time          `bson:"created_at" json:"created_at"`
+	UpdatedAt time.Time          `bson:"updated_at" json:"updated_at"`
 }
 
 // WorkflowApprover is one approver slot within a workflow.
@@ -70,18 +70,18 @@ type ApprovalRequest struct {
 	SubmittedByID    primitive.ObjectID  `bson:"submitted_by_id" json:"submitted_by_id"`
 	SubmittedByEmail string              `bson:"submitted_by_email" json:"submitted_by_email"`
 	// Status: "pending" | "approved" | "rejected" | "cancelled"
-	Status           string              `bson:"status" json:"status"`
-	Decisions        []ApprovalDecision  `bson:"decisions,omitempty" json:"decisions,omitempty"`
+	Status    string             `bson:"status" json:"status"`
+	Decisions []ApprovalDecision `bson:"decisions,omitempty" json:"decisions,omitempty"`
 	// RequiredApprovals: for concurrent = min approvals needed; for sequential = total steps
-	RequiredApprovals int                `bson:"required_approvals" json:"required_approvals"`
+	RequiredApprovals int `bson:"required_approvals" json:"required_approvals"`
 	// CurrentStep: sequential only — which step is currently active (0-based)
-	CurrentStep      int                 `bson:"current_step" json:"current_step"`
+	CurrentStep int `bson:"current_step" json:"current_step"`
 	// Approvers mirrors the workflow snapshot for "my queue" queries
-	Approvers        []WorkflowApprover  `bson:"approvers,omitempty" json:"approvers,omitempty"`
+	Approvers []WorkflowApprover `bson:"approvers,omitempty" json:"approvers,omitempty"`
 	// AssetID is set when this request is for an asset upload (not content)
-	AssetID          *primitive.ObjectID `bson:"asset_id,omitempty" json:"asset_id,omitempty"`
-	CreatedAt        time.Time           `bson:"created_at" json:"created_at"`
-	UpdatedAt        time.Time           `bson:"updated_at" json:"updated_at"`
+	AssetID   *primitive.ObjectID `bson:"asset_id,omitempty" json:"asset_id,omitempty"`
+	CreatedAt time.Time           `bson:"created_at" json:"created_at"`
+	UpdatedAt time.Time           `bson:"updated_at" json:"updated_at"`
 }
 
 // ApprovalRequestKind distinguishes content vs asset approval requests

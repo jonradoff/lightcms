@@ -6,9 +6,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"lightcms/internal/middleware"
-	"lightcms/internal/services"
-	"lightcms/internal/testutil"
+	"github.com/jonradoff/lightcms/v6/internal/middleware"
+	"github.com/jonradoff/lightcms/v6/internal/services"
+	"github.com/jonradoff/lightcms/v6/internal/testutil"
 
 	"github.com/gorilla/sessions"
 	"golang.org/x/crypto/bcrypt"

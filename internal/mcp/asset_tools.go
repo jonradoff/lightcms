@@ -7,7 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"lightcms/internal/apiclient"
+	"github.com/jonradoff/lightcms/v6/internal/apiclient"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -106,7 +106,7 @@ func (s *Server) registerAssetTools() {
 
 	// Upload asset
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name: "upload_asset",
+		Name:  "upload_asset",
 		Title: "Upload Asset",
 		Description: `Upload or replace an asset in the asset library. Re-uploading to the same serve_path replaces the existing file in place — no need to delete first.
 

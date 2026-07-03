@@ -27,8 +27,8 @@ type AuditLog struct {
 	UserID     primitive.ObjectID     `bson:"user_id" json:"user_id"`
 	UserEmail  string                 `bson:"user_email" json:"user_email"`
 	ViaAPI     bool                   `bson:"via_api,omitempty" json:"via_api,omitempty"` // true when action was performed via API key
-	Action     string                 `bson:"action" json:"action"`       // e.g. "content.create", "login.success"
-	Resource   string                 `bson:"resource" json:"resource"`   // e.g. "content", "template", "user"
+	Action     string                 `bson:"action" json:"action"`                       // e.g. "content.create", "login.success"
+	Resource   string                 `bson:"resource" json:"resource"`                   // e.g. "content", "template", "user"
 	ResourceID string                 `bson:"resource_id,omitempty" json:"resource_id,omitempty"`
 	Details    map[string]interface{} `bson:"details,omitempty" json:"details,omitempty"`
 	IPAddress  string                 `bson:"ip_address,omitempty" json:"ip_address,omitempty"`

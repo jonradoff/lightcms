@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"lightcms/internal/database"
-	"lightcms/internal/models"
-	"lightcms/internal/testutil"
+	"github.com/jonradoff/lightcms/v6/internal/database"
+	"github.com/jonradoff/lightcms/v6/internal/models"
+	"github.com/jonradoff/lightcms/v6/internal/testutil"
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
@@ -525,7 +525,6 @@ func TestSearchService_Search_Empty(t *testing.T) {
 		t.Errorf("expected 0 results, got %d", len(results))
 	}
 }
-
 
 func TestSearchService_RebuildKeywords_Empty(t *testing.T) {
 	db, cleanup := testutil.MustConnectTestDB(t)

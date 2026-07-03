@@ -3,7 +3,7 @@ package cli
 import (
 	"fmt"
 
-	"lightcms/internal/apiclient"
+	"github.com/jonradoff/lightcms/v6/internal/apiclient"
 )
 
 // App is the CLI application

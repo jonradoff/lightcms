@@ -8,21 +8,21 @@ import (
 
 // ImportSource is a configured recurring RSS/Atom feed source
 type ImportSource struct {
-	ID            primitive.ObjectID  `bson:"_id,omitempty" json:"id,omitempty"`
-	Name          string              `bson:"name" json:"name"`
-	URL           string              `bson:"url" json:"url"`           // RSS feed URL
-	TemplateID    primitive.ObjectID  `bson:"template_id,omitempty" json:"template_id,omitempty"`
-	TemplateName  string              `bson:"template_name,omitempty" json:"template_name,omitempty"`
-	FolderPath    string              `bson:"folder_path,omitempty" json:"folder_path,omitempty"`
-	AutoPublish   bool                `bson:"auto_publish" json:"auto_publish"`
-	Schedule      string              `bson:"schedule" json:"schedule"` // "hourly", "daily", "weekly"
-	Active        bool                `bson:"active" json:"active"`
-	LastRunAt     *time.Time          `bson:"last_run_at,omitempty" json:"last_run_at,omitempty"`
-	LastRunStatus string              `bson:"last_run_status,omitempty" json:"last_run_status,omitempty"` // "ok", "failed"
-	LastJobID     primitive.ObjectID  `bson:"last_job_id,omitempty" json:"last_job_id,omitempty"`
-	CreatedAt     time.Time           `bson:"created_at" json:"created_at"`
-	UpdatedAt     time.Time           `bson:"updated_at" json:"updated_at"`
-	CreatedBy     primitive.ObjectID  `bson:"created_by,omitempty" json:"created_by,omitempty"`
+	ID            primitive.ObjectID `bson:"_id,omitempty" json:"id,omitempty"`
+	Name          string             `bson:"name" json:"name"`
+	URL           string             `bson:"url" json:"url"` // RSS feed URL
+	TemplateID    primitive.ObjectID `bson:"template_id,omitempty" json:"template_id,omitempty"`
+	TemplateName  string             `bson:"template_name,omitempty" json:"template_name,omitempty"`
+	FolderPath    string             `bson:"folder_path,omitempty" json:"folder_path,omitempty"`
+	AutoPublish   bool               `bson:"auto_publish" json:"auto_publish"`
+	Schedule      string             `bson:"schedule" json:"schedule"` // "hourly", "daily", "weekly"
+	Active        bool               `bson:"active" json:"active"`
+	LastRunAt     *time.Time         `bson:"last_run_at,omitempty" json:"last_run_at,omitempty"`
+	LastRunStatus string             `bson:"last_run_status,omitempty" json:"last_run_status,omitempty"` // "ok", "failed"
+	LastJobID     primitive.ObjectID `bson:"last_job_id,omitempty" json:"last_job_id,omitempty"`
+	CreatedAt     time.Time          `bson:"created_at" json:"created_at"`
+	UpdatedAt     time.Time          `bson:"updated_at" json:"updated_at"`
+	CreatedBy     primitive.ObjectID `bson:"created_by,omitempty" json:"created_by,omitempty"`
 }
 
 // ImportType defines the type of import

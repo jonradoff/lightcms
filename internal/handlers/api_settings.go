@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"strings"
 
-	"lightcms/internal/auth"
-	"lightcms/internal/models"
+	"github.com/jonradoff/lightcms/v6/internal/auth"
+	"github.com/jonradoff/lightcms/v6/internal/models"
 
 	"github.com/gorilla/mux"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -699,4 +699,3 @@ func (a *APIHandler) APIRegenerateAllContent(w http.ResponseWriter, r *http.Requ
 		"message": "All published content has been regenerated",
 	})
 }
-

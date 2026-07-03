@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"log"
 
-	"lightcms/internal/apiclient"
+	"github.com/jonradoff/lightcms/v6/internal/apiclient"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )

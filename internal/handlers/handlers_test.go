@@ -13,10 +13,10 @@ import (
 
 	"github.com/gorilla/csrf"
 	"github.com/gorilla/mux"
+	"github.com/jonradoff/lightcms/v6/internal/database"
+	"github.com/jonradoff/lightcms/v6/internal/models"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
-	"lightcms/internal/database"
-	"lightcms/internal/models"
 )
 
 // csrfWrapped runs handler through a minimal CSRF-protected mux so that
@@ -2879,7 +2879,6 @@ func TestSearchContent_WithQuery(t *testing.T) {
 	}
 }
 
-
 // ---------------------------------------------------------------------------
 // LoginPage GET
 // ---------------------------------------------------------------------------
@@ -3416,12 +3415,12 @@ func TestServePage_WithRedirect(t *testing.T) {
 	ctx := context.Background()
 	// Seed a redirect
 	h.db.Collection("redirects").InsertOne(ctx, bson.M{
-		"_id":        primitive.NewObjectID(),
-		"from_path":  "/old-page",
-		"to_path":    "/new-page",
+		"_id":         primitive.NewObjectID(),
+		"from_path":   "/old-page",
+		"to_path":     "/new-page",
 		"status_code": 301,
-		"created_at": time.Now(),
-		"updated_at": time.Now(),
+		"created_at":  time.Now(),
+		"updated_at":  time.Now(),
 	})
 
 	r := mux.NewRouter()

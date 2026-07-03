@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"lightcms/internal/auth"
-	"lightcms/internal/models"
-	"lightcms/internal/services"
+	"github.com/jonradoff/lightcms/v6/internal/auth"
+	"github.com/jonradoff/lightcms/v6/internal/models"
+	"github.com/jonradoff/lightcms/v6/internal/services"
 
 	"github.com/gorilla/mux"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -301,10 +301,10 @@ func (h *Handler) MergeFork(w http.ResponseWriter, r *http.Request) {
 	}
 	if h.auditService != nil {
 		h.auditService.LogAsync(models.AuditLog{
-			UserID:    userID,
-			UserEmail: user.Email,
-			Action:    "fork.merge",
-			Resource:  "fork",
+			UserID:     userID,
+			UserEmail:  user.Email,
+			Action:     "fork.merge",
+			Resource:   "fork",
 			ResourceID: forkID.Hex(),
 			Details: map[string]interface{}{
 				"updated":   result.Updated,

@@ -3,8 +3,8 @@ package handlers
 import (
 	"net/http"
 
-	"lightcms/internal/auth"
-	"lightcms/internal/models"
+	"github.com/jonradoff/lightcms/v6/internal/auth"
+	"github.com/jonradoff/lightcms/v6/internal/models"
 
 	"github.com/gorilla/mux"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -67,12 +67,12 @@ func (a *APIHandler) APICreateTemplate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Name        string                `json:"name"`
-		Slug        string                `json:"slug"`
-		Description string                `json:"description"`
+		Name        string                 `json:"name"`
+		Slug        string                 `json:"slug"`
+		Description string                 `json:"description"`
 		Fields      []models.TemplateField `json:"fields"`
-		HTMLLayout  string                `json:"html_layout"`
-		Category    string                `json:"category"`
+		HTMLLayout  string                 `json:"html_layout"`
+		Category    string                 `json:"category"`
 	}
 	if err := a.decodeJSON(r, &req); err != nil {
 		a.jsonError(w, http.StatusBadRequest, "invalid request body")

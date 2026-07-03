@@ -15,8 +15,8 @@ import (
 	"sync"
 	"time"
 
-	"lightcms/internal/database"
-	"lightcms/internal/models"
+	"github.com/jonradoff/lightcms/v6/internal/database"
+	"github.com/jonradoff/lightcms/v6/internal/models"
 
 	"github.com/microcosm-cc/bluemonday"
 	"github.com/yuin/goldmark"
@@ -694,7 +694,7 @@ func (s *ContentService) GetBacklinks(ctx context.Context, targetPath string) ([
 type ContentScope struct {
 	TemplateName   string
 	Category       string
-	FolderPath     string   // prefix match: full_path starts with FolderPath+"/"
+	FolderPath     string // prefix match: full_path starts with FolderPath+"/"
 	ContentIDs     []primitive.ObjectID
 	IncludeDeleted bool
 }
@@ -1917,4 +1917,3 @@ func (s *ContentService) RegenerateAllContent(ctx context.Context) error {
 
 	return nil
 }
-

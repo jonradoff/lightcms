@@ -6,25 +6,25 @@ import (
 	"log"
 	"net/http"
 
-	"lightcms/internal/auth"
-	"lightcms/internal/models"
-	"lightcms/internal/services"
+	"github.com/jonradoff/lightcms/v6/internal/auth"
+	"github.com/jonradoff/lightcms/v6/internal/models"
+	"github.com/jonradoff/lightcms/v6/internal/services"
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 // APIHandler handles REST API endpoints (JSON-only, no sessions/templates)
 type APIHandler struct {
-	contentService  *services.ContentService
-	templateService *services.TemplateService
-	assetService    *services.AssetService
-	settingsService *services.SettingsService
-	apiKeyService   *services.APIKeyService
-	searchService   *services.SearchService
-	auditService    *services.AuditService
-	snippetService  *services.SnippetService
-	forkService     *services.ForkService
-	importService   *services.ImportService
+	contentService     *services.ContentService
+	templateService    *services.TemplateService
+	assetService       *services.AssetService
+	settingsService    *services.SettingsService
+	apiKeyService      *services.APIKeyService
+	searchService      *services.SearchService
+	auditService       *services.AuditService
+	snippetService     *services.SnippetService
+	forkService        *services.ForkService
+	importService      *services.ImportService
 	webhookService     *services.WebhookService
 	lockService        *services.LockService
 	linkCheckerService *services.LinkCheckerService

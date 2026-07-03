@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"time"
 
-	"lightcms/internal/auth"
+	"github.com/jonradoff/lightcms/v6/internal/auth"
 
 	"github.com/gorilla/mux"
 	"go.mongodb.org/mongo-driver/bson"

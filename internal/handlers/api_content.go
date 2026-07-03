@@ -14,9 +14,9 @@ import (
 	"sync"
 	"time"
 
-	"lightcms/internal/auth"
-	"lightcms/internal/models"
-	"lightcms/internal/services"
+	"github.com/jonradoff/lightcms/v6/internal/auth"
+	"github.com/jonradoff/lightcms/v6/internal/models"
+	"github.com/jonradoff/lightcms/v6/internal/services"
 
 	"github.com/gorilla/mux"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -50,9 +50,9 @@ func (a *APIHandler) formatContentList(contents []models.Content, includeData bo
 				ID: c.ID.Hex(), Title: c.Title, Slug: c.Slug,
 				FullPath: c.FullPath, Category: c.Category, Tags: c.Tags,
 				Published: c.Published, Deleted: c.Deleted,
-				UpdatedAt: c.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+				UpdatedAt:       c.UpdatedAt.Format("2006-01-02T15:04:05Z"),
 				MetaDescription: c.MetaDescription,
-				TemplateID: c.TemplateID.Hex(), TemplateName: c.TemplateName,
+				TemplateID:      c.TemplateID.Hex(), TemplateName: c.TemplateName,
 			}
 		}
 		return result
@@ -75,9 +75,9 @@ func (a *APIHandler) formatContentList(contents []models.Content, includeData bo
 			ID: c.ID.Hex(), Title: c.Title, Slug: c.Slug,
 			FullPath: c.FullPath, Category: c.Category, Tags: c.Tags,
 			Published: c.Published, Deleted: c.Deleted,
-			UpdatedAt: c.UpdatedAt.Format("2006-01-02T15:04:05Z"),
+			UpdatedAt:       c.UpdatedAt.Format("2006-01-02T15:04:05Z"),
 			MetaDescription: c.MetaDescription,
-			TemplateID: c.TemplateID.Hex(), TemplateName: c.TemplateName,
+			TemplateID:      c.TemplateID.Hex(), TemplateName: c.TemplateName,
 		}
 		if includeFields != nil {
 			item.Data = make(map[string]interface{})
@@ -918,12 +918,12 @@ func (a *APIHandler) APISearchReplaceExecute(w http.ResponseWriter, r *http.Requ
 	defer releaseBulkOp()
 
 	var req struct {
-		Search          string   `json:"search"`
-		Replace         string   `json:"replace"`
-		Regex           bool     `json:"regex"`
-		Pairs           []srPair `json:"pairs"`
-		VersionComment  string   `json:"version_comment"`
-		AutoRepublish   bool     `json:"auto_republish"`
+		Search         string   `json:"search"`
+		Replace        string   `json:"replace"`
+		Regex          bool     `json:"regex"`
+		Pairs          []srPair `json:"pairs"`
+		VersionComment string   `json:"version_comment"`
+		AutoRepublish  bool     `json:"auto_republish"`
 	}
 	if err := a.decodeJSON(r, &req); err != nil {
 		a.jsonError(w, http.StatusBadRequest, "invalid request body")
@@ -1065,7 +1065,7 @@ func (a *APIHandler) APISearchReplaceExecute(w http.ResponseWriter, r *http.Requ
 	}
 
 	a.auditLog(r, "content.search_replace", "content", "", map[string]interface{}{
-		"pairs_count": len(pairs),
+		"pairs_count":   len(pairs),
 		"pages_updated": len(updatedPages), "total_replacements": totalReplacements,
 	})
 	resp := map[string]interface{}{
@@ -1165,8 +1165,8 @@ func (a *APIHandler) APIBatchPublishContent(w http.ResponseWriter, r *http.Reque
 	}
 
 	var req struct {
-		IDs             []string `json:"ids"`
-		PublishAllDrafts bool    `json:"publish_all_drafts"`
+		IDs              []string `json:"ids"`
+		PublishAllDrafts bool     `json:"publish_all_drafts"`
 	}
 	if err := a.decodeJSON(r, &req); err != nil {
 		a.jsonError(w, http.StatusBadRequest, "invalid request body")

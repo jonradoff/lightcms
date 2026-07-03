@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"lightcms/internal/database"
+	"github.com/jonradoff/lightcms/v6/internal/database"
 
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/writeconcern"

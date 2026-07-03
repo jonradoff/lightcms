@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"lightcms/internal/database"
-	"lightcms/internal/models"
+	"github.com/jonradoff/lightcms/v6/internal/database"
+	"github.com/jonradoff/lightcms/v6/internal/models"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -64,11 +64,11 @@ func (s *CommentService) Create(ctx context.Context,
 	// Fire webhook asynchronously
 	if s.webhookService != nil {
 		payload := map[string]interface{}{
-			"comment_id":       c.ID.Hex(),
-			"content_id":       contentID.Hex(),
-			"user_email":       userEmail,
+			"comment_id":        c.ID.Hex(),
+			"content_id":        contentID.Hex(),
+			"user_email":        userEmail,
 			"user_display_name": displayName,
-			"text":             text,
+			"text":              text,
 		}
 		if len(mentions) > 0 {
 			ids := make([]string, len(mentions))

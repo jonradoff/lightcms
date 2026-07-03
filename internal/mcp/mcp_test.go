@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"lightcms/internal/apiclient"
+	"github.com/jonradoff/lightcms/v6/internal/apiclient"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -311,7 +311,7 @@ func testAPI(t *testing.T) (*Server, *httptest.Server, func()) {
 
 	mux.HandleFunc("GET /api/v1/config", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{
-			"title_template": "{{title}} | {{site_name}}",
+			"title_template":          "{{title}} | {{site_name}}",
 			"title_template_no_title": "{{site_name}}",
 		})
 	})

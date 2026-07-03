@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"lightcms/internal/apiclient"
+	"github.com/jonradoff/lightcms/v6/internal/apiclient"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -63,7 +63,7 @@ func (s *Server) registerWebhookTools() {
 
 	// create_webhook
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name: "create_webhook",
+		Name:  "create_webhook",
 		Title: "Create Webhook",
 		Description: `Create a new webhook. Returns the generated HMAC-SHA256 secret ONCE — save it immediately.
 

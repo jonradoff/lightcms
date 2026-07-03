@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log"
 
-	"lightcms/internal/database"
+	"github.com/jonradoff/lightcms/v6/internal/database"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"

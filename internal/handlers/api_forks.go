@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"net/http"
 
-	"lightcms/internal/auth"
-	"lightcms/internal/services"
+	"github.com/jonradoff/lightcms/v6/internal/auth"
+	"github.com/jonradoff/lightcms/v6/internal/services"
 
 	"github.com/gorilla/mux"
 	"go.mongodb.org/mongo-driver/bson/primitive"

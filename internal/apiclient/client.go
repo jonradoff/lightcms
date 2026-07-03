@@ -604,9 +604,9 @@ func (c *Client) BatchPublishContent(ctx context.Context, ids []string, publishA
 // PreviewContent returns the rendered HTML for a content item without publishing.
 // Pass optional overrides (title, data map) to preview unsaved edits.
 type PreviewContentResult struct {
-	ContentID    string      `json:"content_id"`
-	RenderedHTML string      `json:"rendered_html"`
-	Warnings     []string    `json:"warnings"`
+	ContentID    string   `json:"content_id"`
+	RenderedHTML string   `json:"rendered_html"`
+	Warnings     []string `json:"warnings"`
 }
 
 func (c *Client) PreviewContent(ctx context.Context, id string, overrides map[string]interface{}) (*PreviewContentResult, error) {

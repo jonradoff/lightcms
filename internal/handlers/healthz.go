@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"lightcms/internal/build"
-	"lightcms/internal/services"
+	"github.com/jonradoff/lightcms/v6/internal/build"
+	"github.com/jonradoff/lightcms/v6/internal/services"
 )
 
 // healthStatus mirrors the vibectl VibeCtl Health Check Protocol status values.

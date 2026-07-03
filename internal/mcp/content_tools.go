@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"lightcms/internal/apiclient"
+	"github.com/jonradoff/lightcms/v6/internal/apiclient"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -663,7 +663,7 @@ Templates can use {{.lc_toc}} in their HTML layout to inject an auto-generated t
 
 	// Batch publish
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name: "publish_multiple",
+		Name:  "publish_multiple",
 		Title: "Publish Multiple",
 		Description: `Publish multiple content items in a single call. Use this instead of calling publish_content in a loop.
 
@@ -689,7 +689,7 @@ Returns a list of published IDs and any failures.`,
 
 	// Preview content
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name: "preview_content",
+		Name:  "preview_content",
 		Title: "Preview Content",
 		Description: `Render a content item's HTML without saving or publishing. Use this to verify what a page will look like before publishing.
 
@@ -719,7 +719,7 @@ Returns rendered_html and any warnings (missing required fields, unclosed tags, 
 
 	// Update content by path
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name: "update_content_by_path",
+		Name:  "update_content_by_path",
 		Title: "Update Content by Path",
 		Description: `Update content identified by its URL path instead of its ID. Useful when you know the page URL but not the MongoDB ID.
 
@@ -785,7 +785,7 @@ Only the fields you provide are changed. Always include a version_comment descri
 
 	// Scoped search-and-replace preview
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name: "scoped_search_replace_preview",
+		Name:  "scoped_search_replace_preview",
 		Title: "Scoped Search Replace Preview",
 		Description: `Preview a search-and-replace limited to a subset of pages. Safer than site-wide replacement.
 
@@ -862,7 +862,7 @@ Example: {"path": "/about"} returns every published page whose content contains 
 
 	// Scoped search-and-replace execute
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name: "scoped_search_replace_execute",
+		Name:  "scoped_search_replace_execute",
 		Title: "Scoped Search Replace Execute",
 		Description: `Execute a search-and-replace limited to a subset of pages. ALWAYS run scoped_search_replace_preview first and show results to the user before executing.
 

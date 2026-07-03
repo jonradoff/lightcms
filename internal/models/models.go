@@ -37,37 +37,37 @@ type Content struct {
 	TemplateID      primitive.ObjectID     `bson:"template_id" json:"template_id"`
 	TemplateName    string                 `bson:"template_name" json:"template_name"`
 	Title           string                 `bson:"title" json:"title"`
-	Slug            string                 `bson:"slug" json:"slug"`           // Just the page slug, not including folder path
+	Slug            string                 `bson:"slug" json:"slug"`                               // Just the page slug, not including folder path
 	FolderID        *primitive.ObjectID    `bson:"folder_id,omitempty" json:"folder_id,omitempty"` // nil for root level
-	FolderPath      string                 `bson:"folder_path" json:"folder_path"` // Cached folder path for quick lookups
-	FullPath        string                 `bson:"full_path" json:"full_path"` // Complete URL path (folder + slug)
+	FolderPath      string                 `bson:"folder_path" json:"folder_path"`                 // Cached folder path for quick lookups
+	FullPath        string                 `bson:"full_path" json:"full_path"`                     // Complete URL path (folder + slug)
 	Category        string                 `bson:"category" json:"category"`
-	Tags            []string               `bson:"tags,omitempty" json:"tags,omitempty"` // Multi-value tags for lc:query filtering
+	Tags            []string               `bson:"tags,omitempty" json:"tags,omitempty"`     // Multi-value tags for lc:query filtering
 	MetaDescription string                 `bson:"meta_description" json:"meta_description"` // SEO meta description
 	OGImage         string                 `bson:"og_image" json:"og_image"`                 // Open Graph image URL
-	Data            map[string]interface{} `bson:"data" json:"data"` // Dynamic field values
+	Data            map[string]interface{} `bson:"data" json:"data"`                         // Dynamic field values
 	Published       bool                   `bson:"published" json:"published"`
 	PublishedAt     *time.Time             `bson:"published_at,omitempty" json:"published_at,omitempty"`
 	UseHeader       bool                   `bson:"use_header" json:"use_header"`
 	UseFooter       bool                   `bson:"use_footer" json:"use_footer"`
-	UseTheme        bool                   `bson:"use_theme" json:"use_theme"`   // Whether to wrap in site theme/layout
-	RawMode         bool                   `bson:"raw_mode" json:"raw_mode"`     // True = raw HTML, False = rich editor
+	UseTheme        bool                   `bson:"use_theme" json:"use_theme"`                               // Whether to wrap in site theme/layout
+	RawMode         bool                   `bson:"raw_mode" json:"raw_mode"`                                 // True = raw HTML, False = rich editor
 	InternalLinks   []string               `bson:"internal_links,omitempty" json:"internal_links,omitempty"` // Tracks internal links (slugs) in this content
-	ContentHash     string                 `bson:"content_hash,omitempty" json:"-"`                         // SHA-256 of last generated static HTML
-	Embedding       []float32              `bson:"embedding,omitempty" json:"-"`                            // Voyage AI vector embedding (1024 dims)
-	EmbeddingAt     *time.Time             `bson:"embedding_at,omitempty" json:"-"`                         // When embedding was last generated
-	PlainText       string                 `bson:"plain_text,omitempty" json:"-"`                           // Cached stripped-HTML text for search snippets
-	PublishAt       *time.Time             `bson:"publish_at,omitempty" json:"publish_at,omitempty"` // Scheduled publish time
-	Deleted         bool                   `bson:"deleted" json:"deleted"`       // Soft delete flag
+	ContentHash     string                 `bson:"content_hash,omitempty" json:"-"`                          // SHA-256 of last generated static HTML
+	Embedding       []float32              `bson:"embedding,omitempty" json:"-"`                             // Voyage AI vector embedding (1024 dims)
+	EmbeddingAt     *time.Time             `bson:"embedding_at,omitempty" json:"-"`                          // When embedding was last generated
+	PlainText       string                 `bson:"plain_text,omitempty" json:"-"`                            // Cached stripped-HTML text for search snippets
+	PublishAt       *time.Time             `bson:"publish_at,omitempty" json:"publish_at,omitempty"`         // Scheduled publish time
+	Deleted         bool                   `bson:"deleted" json:"deleted"`                                   // Soft delete flag
 	DeletedAt       *time.Time             `bson:"deleted_at,omitempty" json:"deleted_at,omitempty"`
-	SourceURL     string                 `bson:"source_url,omitempty" json:"source_url,omitempty"` // Original URL for imported content (RSS dedup key)
+	SourceURL       string                 `bson:"source_url,omitempty" json:"source_url,omitempty"` // Original URL for imported content (RSS dedup key)
 	// Fork fields — set when this content item belongs to a fork workspace
-	ForkID        *primitive.ObjectID    `bson:"fork_id,omitempty" json:"fork_id,omitempty"`         // nil for live content
-	BaseUpdatedAt *time.Time             `bson:"base_updated_at,omitempty" json:"base_updated_at,omitempty"` // updated_at of the live page at fork time (for conflict detection)
+	ForkID        *primitive.ObjectID `bson:"fork_id,omitempty" json:"fork_id,omitempty"`                 // nil for live content
+	BaseUpdatedAt *time.Time          `bson:"base_updated_at,omitempty" json:"base_updated_at,omitempty"` // updated_at of the live page at fork time (for conflict detection)
 	// Approval fields — set when a Contributor submits content for review
-	PendingApproval bool                   `bson:"pending_approval,omitempty" json:"pending_approval,omitempty"`
-	CreatedAt       time.Time              `bson:"created_at" json:"created_at"`
-	UpdatedAt       time.Time              `bson:"updated_at" json:"updated_at"`
+	PendingApproval bool      `bson:"pending_approval,omitempty" json:"pending_approval,omitempty"`
+	CreatedAt       time.Time `bson:"created_at" json:"created_at"`
+	UpdatedAt       time.Time `bson:"updated_at" json:"updated_at"`
 }
 
 // ContentFork represents a named workspace for staging site changes before merging to live
@@ -75,7 +75,7 @@ type ContentFork struct {
 	ID             primitive.ObjectID  `bson:"_id,omitempty" json:"id"`
 	Name           string              `bson:"name" json:"name"`
 	Description    string              `bson:"description" json:"description"`
-	Status         string              `bson:"status" json:"status"` // "active" | "merged" | "archived"
+	Status         string              `bson:"status" json:"status"`               // "active" | "merged" | "archived"
 	PreviewToken   string              `bson:"preview_token" json:"preview_token"` // random token for cookie-based preview
 	CreatedBy      primitive.ObjectID  `bson:"created_by" json:"created_by"`
 	CreatedByEmail string              `bson:"created_by_email" json:"created_by_email"`
@@ -89,10 +89,10 @@ type ContentFork struct {
 // ContentVersion represents a historical version of content
 type ContentVersion struct {
 	ID              primitive.ObjectID     `bson:"_id,omitempty" json:"id"`
-	ContentID       primitive.ObjectID     `bson:"content_id" json:"content_id"`         // Reference to the content item
-	Version         int                    `bson:"version" json:"version"`               // Version number (1, 2, 3...)
-	Comment         string                 `bson:"comment,omitempty" json:"comment,omitempty"` // Optional version comment
-	ModifiedBy      *primitive.ObjectID    `bson:"modified_by,omitempty" json:"modified_by,omitempty"`         // User who made this version
+	ContentID       primitive.ObjectID     `bson:"content_id" json:"content_id"`                                   // Reference to the content item
+	Version         int                    `bson:"version" json:"version"`                                         // Version number (1, 2, 3...)
+	Comment         string                 `bson:"comment,omitempty" json:"comment,omitempty"`                     // Optional version comment
+	ModifiedBy      *primitive.ObjectID    `bson:"modified_by,omitempty" json:"modified_by,omitempty"`             // User who made this version
 	ModifiedByEmail string                 `bson:"modified_by_email,omitempty" json:"modified_by_email,omitempty"` // Denormalized email
 	TemplateID      primitive.ObjectID     `bson:"template_id" json:"template_id"`
 	TemplateName    string                 `bson:"template_name" json:"template_name"`
@@ -112,18 +112,18 @@ type ContentVersion struct {
 	UseFooter       bool                   `bson:"use_footer" json:"use_footer"`
 	UseTheme        bool                   `bson:"use_theme" json:"use_theme"`
 	RawMode         bool                   `bson:"raw_mode" json:"raw_mode"`
-	CreatedAt       time.Time              `bson:"created_at" json:"created_at"`         // When this version was created (saved)
+	CreatedAt       time.Time              `bson:"created_at" json:"created_at"` // When this version was created (saved)
 }
 
 // Folder represents a directory in the site structure
 type Folder struct {
-	ID        primitive.ObjectID `bson:"_id,omitempty" json:"id"`
-	Name      string             `bson:"name" json:"name"`           // Display name
-	Slug      string             `bson:"slug" json:"slug"`           // URL segment (just the folder name, not full path)
+	ID        primitive.ObjectID  `bson:"_id,omitempty" json:"id"`
+	Name      string              `bson:"name" json:"name"`                               // Display name
+	Slug      string              `bson:"slug" json:"slug"`                               // URL segment (just the folder name, not full path)
 	ParentID  *primitive.ObjectID `bson:"parent_id,omitempty" json:"parent_id,omitempty"` // nil for root-level folders
-	Path      string             `bson:"path" json:"path"`           // Full path like /blog/2024
-	CreatedAt time.Time          `bson:"created_at" json:"created_at"`
-	UpdatedAt time.Time          `bson:"updated_at" json:"updated_at"`
+	Path      string              `bson:"path" json:"path"`                               // Full path like /blog/2024
+	CreatedAt time.Time           `bson:"created_at" json:"created_at"`
+	UpdatedAt time.Time           `bson:"updated_at" json:"updated_at"`
 }
 
 // Collection represents a content collection (e.g., all blog posts)
@@ -132,9 +132,9 @@ type Collection struct {
 	Name         string             `bson:"name" json:"name"`
 	Slug         string             `bson:"slug" json:"slug"`
 	Description  string             `bson:"description" json:"description"`
-	Category     string             `bson:"category" json:"category"`  // Filter content by this category
-	SortField    string             `bson:"sort_field" json:"sort_field"` // Field to sort by
-	SortOrder    string             `bson:"sort_order" json:"sort_order"` // asc or desc
+	Category     string             `bson:"category" json:"category"`           // Filter content by this category
+	SortField    string             `bson:"sort_field" json:"sort_field"`       // Field to sort by
+	SortOrder    string             `bson:"sort_order" json:"sort_order"`       // asc or desc
 	ItemTemplate string             `bson:"item_template" json:"item_template"` // HTML template for each item
 	PageTemplate string             `bson:"page_template" json:"page_template"` // HTML template for the collection page
 	ItemsPerPage int                `bson:"items_per_page" json:"items_per_page"`
@@ -142,15 +142,14 @@ type Collection struct {
 	UpdatedAt    time.Time          `bson:"updated_at" json:"updated_at"`
 }
 
-
 // APIKey represents an API key for REST API access
 type APIKey struct {
 	ID          primitive.ObjectID  `bson:"_id,omitempty" json:"id"`
 	Name        string              `bson:"name" json:"name"`
 	Description string              `bson:"description" json:"description"`
-	Prefix      string              `bson:"prefix" json:"prefix"`                               // First 11 chars (e.g., "lc_a1b2c3d4") for identification
-	KeyHash     string              `bson:"key_hash" json:"-"`                                  // SHA-256 hash of full key
-	UserID      *primitive.ObjectID `bson:"user_id,omitempty" json:"user_id,omitempty"`         // Owning user
+	Prefix      string              `bson:"prefix" json:"prefix"`                       // First 11 chars (e.g., "lc_a1b2c3d4") for identification
+	KeyHash     string              `bson:"key_hash" json:"-"`                          // SHA-256 hash of full key
+	UserID      *primitive.ObjectID `bson:"user_id,omitempty" json:"user_id,omitempty"` // Owning user
 	LastUsedAt  *time.Time          `bson:"last_used_at,omitempty" json:"last_used_at,omitempty"`
 	CreatedAt   time.Time           `bson:"created_at" json:"created_at"`
 }
@@ -159,8 +158,8 @@ type APIKey struct {
 // The HTML is a Go text/template with access to content fields (.Title, .FullPath, .Tags, .Data, etc.).
 type Snippet struct {
 	ID        primitive.ObjectID `bson:"_id,omitempty" json:"id"`
-	Name      string             `bson:"name" json:"name"`       // Unique name referenced in <!-- lc:query snippet="name" -->
-	HTML      string             `bson:"html" json:"html"`       // Go template HTML rendered per result item
+	Name      string             `bson:"name" json:"name"` // Unique name referenced in <!-- lc:query snippet="name" -->
+	HTML      string             `bson:"html" json:"html"` // Go template HTML rendered per result item
 	CreatedAt time.Time          `bson:"created_at" json:"created_at"`
 	UpdatedAt time.Time          `bson:"updated_at" json:"updated_at"`
 }
@@ -182,24 +181,24 @@ type ContactMessage struct {
 // Redirect represents a URL redirect rule
 type Redirect struct {
 	ID          primitive.ObjectID `bson:"_id,omitempty" json:"id"`
-	FromPath    string             `bson:"from_path" json:"from_path"`       // Source path (e.g., /old-page)
-	ToPath      string             `bson:"to_path" json:"to_path"`           // Destination path (e.g., /new-page)
-	StatusCode  int                `bson:"status_code" json:"status_code"`   // 301 or 302
-	Description string             `bson:"description" json:"description"`   // Optional note
+	FromPath    string             `bson:"from_path" json:"from_path"`     // Source path (e.g., /old-page)
+	ToPath      string             `bson:"to_path" json:"to_path"`         // Destination path (e.g., /new-page)
+	StatusCode  int                `bson:"status_code" json:"status_code"` // 301 or 302
+	Description string             `bson:"description" json:"description"` // Optional note
 	CreatedAt   time.Time          `bson:"created_at" json:"created_at"`
 	UpdatedAt   time.Time          `bson:"updated_at" json:"updated_at"`
 }
 
 // Asset represents a file stored in the asset library
 type Asset struct {
-	ID          primitive.ObjectID `bson:"_id,omitempty" json:"id"`
-	Filename    string             `bson:"filename" json:"filename"`         // Original filename
-	Folder      string             `bson:"folder" json:"folder"`             // Folder path (e.g., /images, /documents)
-	FullPath    string             `bson:"full_path" json:"full_path"`       // Complete path (folder + filename)
-	MimeType    string             `bson:"mime_type" json:"mime_type"`       // MIME type (e.g., image/png)
-	Size        int64              `bson:"size" json:"size"`                 // File size in bytes
-	Data        []byte             `bson:"data" json:"data"`                 // File binary data
-	Description    string              `bson:"description" json:"description"`       // Optional description
+	ID             primitive.ObjectID  `bson:"_id,omitempty" json:"id"`
+	Filename       string              `bson:"filename" json:"filename"`       // Original filename
+	Folder         string              `bson:"folder" json:"folder"`           // Folder path (e.g., /images, /documents)
+	FullPath       string              `bson:"full_path" json:"full_path"`     // Complete path (folder + filename)
+	MimeType       string              `bson:"mime_type" json:"mime_type"`     // MIME type (e.g., image/png)
+	Size           int64               `bson:"size" json:"size"`               // File size in bytes
+	Data           []byte              `bson:"data" json:"data"`               // File binary data
+	Description    string              `bson:"description" json:"description"` // Optional description
 	UploadedByID   *primitive.ObjectID `bson:"uploaded_by_id,omitempty" json:"uploaded_by_id,omitempty"`
 	UploadedByRole string              `bson:"uploaded_by_role,omitempty" json:"uploaded_by_role,omitempty"`
 	PendingReview  bool                `bson:"pending_review,omitempty" json:"pending_review,omitempty"` // true when uploaded by a contributor

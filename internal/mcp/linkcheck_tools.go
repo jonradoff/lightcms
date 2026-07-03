@@ -24,7 +24,7 @@ type GetLinkCheckResultsInput struct {
 func (s *Server) registerLinkCheckTools() {
 	// start_link_check
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
-		Name: "start_link_check",
+		Name:  "start_link_check",
 		Title: "Start Link Check",
 		Description: `Start an asynchronous broken-link check across all published content.
 

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"lightcms/internal/testutil"
+	"github.com/jonradoff/lightcms/v6/internal/testutil"
 
 	"go.mongodb.org/mongo-driver/bson"
 )

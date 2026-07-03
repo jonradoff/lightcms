@@ -3,7 +3,7 @@ package auth
 import (
 	"context"
 
-	"lightcms/internal/middleware"
+	"github.com/jonradoff/lightcms/v6/internal/middleware"
 )
 
 // UserFromAPIContext extracts the authenticated SessionUser from an API request context.
@@ -59,12 +59,12 @@ const (
 	PermForkMerge  = "fork.merge"  // merge fork into live (admin only)
 
 	// Approvals & discussions
-	PermContentSubmitApproval   = "content.submit_approval"    // submit content for approval (contributor+)
-	PermApprovalView            = "approval.view"              // view approval requests
-	PermApprovalDecide          = "approval.decide"            // approve or reject requests (editor+)
-	PermApprovalManageWorkflows = "approval.manage_workflows"  // create/edit/delete workflows (editor+)
-	PermDiscussionPost          = "discussion.post"            // post comments (contributor+)
-	PermCommentDelete           = "comment.delete"             // delete any comment (admin only)
+	PermContentSubmitApproval   = "content.submit_approval"   // submit content for approval (contributor+)
+	PermApprovalView            = "approval.view"             // view approval requests
+	PermApprovalDecide          = "approval.decide"           // approve or reject requests (editor+)
+	PermApprovalManageWorkflows = "approval.manage_workflows" // create/edit/delete workflows (editor+)
+	PermDiscussionPost          = "discussion.post"           // post comments (contributor+)
+	PermCommentDelete           = "comment.delete"            // delete any comment (admin only)
 )
 
 // RolePermissions maps each role to its allowed permissions
@@ -128,8 +128,8 @@ func HasPermission(role, perm string) bool {
 
 // SessionUser represents the authenticated user extracted from a session or API context
 type SessionUser struct {
-	ID         string `json:"id"`
-	Email      string `json:"email"`
-	Role       string `json:"role"`
-	ViaAPIKey  bool   `json:"via_api_key,omitempty"` // true when authenticated via API key (not session)
+	ID        string `json:"id"`
+	Email     string `json:"email"`
+	Role      string `json:"role"`
+	ViaAPIKey bool   `json:"via_api_key,omitempty"` // true when authenticated via API key (not session)
 }

@@ -13,8 +13,8 @@ import (
 // FeedItem is a parsed RSS/Atom item
 type FeedItem struct {
 	Title       string
-	URL         string    // link (used as source_url for dedup)
-	Description string    // content/summary
+	URL         string // link (used as source_url for dedup)
+	Description string // content/summary
 	Author      string
 	PublishedAt *time.Time
 	GUID        string

@@ -13,10 +13,10 @@ import (
 	"sync"
 	"time"
 
-	"lightcms/internal/auth"
-	"lightcms/internal/database"
-	"lightcms/internal/middleware"
-	"lightcms/internal/models"
+	"github.com/jonradoff/lightcms/v6/internal/auth"
+	"github.com/jonradoff/lightcms/v6/internal/database"
+	"github.com/jonradoff/lightcms/v6/internal/middleware"
+	"github.com/jonradoff/lightcms/v6/internal/models"
 )
 
 // ---------------------------------------------------------------------------
