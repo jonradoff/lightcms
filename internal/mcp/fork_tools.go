@@ -195,6 +195,9 @@ ALWAYS confirm with the user before merging, as this pushes changes to the live 
 			OpenWorldHint:   boolPtr(false),
 		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args MergeForkInput) (*mcp.CallToolResult, any, error) {
+		if sbID, sbName, sbActive := s.sandboxFork(); sbActive && args.ForkID == sbID {
+			return textResult(fmt.Sprintf("BLOCKED: %s targets the active agent sandbox %q. Agents cannot merge their own sandbox — use end_agent_sandbox instead; merging is a human decision.", "merge_fork", sbName)), nil, nil
+		}
 		result, err := s.client.MergeFork(ctx, args.ForkID)
 		if err != nil {
 			return errorResult(err), nil, nil
@@ -215,6 +218,9 @@ ALWAYS confirm with the user before merging, as this pushes changes to the live 
 			OpenWorldHint:   boolPtr(false),
 		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args ArchiveForkInput) (*mcp.CallToolResult, any, error) {
+		if sbID, sbName, sbActive := s.sandboxFork(); sbActive && args.ForkID == sbID {
+			return textResult(fmt.Sprintf("BLOCKED: %s targets the active agent sandbox %q. Agents cannot archive their own sandbox — use end_agent_sandbox instead; merging is a human decision.", "archive_fork", sbName)), nil, nil
+		}
 		if err := s.client.ArchiveFork(ctx, args.ForkID); err != nil {
 			return errorResult(err), nil, nil
 		}
@@ -234,6 +240,9 @@ ALWAYS confirm with the user before merging, as this pushes changes to the live 
 			OpenWorldHint:   boolPtr(false),
 		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args DeleteForkInput) (*mcp.CallToolResult, any, error) {
+		if sbID, sbName, sbActive := s.sandboxFork(); sbActive && args.ForkID == sbID {
+			return textResult(fmt.Sprintf("BLOCKED: %s targets the active agent sandbox %q. Agents cannot delete their own sandbox — use end_agent_sandbox instead; merging is a human decision.", "delete_fork", sbName)), nil, nil
+		}
 		if err := s.client.DeleteFork(ctx, args.ForkID); err != nil {
 			return errorResult(err), nil, nil
 		}

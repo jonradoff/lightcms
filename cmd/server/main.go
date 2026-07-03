@@ -598,6 +598,7 @@ func main() {
 	apiv1.HandleFunc("/forks/{id}/fork-page", apiHandler.APIForkPage).Methods("POST")
 	apiv1.HandleFunc("/forks/{id}/pages", apiHandler.APIListForkPages).Methods("GET")
 	apiv1.HandleFunc("/forks/{id}/pages/{pageID}", apiHandler.APIRemoveForkPage).Methods("DELETE")
+	apiv1.HandleFunc("/forks/{id}/diff", apiHandler.APIForkDiff).Methods("GET")
 	apiv1.HandleFunc("/forks/{id}/merge", apiHandler.APIMergeFork).Methods("POST")
 	apiv1.HandleFunc("/forks/{id}/archive", apiHandler.APIArchiveFork).Methods("POST")
 

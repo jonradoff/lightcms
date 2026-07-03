@@ -946,6 +946,16 @@ func (c *Client) DeleteFork(ctx context.Context, forkID string) error {
 	return c.do(ctx, "DELETE", "/forks/"+forkID, nil, nil)
 }
 
+// GetForkDiff returns per-field differences between each fork page and its
+// live counterpart.
+func (c *Client) GetForkDiff(ctx context.Context, forkID string) (*ForkDiff, error) {
+	var result ForkDiff
+	if err := c.do(ctx, "GET", "/forks/"+forkID+"/diff", nil, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
 // ---------------------------------------------------------------------------
 // Import operations
 // ---------------------------------------------------------------------------

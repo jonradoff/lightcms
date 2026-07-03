@@ -15,6 +15,7 @@ import (
 type Server struct {
 	mcpServer *mcp.Server
 	client    *apiclient.Client
+	sandbox   sandboxState
 }
 
 // NewServer creates a new MCP server with all tools registered
@@ -49,6 +50,7 @@ func NewServer(client *apiclient.Client) *Server {
 	s.registerLinkCheckTools()
 	s.registerCommentTools()
 	s.registerApprovalTools()
+	s.registerSandboxTools()
 
 	// Register resources
 	s.registerResources()

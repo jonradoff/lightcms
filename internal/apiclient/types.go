@@ -29,6 +29,28 @@ type Content struct {
 	CreatedAt       time.Time              `json:"created_at"`
 	UpdatedAt       time.Time              `json:"updated_at"`
 	RenderedHTML    string                 `json:"rendered_html,omitempty"`
+	ForkID          string                 `json:"fork_id,omitempty"`
+}
+
+// Fork diff types
+
+type ForkFieldDiff struct {
+	Name string `json:"name"`
+	Live string `json:"live"`
+	Fork string `json:"fork"`
+}
+
+type ForkPageDiff struct {
+	Path     string          `json:"path"`
+	Title    string          `json:"title"`
+	Status   string          `json:"status"`
+	Conflict bool            `json:"conflict"`
+	Fields   []ForkFieldDiff `json:"fields,omitempty"`
+}
+
+type ForkDiff struct {
+	ForkID string         `json:"fork_id"`
+	Pages  []ForkPageDiff `json:"pages"`
 }
 
 type ContentVersion struct {
@@ -73,6 +95,7 @@ type CreateContentRequest struct {
 	RawMode         bool                   `json:"raw_mode,omitempty"`
 	VersionComment  string                 `json:"version_comment,omitempty"`
 	Upsert          bool                   `json:"upsert,omitempty"`
+	ForkID          string                 `json:"fork_id,omitempty"`
 }
 
 // Snippet types

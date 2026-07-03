@@ -360,3 +360,26 @@ func (a *APIHandler) APIDeleteFork(w http.ResponseWriter, r *http.Request) {
 	a.auditLog(r, "fork.delete", "fork", forkID.Hex(), nil)
 	a.jsonResponse(w, http.StatusOK, map[string]interface{}{"success": true})
 }
+
+// APIForkDiff returns per-field differences between each fork page and its
+// live counterpart — the review surface for fork ("content PR") approval.
+func (a *APIHandler) APIForkDiff(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermForkCreate) {
+		return
+	}
+	vars := mux.Vars(r)
+	forkID, err := primitive.ObjectIDFromHex(vars["id"])
+	if err != nil {
+		a.jsonError(w, http.StatusBadRequest, "invalid fork ID")
+		return
+	}
+	diffs, err := a.forkService.Diff(r.Context(), forkID)
+	if err != nil {
+		a.jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	a.jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"fork_id": forkID.Hex(),
+		"pages":   diffs,
+	})
+}

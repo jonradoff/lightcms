@@ -218,8 +218,9 @@ func (s *ContentService) CreateContent(ctx context.Context, content *models.Cont
 		return fmt.Errorf("failed to save initial version: %w", err)
 	}
 
-	// Generate static page if published
-	if content.Published {
+	// Generate static page if published (fork copies never touch static
+	// files or the embedding index — they go live only on merge)
+	if content.Published && content.ForkID == nil {
 		if err := s.GenerateStaticPage(ctx, content); err != nil {
 			// Log but don't fail
 			fmt.Printf("Warning: failed to generate static page: %v\n", err)
@@ -479,8 +480,12 @@ func (s *ContentService) UpdateContent(ctx context.Context, content *models.Cont
 		s.invalidateWikilinkCache()
 	}
 
-	// Generate or remove static page based on publish status
-	if content.Published {
+	// Generate or remove static page based on publish status.
+	// Fork copies share full_path with live pages — never touch static
+	// files or the embedding index on their behalf.
+	if content.ForkID != nil {
+		// no static/embedding side effects for sandboxed content
+	} else if content.Published {
 		if err := s.GenerateStaticPage(ctx, content); err != nil {
 			fmt.Printf("Warning: failed to generate static page: %v\n", err)
 		}
@@ -1049,6 +1054,11 @@ func (s *ContentService) GenerateStaticPage(ctx context.Context, content *models
 // generateStaticPageWithWikilinkIndex renders and saves the content as a static HTML file,
 // optionally using a pre-built wikilink index (pass nil to build one on demand).
 func (s *ContentService) generateStaticPageWithWikilinkIndex(ctx context.Context, content *models.Content, prebuiltIdx *wikilinkIndex) error {
+	// Fork copies share full_path with their live counterpart — generating
+	// them would overwrite the live page's static file with sandbox content.
+	if content.ForkID != nil {
+		return nil
+	}
 	// Get template
 	var tmpl models.Template
 	if err := s.db.FindOne(ctx, "templates", bson.M{"_id": content.TemplateID}, &tmpl); err != nil {

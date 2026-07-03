@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/jonradoff/lightcms/v6/internal/database"
@@ -328,4 +330,99 @@ func (s *ForkService) Delete(ctx context.Context, forkID primitive.ObjectID) err
 // GetPageCount returns the number of pages in a fork.
 func (s *ForkService) GetPageCount(ctx context.Context, forkID primitive.ObjectID) (int64, error) {
 	return s.db.Count(ctx, "content", bson.M{"fork_id": forkID, "deleted": bson.M{"$ne": true}})
+}
+
+// FieldDiff describes one changed field between a live page and its fork copy.
+type FieldDiff struct {
+	Name string `json:"name"`
+	Live string `json:"live"`
+	Fork string `json:"fork"`
+}
+
+// ForkPageDiff summarizes how one fork page differs from its live counterpart.
+type ForkPageDiff struct {
+	Path     string      `json:"path"`
+	Title    string      `json:"title"`
+	Status   string      `json:"status"` // "added" (no live counterpart) or "modified"
+	Conflict bool        `json:"conflict"`
+	Fields   []FieldDiff `json:"fields,omitempty"`
+}
+
+// diffValue renders a field value as a comparison-friendly string, truncated
+// so diffs of large rich-text fields stay reviewable.
+func diffValue(v interface{}) string {
+	s, ok := v.(string)
+	if !ok {
+		b, _ := json.Marshal(v)
+		s = string(b)
+	}
+	const max = 2000
+	if len(s) > max {
+		return s[:max] + "…"
+	}
+	return s
+}
+
+// Diff compares every page in a fork against its live counterpart and
+// returns per-field changes. Pages with no live counterpart are "added".
+func (s *ForkService) Diff(ctx context.Context, forkID primitive.ObjectID) ([]ForkPageDiff, error) {
+	pages, err := s.ListPages(ctx, forkID)
+	if err != nil {
+		return nil, err
+	}
+
+	diffs := make([]ForkPageDiff, 0, len(pages))
+	for _, fp := range pages {
+		d := ForkPageDiff{Path: fp.FullPath, Title: fp.Title}
+
+		var live models.Content
+		err := s.db.FindOne(ctx, "content", bson.M{
+			"full_path": fp.FullPath,
+			"deleted":   bson.M{"$ne": true},
+			"fork_id":   bson.M{"$exists": false},
+		}, &live)
+		if err != nil {
+			d.Status = "added"
+			diffs = append(diffs, d)
+			continue
+		}
+
+		d.Status = "modified"
+		if fp.BaseUpdatedAt != nil && live.UpdatedAt.After(*fp.BaseUpdatedAt) {
+			d.Conflict = true
+		}
+
+		if live.Title != fp.Title {
+			d.Fields = append(d.Fields, FieldDiff{Name: "title", Live: live.Title, Fork: fp.Title})
+		}
+		if live.MetaDescription != fp.MetaDescription {
+			d.Fields = append(d.Fields, FieldDiff{Name: "meta_description", Live: live.MetaDescription, Fork: fp.MetaDescription})
+		}
+		if live.OGImage != fp.OGImage {
+			d.Fields = append(d.Fields, FieldDiff{Name: "og_image", Live: live.OGImage, Fork: fp.OGImage})
+		}
+
+		// Union of data field names from both sides, in sorted order.
+		names := map[string]bool{}
+		for k := range live.Data {
+			names[k] = true
+		}
+		for k := range fp.Data {
+			names[k] = true
+		}
+		sorted := make([]string, 0, len(names))
+		for k := range names {
+			sorted = append(sorted, k)
+		}
+		sort.Strings(sorted)
+		for _, k := range sorted {
+			lv, fv := diffValue(live.Data[k]), diffValue(fp.Data[k])
+			if lv != fv {
+				d.Fields = append(d.Fields, FieldDiff{Name: k, Live: lv, Fork: fv})
+			}
+		}
+
+		diffs = append(diffs, d)
+	}
+	return diffs, nil
 }

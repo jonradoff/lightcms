@@ -262,6 +262,7 @@ func (a *APIHandler) APICreateContent(w http.ResponseWriter, r *http.Request) {
 		RawMode         bool                   `json:"raw_mode"`
 		VersionComment  string                 `json:"version_comment"`
 		Upsert          bool                   `json:"upsert"`
+		ForkID          string                 `json:"fork_id"`
 	}
 	if err := a.decodeJSON(r, &req); err != nil {
 		a.jsonError(w, http.StatusBadRequest, "invalid request body")
@@ -299,6 +300,31 @@ func (a *APIHandler) APICreateContent(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Optional fork target: the new page is created inside the fork
+	// workspace instead of live content, and reaches live only on merge.
+	var forkID *primitive.ObjectID
+	if req.ForkID != "" {
+		if req.Upsert {
+			a.jsonError(w, http.StatusBadRequest, "fork_id cannot be combined with upsert")
+			return
+		}
+		fid, err := primitive.ObjectIDFromHex(req.ForkID)
+		if err != nil {
+			a.jsonError(w, http.StatusBadRequest, "invalid fork_id")
+			return
+		}
+		fork, err := a.forkService.GetByID(r.Context(), fid)
+		if err != nil {
+			a.jsonError(w, http.StatusBadRequest, "fork not found")
+			return
+		}
+		if fork.Status != "active" {
+			a.jsonError(w, http.StatusBadRequest, "fork is not active (status: "+fork.Status+")")
+			return
+		}
+		forkID = &fid
+	}
+
 	content := &models.Content{
 		TemplateID:      templateID,
 		TemplateName:    tmpl.Name,
@@ -316,6 +342,7 @@ func (a *APIHandler) APICreateContent(w http.ResponseWriter, r *http.Request) {
 		UseFooter:       req.UseFooter,
 		UseTheme:        req.UseTheme,
 		RawMode:         req.RawMode,
+		ForkID:          forkID,
 	}
 
 	comment := req.VersionComment

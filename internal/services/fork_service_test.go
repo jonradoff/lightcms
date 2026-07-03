@@ -2,6 +2,8 @@ package services
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -9,6 +11,7 @@ import (
 	"github.com/jonradoff/lightcms/v6/internal/models"
 	"github.com/jonradoff/lightcms/v6/internal/testutil"
 
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
@@ -172,5 +175,131 @@ func TestForkService_ArchiveAndDelete(t *testing.T) {
 	}
 	if _, err := fs.GetByID(ctx, fork2.ID); err == nil {
 		t.Error("expected error getting deleted fork")
+	}
+}
+
+func TestForkService_Diff(t *testing.T) {
+	db, cleanup := testutil.MustConnectTestDB(t)
+	defer cleanup()
+
+	cs := NewContentService(db)
+	fs := NewForkService(db, cs)
+	ctx := context.Background()
+	uid := primitive.NewObjectID()
+
+	liveID := seedLiveContent(t, db, "Original Title", "/diff-page")
+
+	fork, err := fs.Create(ctx, "diff-fork", "", uid, "a@x.com")
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// Copy the live page and modify the copy.
+	copyPage, err := fs.ForkPage(ctx, fork.ID, liveID)
+	if err != nil {
+		t.Fatalf("ForkPage: %v", err)
+	}
+	copyPage.Title = "Changed Title"
+	copyPage.Data = map[string]interface{}{"body": "new body"}
+	if err := cs.UpdateContent(ctx, copyPage, "edit in fork"); err != nil {
+		t.Fatalf("UpdateContent fork copy: %v", err)
+	}
+
+	// A page that exists only in the fork.
+	newInFork := &models.Content{
+		Title: "Only In Fork", Slug: "fork-only", FullPath: "/fork-only",
+		ForkID: &fork.ID, CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}
+	if _, err := db.InsertOne(ctx, "content", newInFork); err != nil {
+		t.Fatalf("insert fork-only page: %v", err)
+	}
+
+	diffs, err := fs.Diff(ctx, fork.ID)
+	if err != nil {
+		t.Fatalf("Diff: %v", err)
+	}
+	if len(diffs) != 2 {
+		t.Fatalf("expected 2 diffs, got %d: %+v", len(diffs), diffs)
+	}
+
+	byPath := map[string]ForkPageDiff{}
+	for _, d := range diffs {
+		byPath[d.Path] = d
+	}
+
+	mod := byPath["/diff-page"]
+	if mod.Status != "modified" {
+		t.Errorf("status = %q, want modified", mod.Status)
+	}
+	foundTitle, foundBody := false, false
+	for _, f := range mod.Fields {
+		if f.Name == "title" && f.Live == "Original Title" && f.Fork == "Changed Title" {
+			foundTitle = true
+		}
+		if f.Name == "body" && f.Fork == "new body" {
+			foundBody = true
+		}
+	}
+	if !foundTitle || !foundBody {
+		t.Errorf("missing expected field diffs: %+v", mod.Fields)
+	}
+
+	if byPath["/fork-only"].Status != "added" {
+		t.Errorf("fork-only page status = %q, want added", byPath["/fork-only"].Status)
+	}
+}
+
+// TestForkCopy_NoStaticSideEffects verifies that fork copies never generate
+// or remove static files at their live path (they share full_path with live).
+func TestForkCopy_NoStaticSideEffects(t *testing.T) {
+	db, cleanup := testutil.MustConnectTestDB(t)
+	defer cleanup()
+
+	cs := NewContentService(db)
+	fs := NewForkService(db, cs)
+	ctx := context.Background()
+
+	liveID := seedLiveContent(t, db, "Static Page", "/static-guard")
+
+	// Generate the live static file baseline via a live update.
+	var live models.Content
+	if err := db.FindOne(ctx, "content", bson.M{"_id": liveID}, &live); err != nil {
+		t.Fatalf("load live: %v", err)
+	}
+
+	fork, _ := fs.Create(ctx, "guard-fork", "", primitive.NewObjectID(), "a@x.com")
+	copyPage, err := fs.ForkPage(ctx, fork.ID, liveID)
+	if err != nil {
+		t.Fatalf("ForkPage: %v", err)
+	}
+
+	// GenerateStaticPage on a fork copy must be a no-op, not an overwrite.
+	if err := cs.GenerateStaticPage(ctx, copyPage); err != nil {
+		t.Fatalf("GenerateStaticPage on fork copy errored: %v", err)
+	}
+
+	// Updating an unpublished fork copy must not remove the live static file
+	// (regression: the unpublished branch used to call removeStaticPage on
+	// the shared full_path).
+	staticPath := filepath.Join("content", "generated", "static-guard.html")
+	if err := os.MkdirAll(filepath.Dir(staticPath), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(staticPath, []byte("<html>live</html>"), 0o644); err != nil {
+		t.Fatalf("write sentinel: %v", err)
+	}
+	defer os.Remove(staticPath)
+
+	copyPage.Title = "Edited in fork"
+	if err := cs.UpdateContent(ctx, copyPage, "fork edit"); err != nil {
+		t.Fatalf("UpdateContent: %v", err)
+	}
+
+	data, err := os.ReadFile(staticPath)
+	if err != nil {
+		t.Fatalf("live static file was removed by a fork-copy update: %v", err)
+	}
+	if string(data) != "<html>live</html>" {
+		t.Errorf("live static file was rewritten by a fork-copy update")
 	}
 }
