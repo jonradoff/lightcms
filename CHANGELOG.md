@@ -4,7 +4,7 @@ All notable changes to LightCMS are documented here, organized by version.
 
 ---
 
-## [6.2.0] - 2026-07-03
+## [7.0.0] - 2026-07-04
 
 ### Added — the agentic release
 - **llms.txt & llms-full.txt**: auto-generated Markdown site index and full plain-text content for AI crawlers (llmstxt.org proposal), plus schema.org JSON-LD (BlogPosting/NewsArticle/WebPage) on all published pages.

@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/jonradoff/lightcms/v6/internal/apiclient"
+	"github.com/jonradoff/lightcms/v7/internal/apiclient"
 )
 
 // permissiveServer returns an MCP Server whose REST backend replies with the

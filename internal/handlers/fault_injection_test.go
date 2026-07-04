@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/jonradoff/lightcms/v6/internal/testutil"
+	"github.com/jonradoff/lightcms/v7/internal/testutil"
 )
 
 // TestFaultInjection_APIHandlers exercises handler write-error branches: the

@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jonradoff/lightcms/v6/internal/models"
-	"github.com/jonradoff/lightcms/v6/internal/testutil"
+	"github.com/jonradoff/lightcms/v7/internal/models"
+	"github.com/jonradoff/lightcms/v7/internal/testutil"
 )
 
 func TestImportService_RunRSSImport(t *testing.T) {

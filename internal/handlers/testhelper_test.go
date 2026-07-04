@@ -13,11 +13,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jonradoff/lightcms/v6/internal/auth"
-	"github.com/jonradoff/lightcms/v6/internal/database"
-	"github.com/jonradoff/lightcms/v6/internal/middleware"
-	"github.com/jonradoff/lightcms/v6/internal/services"
-	"github.com/jonradoff/lightcms/v6/internal/testutil"
+	"github.com/jonradoff/lightcms/v7/internal/auth"
+	"github.com/jonradoff/lightcms/v7/internal/database"
+	"github.com/jonradoff/lightcms/v7/internal/middleware"
+	"github.com/jonradoff/lightcms/v7/internal/services"
+	"github.com/jonradoff/lightcms/v7/internal/testutil"
 
 	"github.com/gorilla/mux"
 	"github.com/gorilla/sessions"

@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jonradoff/lightcms/v6/internal/database"
+	"github.com/jonradoff/lightcms/v7/internal/database"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -148,23 +148,28 @@ func (s *AnalyticsService) runUptimeHeartbeat() {
 	for {
 		select {
 		case <-ticker.C:
-			hk := hourKey(time.Now())
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			_, err := s.db.Collection(activityCollection).UpdateOne(ctx,
-				bson.M{"user_id": hourlyUserID, "date": hk},
-				bson.M{
-					"$inc":         bson.M{"uptime_pings": 1},
-					"$setOnInsert": bson.M{"created_at": time.Now().UTC(), "visitors": bson.A{}},
-				},
-				options.Update().SetUpsert(true),
-			)
-			if err != nil {
-				log.Printf("[analytics] heartbeat error: %v", err)
-			}
-			cancel()
+			s.recordUptimePing()
 		case <-s.stop:
 			return
 		}
+	}
+}
+
+// recordUptimePing increments the uptime counter for the current hour bucket.
+func (s *AnalyticsService) recordUptimePing() {
+	hk := hourKey(time.Now())
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err := s.db.Collection(activityCollection).UpdateOne(ctx,
+		bson.M{"user_id": hourlyUserID, "date": hk},
+		bson.M{
+			"$inc":         bson.M{"uptime_pings": 1},
+			"$setOnInsert": bson.M{"created_at": time.Now().UTC(), "visitors": bson.A{}},
+		},
+		options.Update().SetUpsert(true),
+	)
+	if err != nil {
+		log.Printf("[analytics] heartbeat error: %v", err)
 	}
 }
 

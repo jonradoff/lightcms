@@ -12,7 +12,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/jonradoff/lightcms/v6/internal/database"
+	"github.com/jonradoff/lightcms/v7/internal/database"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -49,6 +49,9 @@ type WebhookDeliveryDoc struct {
 type WebhookService struct {
 	db         *database.DB
 	httpClient *http.Client
+	// retryDelays overrides the default retry backoff schedule (30s, 5m).
+	// Only set in tests.
+	retryDelays []time.Duration
 }
 
 // NewWebhookService creates a WebhookService with a 10-second HTTP client that
@@ -148,7 +151,10 @@ func (s *WebhookService) sign(secret string, payload []byte) string {
 
 // retryWithBackoff attempts delivery again at 30 s and 5 min after the first failure.
 func (s *WebhookService) retryWithBackoff(wh WebhookDoc, event string, payload []byte) {
-	delays := []time.Duration{30 * time.Second, 5 * time.Minute}
+	delays := s.retryDelays
+	if delays == nil {
+		delays = []time.Duration{30 * time.Second, 5 * time.Minute}
+	}
 	for attempt, delay := range delays {
 		time.Sleep(delay)
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

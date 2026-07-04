@@ -3,8 +3,8 @@ package handlers
 import (
 	"net/http"
 
-	"github.com/jonradoff/lightcms/v6/internal/auth"
-	"github.com/jonradoff/lightcms/v6/internal/services"
+	"github.com/jonradoff/lightcms/v7/internal/auth"
+	"github.com/jonradoff/lightcms/v7/internal/services"
 
 	"github.com/gorilla/mux"
 )

@@ -9,9 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jonradoff/lightcms/v6/internal/auth"
-	"github.com/jonradoff/lightcms/v6/internal/database"
-	"github.com/jonradoff/lightcms/v6/internal/middleware"
+	"github.com/jonradoff/lightcms/v7/internal/auth"
+	"github.com/jonradoff/lightcms/v7/internal/database"
+	"github.com/jonradoff/lightcms/v7/internal/middleware"
 )
 
 // searchRateLimiter tracks per-IP request counts for the public search endpoint

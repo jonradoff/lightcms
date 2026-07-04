@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/jonradoff/lightcms/v6/internal/auth"
+	"github.com/jonradoff/lightcms/v7/internal/auth"
 
 	"github.com/gorilla/mux"
 	"go.mongodb.org/mongo-driver/bson/primitive"

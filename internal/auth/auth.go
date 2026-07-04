@@ -6,10 +6,10 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/jonradoff/lightcms/v6/internal/database"
-	"github.com/jonradoff/lightcms/v6/internal/middleware"
-	"github.com/jonradoff/lightcms/v6/internal/models"
-	"github.com/jonradoff/lightcms/v6/internal/services"
+	"github.com/jonradoff/lightcms/v7/internal/database"
+	"github.com/jonradoff/lightcms/v7/internal/middleware"
+	"github.com/jonradoff/lightcms/v7/internal/models"
+	"github.com/jonradoff/lightcms/v7/internal/services"
 
 	"github.com/gorilla/sessions"
 	"go.mongodb.org/mongo-driver/bson/primitive"

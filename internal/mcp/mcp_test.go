@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jonradoff/lightcms/v6/internal/apiclient"
+	"github.com/jonradoff/lightcms/v7/internal/apiclient"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )

@@ -8,7 +8,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/jonradoff/lightcms/v6/internal/apiclient"
+	"github.com/jonradoff/lightcms/v7/internal/apiclient"
 )
 
 // sandboxAPI is a minimal fake REST API tracking fork state, for exercising
@@ -19,6 +19,8 @@ type sandboxAPI struct {
 	forkDeleted bool
 	forkPages   map[string]string // path -> fork page ID
 	updates     map[string]int    // content ID -> update count
+	diffFails   bool              // when true, the fork diff endpoint returns 500
+	deleteFails bool              // when true, deleting the fork returns 500
 }
 
 func newSandboxServer(t *testing.T) (*Server, *sandboxAPI, func()) {
@@ -34,11 +36,25 @@ func newSandboxServer(t *testing.T) (*Server, *sandboxAPI, func()) {
 	})
 	mux.HandleFunc("DELETE /api/v1/forks/fork1", func(w http.ResponseWriter, r *http.Request) {
 		state.mu.Lock()
-		state.forkDeleted = true
+		fails := state.deleteFails
+		if !fails {
+			state.forkDeleted = true
+		}
 		state.mu.Unlock()
+		if fails {
+			http.Error(w, `{"error":"cannot delete"}`, http.StatusInternalServerError)
+			return
+		}
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
 	})
 	mux.HandleFunc("GET /api/v1/forks/fork1/diff", func(w http.ResponseWriter, r *http.Request) {
+		state.mu.Lock()
+		fails := state.diffFails
+		state.mu.Unlock()
+		if fails {
+			http.Error(w, `{"error":"diff unavailable"}`, http.StatusInternalServerError)
+			return
+		}
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"fork_id": "fork1",
 			"pages": []map[string]interface{}{
@@ -51,6 +67,10 @@ func newSandboxServer(t *testing.T) (*Server, *sandboxAPI, func()) {
 		var body map[string]string
 		json.NewDecoder(r.Body).Decode(&body)
 		path := body["path"]
+		if path == "/boom" || body["content_id"] == "liveboom" {
+			http.Error(w, `{"error":"cannot fork this page"}`, http.StatusInternalServerError)
+			return
+		}
 		if path == "" {
 			path = "/live-page" // fork by content_id resolves to the live page
 		}
@@ -68,6 +88,22 @@ func newSandboxServer(t *testing.T) (*Server, *sandboxAPI, func()) {
 			"id": "live1", "title": "Live Page", "full_path": "/live-page", "published": true,
 			"data": map[string]interface{}{"body": "old"},
 		})
+	})
+	mux.HandleFunc("GET /api/v1/content/liveboom", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"id": "liveboom", "title": "Unforkable", "full_path": "/boom", "published": true,
+			"data": map[string]interface{}{},
+		})
+	})
+	mux.HandleFunc("GET /api/v1/content/otherfork1", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"id": "otherfork1", "title": "Other Fork Copy", "full_path": "/other",
+			"fork_id": "someone-elses-fork", "data": map[string]interface{}{},
+		})
+	})
+	mux.HandleFunc("GET /api/v1/content/missing1", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(404)
+		json.NewEncoder(w).Encode(map[string]string{"error": "not found"})
 	})
 	mux.HandleFunc("GET /api/v1/content/fp-live-page", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{

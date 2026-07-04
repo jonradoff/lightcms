@@ -5,7 +5,7 @@ import (
 	"flag"
 	"fmt"
 
-	"github.com/jonradoff/lightcms/v6/internal/apiclient"
+	"github.com/jonradoff/lightcms/v7/internal/apiclient"
 )
 
 // Config

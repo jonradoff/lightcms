@@ -1,4 +1,4 @@
-module github.com/jonradoff/lightcms/v6
+module github.com/jonradoff/lightcms/v7
 
 go 1.25.0
 

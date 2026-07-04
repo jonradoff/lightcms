@@ -109,7 +109,7 @@ Config: Uses same `config.dev.json` or environment variables as main server
 
 **Comments (3 tools, v6.0+):** list_comments, create_comment, delete_comment
 
-**Agent Sandbox & Governance (8 tools, v6.2+):** start_agent_sandbox, get_agent_sandbox, end_agent_sandbox, get_fork_diff, get_agent_session_changes, rollback_agent_session, get_maintenance_report, run_maintenance_scan
+**Agent Sandbox & Governance (8 tools, v7.0+):** start_agent_sandbox, get_agent_sandbox, end_agent_sandbox, get_fork_diff, get_agent_session_changes, rollback_agent_session, get_maintenance_report, run_maintenance_scan
 
 **Approvals (11 tools, v6.0+):** list_approval_workflows, get_approval_workflow, create_approval_workflow, update_approval_workflow, delete_approval_workflow, list_approval_requests, get_approval_request, submit_for_approval, approve_request, reject_request, cancel_approval_request
 
@@ -172,7 +172,7 @@ When creating or updating content via MCP or admin UI, the following markup feat
 - Snippet variables: `{{.Title}}`, `{{.FullPath}}`, `{{.Slug}}`, `{{.MetaDescription}}`, `{{.PublishedAt}}`
 - Reference snippets in content with `[[include:snippet-name]]` or in template layouts via `lc:query` directives
 
-## Agentic Safety Features (v6.2+)
+## Agentic Safety Features (v7.0+)
 
 - **Agent sandbox sessions**: `start_agent_sandbox` makes all content writes go into a fork (copy-on-write); live content is untouched until a human reviews the diff at `/cm/forks/{id}` and merges. Publishing/deleting/bulk ops are blocked while sandboxed. PREFER sandbox mode for multi-page or risky edits.
 - **Sandbox-only API keys**: keys created with `sandbox_only: true` are server-side restricted — content writes must target a fork; publish/delete/settings/search-replace are rejected. Keys can also carry a `scopes` permission allowlist.

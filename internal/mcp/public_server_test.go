@@ -3,13 +3,15 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/jonradoff/lightcms/v6/internal/models"
-	"github.com/jonradoff/lightcms/v6/internal/services"
-	"github.com/jonradoff/lightcms/v6/internal/testutil"
+	"github.com/jonradoff/lightcms/v7/internal/models"
+	"github.com/jonradoff/lightcms/v7/internal/services"
+	"github.com/jonradoff/lightcms/v7/internal/testutil"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -99,4 +101,67 @@ func TestPublicMCPServer(t *testing.T) {
 	if !strings.Contains(out, "Public Page") {
 		t.Errorf("get_page without slash: %s", out)
 	}
+}
+
+func TestPublicMCPServer_SearchSite(t *testing.T) {
+	db, cleanup := testutil.MustConnectTestDB(t)
+	defer cleanup()
+
+	now := time.Now()
+	ctx := context.Background()
+	pages := []*models.Content{
+		{
+			ID: primitive.NewObjectID(), Title: "Griffin Handbook", Slug: "griffin",
+			FullPath: "/griffin", Published: true, PublishedAt: &now,
+			PlainText: "All about griffins and their care.",
+			CreatedAt: now, UpdatedAt: now,
+		},
+		{
+			ID: primitive.NewObjectID(), Title: "Hidden Draft", Slug: "hidden",
+			FullPath: "/hidden", Published: false,
+			PlainText: "griffin secrets", CreatedAt: now, UpdatedAt: now,
+		},
+	}
+	for _, c := range pages {
+		if _, err := db.InsertOne(ctx, "content", c); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+	}
+
+	search := services.NewSearchService(db, "")
+	ps := NewPublicServer(db, search, "https://example.com")
+
+	// Default limit.
+	out := callPublicTool(t, ps, "search_site", map[string]interface{}{"query": "griffin"})
+	if !strings.Contains(out, "/griffin") {
+		t.Errorf("search_site missing published match: %s", out)
+	}
+	if strings.Contains(out, "/hidden") {
+		t.Errorf("search_site leaked a draft: %s", out)
+	}
+
+	// Limit above the cap is clamped (>25) — still returns results.
+	out = callPublicTool(t, ps, "search_site", map[string]interface{}{"query": "griffin", "limit": 30})
+	if !strings.Contains(out, "/griffin") {
+		t.Errorf("search_site with clamped limit: %s", out)
+	}
+
+	// No matches → empty array, not an error.
+	out = callPublicTool(t, ps, "search_site", map[string]interface{}{"query": "zzz-no-such-term"})
+	if !strings.Contains(out, "[]") {
+		t.Errorf("search_site no-match should return empty list: %s", out)
+	}
+
+	// Streamable HTTP handler is mountable and serves requests.
+	h := ps.Handler()
+	if h == nil {
+		t.Fatal("Handler returned nil")
+	}
+	hs := httptest.NewServer(h)
+	defer hs.Close()
+	resp, err := http.Get(hs.URL)
+	if err != nil {
+		t.Fatalf("GET public MCP handler: %v", err)
+	}
+	resp.Body.Close()
 }

@@ -7,10 +7,10 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/jonradoff/lightcms/v6/internal/auth"
-	"github.com/jonradoff/lightcms/v6/internal/models"
-	"github.com/jonradoff/lightcms/v6/internal/services"
-	"github.com/jonradoff/lightcms/v6/internal/services/importer"
+	"github.com/jonradoff/lightcms/v7/internal/auth"
+	"github.com/jonradoff/lightcms/v7/internal/models"
+	"github.com/jonradoff/lightcms/v7/internal/services"
+	"github.com/jonradoff/lightcms/v7/internal/services/importer"
 
 	"github.com/gorilla/mux"
 	"go.mongodb.org/mongo-driver/bson"

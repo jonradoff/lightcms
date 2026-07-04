@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jonradoff/lightcms/v6/internal/auth"
-	"github.com/jonradoff/lightcms/v6/internal/services"
-	"github.com/jonradoff/lightcms/v6/internal/testutil"
+	"github.com/jonradoff/lightcms/v7/internal/auth"
+	"github.com/jonradoff/lightcms/v7/internal/services"
+	"github.com/jonradoff/lightcms/v7/internal/testutil"
 
 	"github.com/gorilla/sessions"
 )

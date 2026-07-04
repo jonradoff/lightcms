@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/jonradoff/lightcms/v6/internal/database"
-	"github.com/jonradoff/lightcms/v6/internal/models"
-	"github.com/jonradoff/lightcms/v6/internal/services"
+	"github.com/jonradoff/lightcms/v7/internal/database"
+	"github.com/jonradoff/lightcms/v7/internal/models"
+	"github.com/jonradoff/lightcms/v7/internal/services"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"go.mongodb.org/mongo-driver/bson"
@@ -34,7 +34,7 @@ func NewPublicServer(db *database.DB, search *services.SearchService, baseURL st
 		baseURL: strings.TrimRight(baseURL, "/"),
 		server: mcp.NewServer(&mcp.Implementation{
 			Name:    "lightcms-public",
-			Version: "6.0.0",
+			Version: "7.0.0",
 		}, nil),
 	}
 	s.registerTools()

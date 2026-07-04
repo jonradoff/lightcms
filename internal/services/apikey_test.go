@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jonradoff/lightcms/v6/internal/testutil"
+	"github.com/jonradoff/lightcms/v7/internal/testutil"
 )
 
 func TestCreateAPIKey(t *testing.T) {

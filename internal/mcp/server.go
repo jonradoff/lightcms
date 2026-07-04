@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/jonradoff/lightcms/v6/internal/apiclient"
+	"github.com/jonradoff/lightcms/v7/internal/apiclient"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -24,7 +24,7 @@ func NewServer(client *apiclient.Client) *Server {
 	mcpServer := mcp.NewServer(
 		&mcp.Implementation{
 			Name:    "lightcms",
-			Version: "6.0.0",
+			Version: "7.0.0",
 		},
 		nil,
 	)

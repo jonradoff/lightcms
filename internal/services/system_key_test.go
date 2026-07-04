@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/jonradoff/lightcms/v6/internal/testutil"
+	"github.com/jonradoff/lightcms/v7/internal/testutil"
 )
 
 func TestEnsureSystemAPIKey_CreatesNewKey(t *testing.T) {

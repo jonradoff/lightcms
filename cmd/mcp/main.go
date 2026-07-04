@@ -10,8 +10,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/jonradoff/lightcms/v6/internal/apiclient"
-	"github.com/jonradoff/lightcms/v6/internal/mcp"
+	"github.com/jonradoff/lightcms/v7/internal/apiclient"
+	"github.com/jonradoff/lightcms/v7/internal/mcp"
 )
 
 func main() {

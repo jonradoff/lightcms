@@ -3,7 +3,7 @@ package auth
 import (
 	"context"
 
-	"github.com/jonradoff/lightcms/v6/internal/middleware"
+	"github.com/jonradoff/lightcms/v7/internal/middleware"
 )
 
 // UserFromAPIContext extracts the authenticated SessionUser from an API request context.

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jonradoff/lightcms/v6/internal/testutil"
+	"github.com/jonradoff/lightcms/v7/internal/testutil"
 )
 
 func TestAnalytics_PureHelpers(t *testing.T) {

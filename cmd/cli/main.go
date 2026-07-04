@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/jonradoff/lightcms/v6/internal/apiclient"
-	"github.com/jonradoff/lightcms/v6/internal/cli"
+	"github.com/jonradoff/lightcms/v7/internal/apiclient"
+	"github.com/jonradoff/lightcms/v7/internal/cli"
 )
 
 func main() {
