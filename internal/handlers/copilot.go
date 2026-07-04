@@ -41,6 +41,7 @@ Rules:
 - Always include a concise version_comment when creating or updating content.
 - Content "data" fields depend on the page's template — call get_content or list_templates to learn field names before writing them.
 - Confirm destructive intents: if the user asks for something sweeping (many pages), summarize what you would do and ask before doing it.
+- Site analytics are available via get_analytics (top pages, referrers, traffic summary) — use it for questions about popularity or traffic.
 - Be concise. After acting, state plainly what changed and give the page path(s).`
 
 // copilotToolDefs returns the Anthropic tool definitions for the copilot.
@@ -81,6 +82,12 @@ func copilotToolDefs() []map[string]interface{} {
 				"data":            map[string]interface{}{"type": "object", "description": "Template data fields"},
 				"version_comment": str("Required: short description"),
 			}, "template_name", "title", "slug", "version_comment")},
+		{"name": "get_analytics", "description": "Site analytics: most popular pages (by views), top referrers, or a traffic summary (DAU/MAU/uptime), over the last N days. Human traffic only unless include_bots is true.",
+			"input_schema": obj(map[string]interface{}{
+				"metric":       str("One of: top_pages, top_referrers, summary"),
+				"days":         map[string]interface{}{"type": "integer", "description": "Lookback window in days (default 7, max 90)"},
+				"include_bots": map[string]interface{}{"type": "boolean", "description": "Include bot traffic (default false)"},
+			}, "metric")},
 		{"name": "publish_content", "description": "Publish a page, making it live.",
 			"input_schema": obj(map[string]interface{}{"id": str("Content ID")}, "id")},
 		{"name": "unpublish_content", "description": "Unpublish a page, removing it from the live site.",
@@ -254,6 +261,52 @@ func (h *Handler) executeCopilotTool(ctx context.Context, role, sessionID string
 		h.copilotAudit(sessionID, "content.create", c.ID.Hex(), map[string]interface{}{"title": c.Title, "path": c.FullPath, "via": "copilot"})
 		return ok(map[string]interface{}{"success": true, "id": c.ID.Hex(), "path": c.FullPath, "published": false},
 			&copilotAction{Tool: name, Summary: "Created draft " + c.FullPath, IsWrite: true})
+
+	case "get_analytics":
+		if !auth.HasPermission(role, auth.PermSettingsView) {
+			return deny(auth.PermSettingsView)
+		}
+		if h.analyticsService == nil {
+			return fail(fmt.Errorf("analytics service unavailable"))
+		}
+		days := 7
+		if d, okd := input["days"].(float64); okd && d > 0 {
+			days = int(d)
+			if days > 90 {
+				days = 90
+			}
+		}
+		filter := services.BotFilterHuman
+		if b, okb := input["include_bots"].(bool); okb && b {
+			filter = services.BotFilterAll
+		}
+		since := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
+		// The hour-bucket query's upper bound is exclusive — extend past the
+		// current hour so today's traffic is included.
+		until := time.Now().Add(time.Hour)
+		switch getStr("metric") {
+		case "top_pages":
+			pages, err := h.analyticsService.GetTopPages(ctx, since, until, 15, filter)
+			if err != nil {
+				return fail(err)
+			}
+			return ok(map[string]interface{}{"days": days, "top_pages": pages}, nil)
+		case "top_referrers":
+			refs, err := h.analyticsService.GetTopReferrers(ctx, since, until, 15, filter)
+			if err != nil {
+				return fail(err)
+			}
+			return ok(map[string]interface{}{"days": days, "top_referrers": refs}, nil)
+		case "summary":
+			uptime, total, human := h.analyticsService.GetUptimeSummary(ctx, since)
+			return ok(map[string]interface{}{
+				"days": days, "uptime_pct": uptime,
+				"visitors_total": total, "visitors_human": human,
+				"dau": h.analyticsService.GetDAU(ctx), "mau": h.analyticsService.GetMAU(ctx),
+			}, nil)
+		default:
+			return fail(fmt.Errorf("metric must be top_pages, top_referrers, or summary"))
+		}
 
 	case "publish_content", "unpublish_content":
 		if !auth.HasPermission(role, auth.PermContentPublish) {

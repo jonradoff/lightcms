@@ -231,3 +231,41 @@ func TestCopilotCSRFTokenNotDoubleQuoted(t *testing.T) {
 		t.Errorf("CSRF token expression malformed (double-quoted or empty): %s", expr)
 	}
 }
+
+func TestExecuteCopilotTool_Analytics(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	// Seed a page view and flush the analytics buffer.
+	h.analyticsService.RecordPageView(ctx, "/popular-page", "",
+		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15")
+	h.analyticsService.FlushBufferForTest()
+
+	out, action := h.executeCopilotTool(ctx, "admin", "sess", "get_analytics",
+		map[string]interface{}{"metric": "top_pages", "days": float64(7), "include_bots": true})
+	if action != nil {
+		t.Error("read-only analytics should not produce a write action")
+	}
+	if !strings.Contains(out, "/popular-page") {
+		t.Errorf("top_pages missing seeded view: %s", out)
+	}
+
+	out, _ = h.executeCopilotTool(ctx, "admin", "sess", "get_analytics",
+		map[string]interface{}{"metric": "summary"})
+	if !strings.Contains(out, "dau") || !strings.Contains(out, "uptime_pct") {
+		t.Errorf("summary: %s", out)
+	}
+
+	out, _ = h.executeCopilotTool(ctx, "admin", "sess", "get_analytics",
+		map[string]interface{}{"metric": "top_referrers"})
+	if !strings.Contains(out, "top_referrers") {
+		t.Errorf("top_referrers: %s", out)
+	}
+
+	out, _ = h.executeCopilotTool(ctx, "admin", "sess", "get_analytics",
+		map[string]interface{}{"metric": "nonsense"})
+	if !strings.Contains(out, "metric must be") {
+		t.Errorf("invalid metric: %s", out)
+	}
+}

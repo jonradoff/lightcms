@@ -11,6 +11,21 @@ var adminTemplates = map[string]string{
             <p>⚠️ The copilot needs <code>ANTHROPIC_API_KEY</code> configured on the server.</p>
         </div>
         {{else}}
+        <style>
+        .cp-typing { display: inline-flex; gap: 4px; align-items: center; }
+        .cp-typing span {
+            width: 7px; height: 7px; border-radius: 50%;
+            background: var(--text-muted, #999);
+            animation: cp-bounce 1.2s infinite ease-in-out;
+        }
+        .cp-typing span:nth-child(2) { animation-delay: 0.15s; }
+        .cp-typing span:nth-child(3) { animation-delay: 0.3s; }
+        @keyframes cp-bounce {
+            0%, 60%, 100% { transform: translateY(0); opacity: .45; }
+            30% { transform: translateY(-5px); opacity: 1; }
+        }
+        .cp-status { margin-left: 8px; color: var(--text-muted, #888); font-size: 13px; }
+        </style>
         <div class="card" style="display flex; padding: 0;">
             <div id="cp-log" style="height: 55vh; overflow-y: auto; padding: 20px;"></div>
             <div style="border-top: 1px solid var(--border); padding: 12px; display: flex; gap: 8px;">
@@ -58,7 +73,18 @@ var adminTemplates = map[string]string{
                 bubble('user', esc(text));
                 messages.push({role: 'user', content: text});
                 send.disabled = true;
-                const thinking = bubble('assistant', '<em>Working…</em>');
+                const thinking = bubble('assistant',
+                    '<span class="cp-typing"><span></span><span></span><span></span></span>' +
+                    '<span class="cp-status">Thinking…</span>');
+                const statusEl = thinking.querySelector('.cp-status');
+                const phases = [
+                    [6000,  'Working — reading your site…'],
+                    [15000, 'Still working — running content tools…'],
+                    [35000, 'Long task — multiple edits may be in progress…'],
+                    [70000, 'Almost there — complex requests can take a couple of minutes…']
+                ];
+                const timers = phases.map(([ms, msg]) =>
+                    setTimeout(() => { if (statusEl) statusEl.textContent = msg; }, ms));
                 try {
                     const res = await fetch('/cm/copilot/chat', {
                         method: 'POST',
@@ -72,6 +98,7 @@ var adminTemplates = map[string]string{
                 } catch (err) {
                     thinking.innerHTML = '<span style="color:#d9534f;">Error: ' + esc(err.message) + '</span>';
                 }
+                timers.forEach(clearTimeout);
                 send.disabled = false;
                 input.focus();
             }

@@ -4,6 +4,17 @@ All notable changes to LightCMS are documented here, organized by version.
 
 ---
 
+## [7.0.6] - 2026-07-04
+
+### Added
+- Copilot can answer analytics questions: new get_analytics tool exposes most popular pages, top referrers, and a traffic summary (DAU/MAU/uptime), defaulting to human traffic.
+- Copilot chat shows an animated typing indicator with progressive status messages during long operations instead of static text.
+
+### Fixed
+- Analytics queries from the copilot include the current hour (the hour-bucket upper bound is exclusive).
+
+---
+
 ## [7.0.5] - 2026-07-04
 
 ### Fixed
