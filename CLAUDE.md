@@ -230,7 +230,8 @@ Hard-won rules from building v7. Violating these has bitten us before:
 - `/mcp-public` — read-only MCP server for visitors' agents (search_site, get_page, list_pages, get_site_info); drafts/forks structurally excluded
 
 ### Deploy quirks
-- `fly deploy` uploads a ~185MB build context (content/ + static/) with no visible progress — deploys take ~8 minutes and are NOT hung. `fly secrets set --stage` avoids bouncing the legacy machine; staged secrets apply on the next `./deploy.sh`.
+- `fly deploy` uploads a ~185MB build context (content/ + static/) with no visible progress — deploys take ~8 minutes and are NOT hung.
+- `fly secrets set` does NOT restart the legacy machine (it is outside Fly release management, same reason deploy.sh exists). Secrets stay staged until `fly machines restart d890122a371528 -a metavert-cms` or the next `./deploy.sh`.
 
 ## Script Policy
 
