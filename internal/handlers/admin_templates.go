@@ -25,6 +25,13 @@ var adminTemplates = map[string]string{
             30% { transform: translateY(-5px); opacity: 1; }
         }
         .cp-status { margin-left: 8px; color: var(--text-muted, #888); font-size: 13px; }
+        .cp-table { border-collapse: collapse; margin: 8px 0; font-size: 13px; width: 100%; }
+        .cp-table th, .cp-table td {
+            border: 1px solid var(--border, #ddd);
+            padding: 5px 10px; text-align: left; vertical-align: top;
+        }
+        .cp-table th { background: var(--bg, #f6f6f6); font-weight: 600; }
+        .cp-table tr:nth-child(even) td { background: rgba(128,128,128,0.05); }
         </style>
         <div class="card" style="display flex; padding: 0;">
             <div id="cp-log" style="height: 55vh; overflow-y: auto; padding: 20px;"></div>
@@ -42,11 +49,55 @@ var adminTemplates = map[string]string{
             const messages = [];
 
             function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
-            function md(s) {
+            function mdInline(s) {
                 return esc(s)
                     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-                    .replace(/` + "`" + `([^` + "`" + `]+)` + "`" + `/g, '<code>$1</code>')
-                    .replace(/\n/g, '<br>');
+                    .replace(/` + "`" + `([^` + "`" + `]+)` + "`" + `/g, '<code>$1</code>');
+            }
+            function isTableRow(line) { return /^\s*\|.*\|\s*$/.test(line); }
+            function isTableSep(line) { return /^\s*\|?[\s:|-]+\|?\s*$/.test(line) && line.indexOf('-') !== -1; }
+            function splitRow(line) {
+                return line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(c => c.trim());
+            }
+            function md(s) {
+                const lines = s.split('\n');
+                const out = [];
+                let i = 0;
+                while (i < lines.length) {
+                    // Markdown table: header row, separator row, body rows
+                    if (isTableRow(lines[i]) && i + 1 < lines.length && isTableSep(lines[i + 1])) {
+                        const head = splitRow(lines[i]);
+                        i += 2;
+                        const rows = [];
+                        while (i < lines.length && isTableRow(lines[i])) {
+                            rows.push(splitRow(lines[i]));
+                            i++;
+                        }
+                        let t = '<table class="cp-table"><thead><tr>';
+                        head.forEach(h => t += '<th>' + mdInline(h) + '</th>');
+                        t += '</tr></thead><tbody>';
+                        rows.forEach(r => {
+                            t += '<tr>';
+                            for (let c = 0; c < head.length; c++) t += '<td>' + mdInline(r[c] || '') + '</td>';
+                            t += '</tr>';
+                        });
+                        out.push(t + '</tbody></table>');
+                        continue;
+                    }
+                    // Bullet list runs
+                    if (/^\s*[-*] /.test(lines[i])) {
+                        let l = '<ul style="margin:6px 0 6px 20px;">';
+                        while (i < lines.length && /^\s*[-*] /.test(lines[i])) {
+                            l += '<li>' + mdInline(lines[i].replace(/^\s*[-*] /, '')) + '</li>';
+                            i++;
+                        }
+                        out.push(l + '</ul>');
+                        continue;
+                    }
+                    out.push(mdInline(lines[i]) + '<br>');
+                    i++;
+                }
+                return out.join('');
             }
             function bubble(role, html) {
                 const div = document.createElement('div');

@@ -4,6 +4,13 @@ All notable changes to LightCMS are documented here, organized by version.
 
 ---
 
+## [7.0.7] - 2026-07-04
+
+### Added
+- Copilot chat renders markdown tables as styled HTML tables (and bullet lists as real lists) instead of raw pipe characters.
+
+---
+
 ## [7.0.6] - 2026-07-04
 
 ### Added

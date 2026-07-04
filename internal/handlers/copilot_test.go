@@ -28,6 +28,12 @@ func TestCopilotPage(t *testing.T) {
 	if !strings.Contains(rr.Body.String(), "Copilot") || !strings.Contains(rr.Body.String(), "cp-input") {
 		t.Errorf("copilot page missing expected markup")
 	}
+	// The chat renderer must ship the table/list markdown support.
+	for _, want := range []string{"cp-table", "isTableRow", "cp-typing"} {
+		if !strings.Contains(rr.Body.String(), want) {
+			t.Errorf("copilot page missing renderer piece %q", want)
+		}
+	}
 
 	// Unauthenticated request is refused.
 	rr = httptest.NewRecorder()
