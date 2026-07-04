@@ -253,3 +253,67 @@ func TestSandbox_DiscardDeletesFork(t *testing.T) {
 		t.Error("sandbox still active after discard")
 	}
 }
+
+func TestGovernanceAndMaintenanceTools(t *testing.T) {
+	state := &sandboxAPI{forkPages: map[string]string{}, updates: map[string]int{}}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/agent-sessions/", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"session_id": "s1", "entries": 2,
+			"content_items": []map[string]interface{}{{"content_id": "c1", "actions": []string{"content.update"}}},
+		})
+	})
+	mux.HandleFunc("POST /api/v1/agent-sessions/", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{"session_id": "s1", "reverted": []string{"c1"}})
+	})
+	mux.HandleFunc("GET /api/v1/maintenance/report", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{"page_count": 5, "stale_pages": []interface{}{}})
+	})
+	mux.HandleFunc("POST /api/v1/maintenance/scan", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{"page_count": 5, "link_job_id": "j1"})
+	})
+	_ = state
+
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+	client := apiclient.New(ts.URL, "k")
+	client.SetAgentSession("agent-default-1")
+	s := NewServer(client)
+
+	// Session tools default to the client's own session.
+	out := resultText(t, callTool(t, s, "get_agent_session_changes", struct{}{}))
+	if !strings.Contains(out, "content.update") {
+		t.Errorf("get_agent_session_changes: %s", out)
+	}
+	out = resultText(t, callTool(t, s, "rollback_agent_session", struct{}{}))
+	if !strings.Contains(out, "reverted") {
+		t.Errorf("rollback_agent_session: %s", out)
+	}
+	// Explicit session ID also works.
+	out = resultText(t, callTool(t, s, "get_agent_session_changes", map[string]string{"session_id": "s1"}))
+	if !strings.Contains(out, "s1") {
+		t.Errorf("explicit session: %s", out)
+	}
+
+	// Maintenance tools.
+	out = resultText(t, callTool(t, s, "get_maintenance_report", struct{}{}))
+	if !strings.Contains(out, "page_count") {
+		t.Errorf("get_maintenance_report: %s", out)
+	}
+	out = resultText(t, callTool(t, s, "run_maintenance_scan", map[string]bool{"link_check": true}))
+	if !strings.Contains(out, "j1") {
+		t.Errorf("run_maintenance_scan: %s", out)
+	}
+
+	// No session anywhere → helpful message.
+	client2 := apiclient.New(ts.URL, "k")
+	s2 := NewServer(client2)
+	out = resultText(t, callTool(t, s2, "get_agent_session_changes", struct{}{}))
+	if !strings.Contains(out, "no session_id") {
+		t.Errorf("missing session message: %s", out)
+	}
+	out = resultText(t, callTool(t, s2, "rollback_agent_session", struct{}{}))
+	if !strings.Contains(out, "no session_id") {
+		t.Errorf("rollback missing session message: %s", out)
+	}
+}

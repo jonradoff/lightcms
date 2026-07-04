@@ -222,6 +222,7 @@ func CleanupCollections(t *testing.T, db *database.DB) {
 		"content_comments", "content_locks", "webhooks", "webhook_deliveries",
 		"content_forks", "approval_workflows", "approval_requests",
 		"import_sources", "import_jobs", "link_check_jobs", "regen_jobs",
+		"maintenance_reports",
 	}
 	for _, name := range collections {
 		db.Collection(name).Drop(ctx) //nolint:errcheck

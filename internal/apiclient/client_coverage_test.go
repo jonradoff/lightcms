@@ -163,3 +163,45 @@ func TestClientWrappers(t *testing.T) {
 		})
 	}
 }
+
+// TestAgentGovernanceWrappers exercises the agent-session, fork-diff, and
+// maintenance client methods plus the X-Agent-Session header plumbing.
+func TestAgentGovernanceWrappers(t *testing.T) {
+	ctx := context.Background()
+
+	var lastSessionHeader string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		lastSessionHeader = r.Header.Get("X-Agent-Session")
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"fork_id":"f1","pages":[]}`))
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, "k")
+	if c.AgentSession() != "" {
+		t.Error("agent session should start empty")
+	}
+	c.SetAgentSession("agent-xyz")
+	if c.AgentSession() != "agent-xyz" {
+		t.Error("SetAgentSession not stored")
+	}
+
+	if _, err := c.GetForkDiff(ctx, "f1"); err != nil {
+		t.Errorf("GetForkDiff: %v", err)
+	}
+	if lastSessionHeader != "agent-xyz" {
+		t.Errorf("X-Agent-Session = %q, want agent-xyz", lastSessionHeader)
+	}
+	if _, err := c.GetAgentSessionChanges(ctx, "agent-xyz"); err != nil {
+		t.Errorf("GetAgentSessionChanges: %v", err)
+	}
+	if _, err := c.RollbackAgentSession(ctx, "agent-xyz"); err != nil {
+		t.Errorf("RollbackAgentSession: %v", err)
+	}
+	if _, err := c.GetMaintenanceReport(ctx); err != nil {
+		t.Errorf("GetMaintenanceReport: %v", err)
+	}
+	if _, err := c.RunMaintenanceScan(ctx, true); err != nil {
+		t.Errorf("RunMaintenanceScan: %v", err)
+	}
+}
