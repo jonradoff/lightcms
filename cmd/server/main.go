@@ -502,6 +502,23 @@ func main() {
 	apiv1.Use(middleware.APIBurstRateLimit) // per-token burst limit (20 req/s)
 	apiv1.Use(middleware.APIRateLimit)      // per-token sliding-window rate limit (300 req/min)
 	apiv1.Use(middleware.APIBodySizeLimit)  // cap request body at 10 MiB to prevent memory exhaustion
+	// Stamp change provenance (and version attribution) on every API request:
+	// agent sessions are identified by the X-Agent-Session header.
+	apiv1.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ctx := r.Context()
+			prov := services.Provenance{Actor: "human", Via: "api"}
+			if sess := r.Header.Get("X-Agent-Session"); sess != "" {
+				prov.Actor = "agent"
+				prov.AgentSession = sess
+			}
+			ctx = services.WithProvenance(ctx, prov)
+			if u, ok := auth.UserFromAPIContext(ctx); ok && u != nil {
+				ctx = services.WithEditorEmail(ctx, u.Email)
+			}
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	})
 
 	// Content
 	apiv1.HandleFunc("/content", apiHandler.APIListContent).Methods("GET")

@@ -142,3 +142,62 @@ func TestAgentSession_ChangesAndRollback(t *testing.T) {
 		t.Error("deleted item should be restored after rollback")
 	}
 }
+
+func TestVersionProvenance(t *testing.T) {
+	db, cleanup := testutil.MustConnectTestDB(t)
+	defer cleanup()
+
+	cs := NewContentService(db)
+	ctx := context.Background()
+
+	// No provenance: defaults to human.
+	c := &models.Content{Title: "Prov", Slug: "prov", FullPath: "/prov", Data: map[string]interface{}{}}
+	if err := cs.CreateContent(ctx, c, "init"); err != nil {
+		t.Fatalf("CreateContent: %v", err)
+	}
+
+	// Agent provenance via context.
+	agentCtx := WithProvenance(WithEditorEmail(ctx, "bot@x.com"), Provenance{
+		Actor: "agent", Via: "api", AgentSession: "agent-prov-1",
+	})
+	c.Title = "Prov v2"
+	if err := cs.UpdateContent(agentCtx, c, "agent change"); err != nil {
+		t.Fatalf("UpdateContent: %v", err)
+	}
+
+	// Copilot provenance.
+	copilotCtx := WithProvenance(ctx, Provenance{Actor: "agent", Via: "copilot", AgentSession: "copilot-u-1"})
+	c.Title = "Prov v3"
+	if err := cs.UpdateContent(copilotCtx, c, "copilot change"); err != nil {
+		t.Fatalf("UpdateContent copilot: %v", err)
+	}
+
+	versions, err := cs.GetVersions(ctx, c.ID)
+	if err != nil {
+		t.Fatalf("GetVersions: %v", err)
+	}
+	byVersion := map[int]models.ContentVersion{}
+	for _, v := range versions {
+		byVersion[v.Version] = v
+	}
+
+	if v := byVersion[1]; v.Actor != "human" || v.AgentSession != "" {
+		t.Errorf("v1 provenance = %q/%q/%q, want human default", v.Actor, v.Via, v.AgentSession)
+	}
+	// The agent update produced the next version.
+	var agentV, copilotV *models.ContentVersion
+	for i := range versions {
+		switch versions[i].AgentSession {
+		case "agent-prov-1":
+			agentV = &versions[i]
+		case "copilot-u-1":
+			copilotV = &versions[i]
+		}
+	}
+	if agentV == nil || agentV.Actor != "agent" || agentV.Via != "api" || agentV.ModifiedByEmail != "bot@x.com" {
+		t.Errorf("agent version provenance wrong: %+v", agentV)
+	}
+	if copilotV == nil || copilotV.Actor != "agent" || copilotV.Via != "copilot" {
+		t.Errorf("copilot version provenance wrong: %+v", copilotV)
+	}
+}

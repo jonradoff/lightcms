@@ -88,12 +88,16 @@ type ContentFork struct {
 
 // ContentVersion represents a historical version of content
 type ContentVersion struct {
-	ID              primitive.ObjectID     `bson:"_id,omitempty" json:"id"`
-	ContentID       primitive.ObjectID     `bson:"content_id" json:"content_id"`                                   // Reference to the content item
-	Version         int                    `bson:"version" json:"version"`                                         // Version number (1, 2, 3...)
-	Comment         string                 `bson:"comment,omitempty" json:"comment,omitempty"`                     // Optional version comment
-	ModifiedBy      *primitive.ObjectID    `bson:"modified_by,omitempty" json:"modified_by,omitempty"`             // User who made this version
-	ModifiedByEmail string                 `bson:"modified_by_email,omitempty" json:"modified_by_email,omitempty"` // Denormalized email
+	ID              primitive.ObjectID  `bson:"_id,omitempty" json:"id"`
+	ContentID       primitive.ObjectID  `bson:"content_id" json:"content_id"`                                   // Reference to the content item
+	Version         int                 `bson:"version" json:"version"`                                         // Version number (1, 2, 3...)
+	Comment         string              `bson:"comment,omitempty" json:"comment,omitempty"`                     // Optional version comment
+	ModifiedBy      *primitive.ObjectID `bson:"modified_by,omitempty" json:"modified_by,omitempty"`             // User who made this version
+	ModifiedByEmail string              `bson:"modified_by_email,omitempty" json:"modified_by_email,omitempty"` // Denormalized email
+	// Provenance: who or what authored this version
+	Actor           string                 `bson:"actor,omitempty" json:"actor,omitempty"`                 // "human" | "agent"
+	Via             string                 `bson:"via,omitempty" json:"via,omitempty"`                     // "ui" | "api" | "copilot"
+	AgentSession    string                 `bson:"agent_session,omitempty" json:"agent_session,omitempty"` // agent session ID when Actor == "agent"
 	TemplateID      primitive.ObjectID     `bson:"template_id" json:"template_id"`
 	TemplateName    string                 `bson:"template_name" json:"template_name"`
 	Title           string                 `bson:"title" json:"title"`

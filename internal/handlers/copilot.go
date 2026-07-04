@@ -12,6 +12,7 @@ import (
 
 	"github.com/jonradoff/lightcms/v6/internal/auth"
 	"github.com/jonradoff/lightcms/v6/internal/models"
+	"github.com/jonradoff/lightcms/v6/internal/services"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -107,6 +108,8 @@ func (h *Handler) executeCopilotTool(ctx context.Context, role, sessionID string
 		b, _ := json.Marshal(v)
 		return string(b), action
 	}
+
+	ctx = servicesWithCopilotProvenance(ctx, sessionID)
 
 	switch name {
 	case "search_content":
@@ -451,4 +454,11 @@ func (h *Handler) copilotCallAnthropic(ctx context.Context, msgs []anthropicMess
 		return nil, "", err
 	}
 	return out.Content, out.StopReason, nil
+}
+
+// servicesWithCopilotProvenance stamps copilot provenance on tool contexts.
+func servicesWithCopilotProvenance(ctx context.Context, sessionID string) context.Context {
+	return services.WithProvenance(ctx, services.Provenance{
+		Actor: "agent", Via: "copilot", AgentSession: sessionID,
+	})
 }

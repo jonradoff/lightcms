@@ -58,6 +58,9 @@ type ContentVersion struct {
 	ContentID       string                 `json:"content_id"`
 	Version         int                    `json:"version"`
 	Comment         string                 `json:"comment,omitempty"`
+	Actor           string                 `json:"actor,omitempty"`         // "human" | "agent"
+	Via             string                 `json:"via,omitempty"`           // "ui" | "api" | "copilot"
+	AgentSession    string                 `json:"agent_session,omitempty"` // agent session that authored this version
 	TemplateID      string                 `json:"template_id"`
 	TemplateName    string                 `json:"template_name"`
 	Title           string                 `json:"title"`

@@ -1241,10 +1241,11 @@ func (h *Handler) UpdateContent(w http.ResponseWriter, r *http.Request) {
 	r.ParseMultipartForm(32 << 20)
 
 	ctx := r.Context()
-	// Inject editor identity into context for version history
+	// Inject editor identity + provenance into context for version history
 	if user, ok := h.auth.GetCurrentUser(r); ok {
 		ctx = services.WithEditorEmail(ctx, user.Email)
 	}
+	ctx = services.WithProvenance(ctx, services.Provenance{Actor: "human", Via: "ui"})
 	var existingContent models.Content
 	if err := h.db.FindOne(ctx, "content", bson.M{"_id": id}, &existingContent); err != nil {
 		http.Error(w, "Content not found", http.StatusNotFound)

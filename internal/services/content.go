@@ -42,6 +42,28 @@ func EditorEmailFromContext(ctx context.Context) string {
 	return v
 }
 
+// Provenance records who or what authored a content change: a human in the
+// admin UI, an API caller, an AI agent session, or the admin copilot.
+type Provenance struct {
+	Actor        string // "human" or "agent"
+	Via          string // "ui", "api", "copilot"
+	AgentSession string // agent session ID when Actor == "agent"
+}
+
+type provenanceContextKey struct{}
+
+// WithProvenance returns a copy of ctx carrying change provenance, recorded
+// on every content version saved during the request.
+func WithProvenance(ctx context.Context, p Provenance) context.Context {
+	return context.WithValue(ctx, provenanceContextKey{}, p)
+}
+
+// ProvenanceFromContext extracts provenance stored by WithProvenance.
+func ProvenanceFromContext(ctx context.Context) (Provenance, bool) {
+	p, ok := ctx.Value(provenanceContextKey{}).(Provenance)
+	return p, ok
+}
+
 // ContentService centralizes all content operations with automatic versioning
 type ContentService struct {
 	db               *database.DB
@@ -983,11 +1005,18 @@ func (s *ContentService) saveVersion(ctx context.Context, content *models.Conten
 	version := int(count) + 1
 
 	modifiedByEmail := EditorEmailFromContext(ctx)
+	prov, _ := ProvenanceFromContext(ctx)
+	if prov.Actor == "" {
+		prov.Actor = "human" // default for legacy paths that set no provenance
+	}
 	contentVersion := models.ContentVersion{
 		ContentID:       content.ID,
 		Version:         version,
 		Comment:         comment,
 		ModifiedByEmail: modifiedByEmail,
+		Actor:           prov.Actor,
+		Via:             prov.Via,
+		AgentSession:    prov.AgentSession,
 		TemplateID:      content.TemplateID,
 		TemplateName:    content.TemplateName,
 		Title:           content.Title,
