@@ -706,6 +706,11 @@ func main() {
 	mcpSubrouter.Use(apiAuthMiddleware.Middleware)
 	mcpSubrouter.Handle("", mcpHandler)
 
+	// Public read-only MCP endpoint — no auth; lets visitors' agents search
+	// and read the published site ("MCP for readers")
+	publicMCP := lightmcp.NewPublicServer(db, searchService, cfg.BaseURL)
+	r.Handle("/mcp-public", publicMCP.Handler())
+
 	// Public asset serving
 	r.PathPrefix("/assets/").HandlerFunc(h.ServeAsset).Methods("GET")
 

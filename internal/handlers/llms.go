@@ -86,6 +86,7 @@ func (h *Handler) ServeLlmsTxt(w http.ResponseWriter, r *http.Request) {
 	sb.WriteString("\n## Optional\n\n")
 	sb.WriteString(fmt.Sprintf("- [Full content](%s/llms-full.txt): complete text of every page\n", baseURL))
 	sb.WriteString(fmt.Sprintf("- [Sitemap](%s/sitemap.xml)\n", baseURL))
+	sb.WriteString(fmt.Sprintf("- MCP endpoint (read-only, no auth): %s/mcp-public — tools: search_site, get_page, list_pages, get_site_info\n", baseURL))
 
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Cache-Control", "public, max-age=300, s-maxage=3600")
