@@ -4,6 +4,13 @@ All notable changes to LightCMS are documented here, organized by version.
 
 ---
 
+## [7.1.1] - 2026-07-04
+
+### Changed
+- Copilot drawer: fullscreen toggle (⛶), and chat history moved to a vertical left sidebar (ChatGPT/Claude style) with search across titles and message content. Sidebar shows automatically in fullscreen; ☰ toggles it in drawer mode.
+
+---
+
 ## [7.1.0] - 2026-07-04
 
 ### Changed

@@ -34,7 +34,7 @@ func TestCopilotPage(t *testing.T) {
 		t.Fatalf("analytics status = %d", rr.Code)
 	}
 	body := rr.Body.String()
-	for _, want := range []string{"cp-drawer", "cp-fab", "cp-input", "cp-table", "isTableRow", "cp-typing", "cp-history", "lc_copilot_sessions", "cpOpen"} {
+	for _, want := range []string{"cp-drawer", "cp-fab", "cp-input", "cp-table", "isTableRow", "cp-typing", "cp-sessions", "cp-search", "cp-full", "lc_copilot_sessions", "cpOpen", "matchesQuery"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("admin page missing copilot drawer piece %q", want)
 		}

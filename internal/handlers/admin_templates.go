@@ -9392,13 +9392,37 @@ const adminLayoutEnd = `
     }
     #cp-fab:hover { transform: scale(1.08); }
     #cp-drawer {
-        position: fixed; top: 0; right: 0; height: 100vh; width: min(440px, 96vw);
+        position: fixed; top: 0; right: 0; height: 100vh; width: min(480px, 96vw);
         background: var(--bg-card, #1e293b); border-left: 1px solid var(--border, #333);
-        z-index: 10600; display: flex; flex-direction: column;
-        transform: translateX(105%); transition: transform .22s ease;
+        z-index: 10600; display: flex; flex-direction: row;
+        transform: translateX(105%); transition: transform .22s ease, width .22s ease;
         box-shadow: -12px 0 40px rgba(0,0,0,.45);
     }
     #cp-drawer.open { transform: translateX(0); }
+    #cp-drawer.full { width: 100vw; border-left: none; }
+    #cp-side {
+        width: 240px; flex: 0 0 240px; display: none; flex-direction: column;
+        border-right: 1px solid var(--border, #333); background: rgba(0,0,0,.15);
+    }
+    #cp-drawer.full #cp-side, #cp-drawer.show-side #cp-side { display: flex; }
+    #cp-search {
+        margin: 10px; padding: 7px 10px; border: 1px solid var(--border, #444);
+        border-radius: 8px; background: var(--bg, #111); color: var(--text, #eee);
+        font: inherit; font-size: 12.5px;
+    }
+    #cp-sessions { flex: 1; overflow-y: auto; padding: 0 8px 10px; }
+    .cp-sess {
+        display: block; width: 100%; text-align: left; border: none; cursor: pointer;
+        background: transparent; color: var(--text, #ddd); border-radius: 8px;
+        padding: 8px 10px; margin-bottom: 2px; font: inherit; font-size: 12.5px; line-height: 1.35;
+    }
+    .cp-sess:hover { background: rgba(128,128,128,.12); }
+    .cp-sess.active { background: rgba(79,110,247,.18); }
+    .cp-sess .cp-sess-date { display: block; font-size: 10.5px; color: var(--text-muted, #888); margin-top: 1px; }
+    .cp-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+    .cp-hbtn { border: 1px solid var(--border,#444); background: transparent; color: var(--text,#ddd);
+        border-radius: 8px; cursor: pointer; font-size: 13px; padding: 4px 9px; }
+    .cp-hbtn:hover { background: rgba(128,128,128,.12); }
     .cp-typing { display: inline-flex; gap: 4px; align-items: center; }
     .cp-typing span {
         width: 7px; height: 7px; border-radius: 50%;
@@ -9419,19 +9443,24 @@ const adminLayoutEnd = `
     </style>
     <button id="cp-fab" title="Copilot">🤖</button>
     <div id="cp-drawer" aria-label="Copilot panel">
-        <div style="display:flex; align-items:center; gap:8px; padding:12px 14px; border-bottom:1px solid var(--border,#333);">
-            <strong style="flex:0 0 auto;">🤖 Copilot</strong>
-            <button id="cp-new" class="btn" style="font-size:12px; padding:4px 10px;">＋ New</button>
-            <select id="cp-history" style="flex:1; min-width:0; padding:4px 8px; border:1px solid var(--border,#444); border-radius:8px; background:var(--bg,#111); color:var(--text,#eee); font-size:12px;">
-                <option value="">Previous chats…</option>
-            </select>
-            <button id="cp-close" class="btn" style="font-size:14px; padding:4px 10px;" title="Close">✕</button>
+        <div id="cp-side">
+            <input id="cp-search" type="search" placeholder="Search chats…">
+            <div id="cp-sessions"></div>
         </div>
-        <div id="cp-log" style="flex:1; overflow-y:auto; padding:16px;"></div>
-        <div style="border-top:1px solid var(--border,#333); padding:10px; display:flex; gap:8px;">
-            <textarea id="cp-input" rows="2" placeholder="Ask the copilot…"
-                style="flex:1; resize:none; padding:9px; border:1px solid var(--border,#444); border-radius:8px; background:var(--bg,#111); color:var(--text,#eee); font:inherit; font-size:13px;"></textarea>
-            <button id="cp-send" class="btn btn-primary" style="align-self:flex-end;">Send</button>
+        <div class="cp-main">
+            <div style="display:flex; align-items:center; gap:8px; padding:10px 14px; border-bottom:1px solid var(--border,#333);">
+                <button id="cp-side-toggle" class="cp-hbtn" title="Chat history">☰</button>
+                <strong style="flex:1;">🤖 Copilot</strong>
+                <button id="cp-new" class="cp-hbtn" title="New chat">＋ New</button>
+                <button id="cp-full" class="cp-hbtn" title="Toggle fullscreen">⛶</button>
+                <button id="cp-close" class="cp-hbtn" title="Close">✕</button>
+            </div>
+            <div id="cp-log" style="flex:1; overflow-y:auto; padding:16px;"></div>
+            <div style="border-top:1px solid var(--border,#333); padding:10px; display:flex; gap:8px;">
+                <textarea id="cp-input" rows="2" placeholder="Ask the copilot…"
+                    style="flex:1; resize:none; padding:9px; border:1px solid var(--border,#444); border-radius:8px; background:var(--bg,#111); color:var(--text,#eee); font:inherit; font-size:13px;"></textarea>
+                <button id="cp-send" class="btn btn-primary" style="align-self:flex-end;">Send</button>
+            </div>
         </div>
     </div>
     <script>
@@ -9442,7 +9471,8 @@ const adminLayoutEnd = `
         const input = document.getElementById('cp-input');
         const send = document.getElementById('cp-send');
         const newBtn = document.getElementById('cp-new');
-        const histSel = document.getElementById('cp-history');
+        const sessList = document.getElementById('cp-sessions');
+        const search = document.getElementById('cp-search');
         let messages = [];
         let renderLog = [];
 
@@ -9450,6 +9480,8 @@ const adminLayoutEnd = `
         function cpClose() { drawer.classList.remove('open'); }
         fab.addEventListener('click', () => drawer.classList.contains('open') ? cpClose() : window.cpOpen());
         document.getElementById('cp-close').addEventListener('click', cpClose);
+        document.getElementById('cp-full').addEventListener('click', () => drawer.classList.toggle('full'));
+        document.getElementById('cp-side-toggle').addEventListener('click', () => drawer.classList.toggle('show-side'));
         document.addEventListener('keydown', e => { if (e.key === 'Escape') cpClose(); });
         if (new URLSearchParams(location.search).get('copilot') === '1') window.cpOpen();
 
@@ -9466,16 +9498,33 @@ const adminLayoutEnd = `
             try { localStorage.setItem(STORE, JSON.stringify(store)); } catch (e) {}
             refreshHistory();
         }
+        function matchesQuery(s, q) {
+            if (!q) return true;
+            if ((s.title || '').toLowerCase().indexOf(q) !== -1) return true;
+            return (s.messages || []).some(m => (m.content || '').toLowerCase().indexOf(q) !== -1);
+        }
         function refreshHistory() {
+            const q = (search.value || '').trim().toLowerCase();
             const store = loadStore();
-            histSel.innerHTML = '<option value="">Previous chats…</option>';
-            store.forEach(s => {
-                const o = document.createElement('option');
-                o.value = s.id;
-                o.textContent = new Date(s.ts).toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'}) + ' — ' + s.title;
-                if (s.id === sessionId) o.selected = true;
-                histSel.appendChild(o);
+            sessList.innerHTML = '';
+            store.filter(s => matchesQuery(s, q)).forEach(s => {
+                const b = document.createElement('button');
+                b.className = 'cp-sess' + (s.id === sessionId ? ' active' : '');
+                const title = document.createElement('span');
+                title.textContent = s.title || 'Chat';
+                const date = document.createElement('span');
+                date.className = 'cp-sess-date';
+                date.textContent = new Date(s.ts).toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'});
+                b.appendChild(title); b.appendChild(date);
+                b.addEventListener('click', () => { saveSession(); openSession(s.id); });
+                sessList.appendChild(b);
             });
+            if (!sessList.children.length) {
+                const empty = document.createElement('div');
+                empty.style.cssText = 'padding:10px; font-size:12px; color:var(--text-muted,#888);';
+                empty.textContent = q ? 'No chats match.' : 'No previous chats yet.';
+                sessList.appendChild(empty);
+            }
         }
         function openSession(id) {
             const s = loadStore().find(x => x.id === id);
@@ -9493,7 +9542,7 @@ const adminLayoutEnd = `
             messages = []; renderLog = []; log.innerHTML = '';
             refreshHistory(); input.focus();
         });
-        histSel.addEventListener('change', () => { if (histSel.value) { saveSession(); openSession(histSel.value); } });
+        search.addEventListener('input', refreshHistory);
         refreshHistory();
 
         function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
