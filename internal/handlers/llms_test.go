@@ -224,3 +224,39 @@ func TestHomepage_WebsiteJSONLD(t *testing.T) {
 		t.Errorf("homepage missing WebSite JSON-LD")
 	}
 }
+
+func TestRawHomepage_WebsiteJSONLDInjection(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	tmplID := seedTemplate(t, h.db, "Blank Page", "blank-page")
+	ctx := context.Background()
+	now := time.Now()
+	rawHTML := "<html><head><title>Custom</title></head><body>home</body></html>"
+	_, _ = h.db.Collection("content").InsertOne(ctx, bson.M{
+		"_id": primitive.NewObjectID(), "template_id": tmplID, "template_name": "Blank Page",
+		"title": "Home", "slug": "", "full_path": "/", "published": true,
+		"use_theme": false, "raw_mode": true,
+		"data":       bson.M{"content": rawHTML},
+		"created_at": now, "updated_at": now, "published_at": now,
+	})
+
+	req := httptest.NewRequest("GET", "/", nil)
+	rr := httptest.NewRecorder()
+	h.ServePage(rr, req)
+
+	if rr.Code != 200 {
+		t.Fatalf("status = %d", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, `"@type":"WebSite"`) {
+		t.Errorf("raw homepage missing injected WebSite JSON-LD:\n%.400s", body)
+	}
+	if !strings.Contains(body, `<script type="application/ld+json">`) ||
+		strings.Index(body, "application/ld+json") > strings.Index(body, "</head>") {
+		t.Errorf("JSON-LD not injected inside <head>")
+	}
+	if !strings.Contains(body, "<body>home</body>") {
+		t.Errorf("authored content altered")
+	}
+}

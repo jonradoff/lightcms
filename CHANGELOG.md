@@ -4,6 +4,13 @@ All notable changes to LightCMS are documented here, organized by version.
 
 ---
 
+## [7.0.3] - 2026-07-04
+
+### Fixed
+- WebSite JSON-LD now also reaches raw-HTML homepages (Blank Page templates with the theme disabled), injected into the authored <head>. The 7.0.1 change only covered themed homepages.
+
+---
+
 ## [7.0.2] - 2026-07-04
 
 ### Added

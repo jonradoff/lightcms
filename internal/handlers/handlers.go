@@ -3597,6 +3597,15 @@ func (h *Handler) servePageContent(w http.ResponseWriter, r *http.Request, conte
 		if v, ok := content.Data["content"].(string); ok {
 			htmlContent = v
 		}
+		// Raw homepages bypass the themed layout, so inject the schema.org
+		// WebSite node into the authored <head> directly.
+		if content.FullPath == "/" && !strings.Contains(htmlContent, "application/ld+json") {
+			if ld := buildWebsiteJSONLD(theme.SiteName, theme.SiteTagline, h.resolveBaseURL(r)); ld != "" {
+				if idx := strings.Index(strings.ToLower(htmlContent), "</head>"); idx >= 0 {
+					htmlContent = htmlContent[:idx] + ld + htmlContent[idx:]
+				}
+			}
+		}
 		if activeFork != nil {
 			htmlContent = forkPreviewBar(activeFork) + htmlContent
 		}
