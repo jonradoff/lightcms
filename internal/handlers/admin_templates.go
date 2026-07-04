@@ -9,6 +9,9 @@ var adminTemplates = map[string]string{
         </div>
 
         {{if .Error}}<div class="card" style="border-color: #ef4444; margin-bottom: 1rem;"><p style="color:#f87171;">⚠️ {{.Error}}</p></div>{{end}}
+        {{if .Sent}}<div class="card" style="border-color: #22c55e; margin-bottom: 1rem;"><p style="color:#4ade80; margin:0;">✅ Test digest sent to <strong>{{.Config.Email}}</strong> — check your inbox. (Message logged {{if .Config.LastDigestAt}}{{.Config.LastDigestAt.Format "15:04:05"}} UTC{{end}})</p></div>{{end}}
+        {{if .Saved}}<div class="card" style="border-color: #22c55e; margin-bottom: 1rem;"><p style="color:#4ade80; margin:0;">✅ Configuration saved.</p></div>{{end}}
+        {{if .SendFailed}}<div class="card" style="border-color: #ef4444; margin-bottom: 1rem;"><p style="color:#f87171; margin:0;">❌ Test digest failed{{if .Config.LastError}}: {{.Config.LastError}}{{end}}. Check your Resend domain verification and the recipient address.</p></div>{{end}}
 
         {{if not .EmailConfigured}}
         <div class="card" style="border-color: #e0a030; margin-bottom: 1rem;">

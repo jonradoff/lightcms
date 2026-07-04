@@ -22,11 +22,15 @@ func (h *Handler) AgentToolPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cfg := h.agentService.GetConfig(r.Context())
+	q := r.URL.Query()
 	h.renderAdmin(w, r, "agent_tool", map[string]interface{}{
 		"Title":           "CMS Agent",
 		"Config":          cfg,
 		"EmailConfigured": h.agentService.EmailConfigured(),
 		"AIAvailable":     h.anthropicAPIKey != "",
+		"Sent":            q.Get("sent") == "1",
+		"Saved":           q.Get("saved") == "1",
+		"SendFailed":      q.Get("error") != "",
 	})
 }
 
@@ -87,7 +91,7 @@ func (h *Handler) AgentToolSendTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := h.agentService.SendDigest(r.Context(), cfg); err != nil {
-		http.Redirect(w, r, "/cm/tools/agent?error="+http.StatusText(http.StatusBadGateway), http.StatusSeeOther)
+		http.Redirect(w, r, "/cm/tools/agent?error=send", http.StatusSeeOther)
 		return
 	}
 	if h.auditService != nil {

@@ -307,6 +307,23 @@ func TestAgentToolPage(t *testing.T) {
 		t.Fatalf("status = %d", rr.Code)
 	}
 	body := rr.Body.String()
+
+	// Feedback banners render from query flags.
+	rr2 := httptest.NewRecorder()
+	h.AgentToolPage(rr2, sessionReq("GET", "/cm/tools/agent?sent=1", nil, nil))
+	if !strings.Contains(rr2.Body.String(), "Test digest sent to") {
+		t.Errorf("sent banner missing")
+	}
+	rr2 = httptest.NewRecorder()
+	h.AgentToolPage(rr2, sessionReq("GET", "/cm/tools/agent?saved=1", nil, nil))
+	if !strings.Contains(rr2.Body.String(), "Configuration saved") {
+		t.Errorf("saved banner missing")
+	}
+	rr2 = httptest.NewRecorder()
+	h.AgentToolPage(rr2, sessionReq("GET", "/cm/tools/agent?error=send", nil, nil))
+	if !strings.Contains(rr2.Body.String(), "Test digest failed") {
+		t.Errorf("failure banner missing")
+	}
 	for _, want := range []string{"CMS Agent", "Email delivery not configured", "RESEND_API_KEY",
 		"include_site_health", "include_traffic", "include_pending", "include_broken_links",
 		"include_agent_work", "include_ai_commentary", "Send test digest now"} {

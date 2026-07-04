@@ -4,6 +4,13 @@ All notable changes to LightCMS are documented here, organized by version.
 
 ---
 
+## [7.2.1] - 2026-07-04
+
+### Fixed
+- CMS Agent config page shows visible feedback after actions: success banner when a test digest is sent (with recipient and time) or configuration is saved, and a failure banner with the recorded error when a send fails.
+
+---
+
 ## [7.2.0] - 2026-07-04
 
 ### Added — the CMS Agent
