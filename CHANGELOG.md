@@ -4,6 +4,13 @@ All notable changes to LightCMS are documented here, organized by version.
 
 ---
 
+## [7.0.2] - 2026-07-04
+
+### Added
+- Admin sidebar shows the running software version under the logo (read from build.json, which is now kept in sync with releases).
+
+---
+
 ## [7.0.1] - 2026-07-04
 
 ### Added

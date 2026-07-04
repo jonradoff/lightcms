@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -174,5 +175,26 @@ func TestExecuteCopilotTool_Permissions(t *testing.T) {
 	out, _ = h.executeCopilotTool(ctx, "admin", "sess", "list_recent_content", nil)
 	if !strings.Contains(out, "/post") {
 		t.Errorf("list_recent_content: %s", out)
+	}
+}
+
+func TestSidebarShowsVersion(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+	h.SetAnthropicAPIKey("k")
+
+	req := sessionReq("GET", "/cm/copilot", nil, nil)
+	rr := httptest.NewRecorder()
+	h.CopilotPage(rr, req)
+	if rr.Code != 200 {
+		t.Fatalf("status = %d", rr.Code)
+	}
+	if !strings.Contains(rr.Body.String(), `class="sidebar-version"`) {
+		t.Error("sidebar version element missing")
+	}
+	// build.json isn't present in the test cwd, so the default version
+	// renders — assert the "v<something>" mechanism, not the exact number.
+	if !regexp.MustCompile(`class="sidebar-version">v[0-9][0-9.]*<`).MatchString(rr.Body.String()) {
+		t.Errorf("sidebar version not rendered as v<semver>")
 	}
 }

@@ -8668,12 +8668,17 @@ const adminLayoutStart = `<!DOCTYPE html>
             overflow-y: auto;
         }
         .sidebar-logo {
-            margin-bottom: 2rem;
             display: block;
         }
         .sidebar-logo img {
             height: 48px;
             width: auto;
+        }
+        .sidebar-version {
+            font-size: 11px;
+            color: var(--text-muted, #888);
+            margin: 0.35rem 0 2rem 2px;
+            letter-spacing: 0.03em;
         }
         .nav-section {
             margin-bottom: 1.5rem;
@@ -9234,6 +9239,7 @@ const adminLayoutStart = `<!DOCTYPE html>
     <div class="admin-layout">
         <aside class="sidebar">
             <a href="/cm" class="sidebar-logo"><img src="/static/images/lightcms-logo.png" alt="LightCMS"></a>
+            {{if .AppVersion}}<div class="sidebar-version">v{{.AppVersion}}</div>{{end}}
             <nav>
                 <div class="nav-section">
                     <div class="nav-section-title">Content</div>

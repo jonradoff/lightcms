@@ -3980,6 +3980,9 @@ func (h *Handler) renderAdmin(w http.ResponseWriter, r *http.Request, name strin
 	data["CSRFToken"] = csrf.Token(r)
 	data["CSRFField"] = csrf.TemplateField(r)
 
+	// Running software version, shown under the sidebar logo
+	data["AppVersion"] = build.GetVersion()
+
 	ctx := r.Context()
 	theme, _ := h.db.GetThemeSettings(ctx)
 	data["Theme"] = theme
