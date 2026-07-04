@@ -33,6 +33,12 @@ var adminTemplates = map[string]string{
         .cp-table th { background: var(--bg, #f6f6f6); font-weight: 600; }
         .cp-table tr:nth-child(even) td { background: rgba(128,128,128,0.05); }
         </style>
+        <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px; flex-wrap:wrap;">
+            <button id="cp-new" class="btn" style="font-size:13px;">＋ New chat</button>
+            <select id="cp-history" style="max-width:340px; padding:6px 10px; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text); font:inherit; font-size:13px;">
+                <option value="">Previous chats…</option>
+            </select>
+        </div>
         <div class="card" style="display flex; padding: 0;">
             <div id="cp-log" style="height: 55vh; overflow-y: auto; padding: 20px;"></div>
             <div style="border-top: 1px solid var(--border); padding: 12px; display: flex; gap: 8px;">
@@ -46,7 +52,64 @@ var adminTemplates = map[string]string{
             const log = document.getElementById('cp-log');
             const input = document.getElementById('cp-input');
             const send = document.getElementById('cp-send');
-            const messages = [];
+            const newBtn = document.getElementById('cp-new');
+            const histSel = document.getElementById('cp-history');
+            let messages = [];
+            let renderLog = []; // [{role, html}] for restoring rendered bubbles
+
+            // --- session history (localStorage, most recent first, cap 30) ---
+            const STORE = 'lc_copilot_sessions';
+            let sessionId = 'cs-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+            function loadStore() {
+                try { return JSON.parse(localStorage.getItem(STORE)) || []; } catch (e) { return []; }
+            }
+            function saveSession() {
+                if (!messages.length) return;
+                let store = loadStore().filter(s => s.id !== sessionId);
+                store.unshift({
+                    id: sessionId,
+                    title: (messages[0].content || 'Chat').slice(0, 60),
+                    ts: Date.now(),
+                    messages: messages,
+                    renderLog: renderLog
+                });
+                if (store.length > 30) store = store.slice(0, 30);
+                try { localStorage.setItem(STORE, JSON.stringify(store)); } catch (e) {}
+                refreshHistory();
+            }
+            function refreshHistory() {
+                const store = loadStore();
+                histSel.innerHTML = '<option value="">Previous chats…</option>';
+                store.forEach(s => {
+                    const o = document.createElement('option');
+                    o.value = s.id;
+                    o.textContent = new Date(s.ts).toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'}) + ' — ' + s.title;
+                    if (s.id === sessionId) o.selected = true;
+                    histSel.appendChild(o);
+                });
+            }
+            function openSession(id) {
+                const s = loadStore().find(x => x.id === id);
+                if (!s) return;
+                sessionId = s.id;
+                messages = s.messages || [];
+                renderLog = s.renderLog || [];
+                log.innerHTML = '';
+                renderLog.forEach(b => bubble(b.role, b.html, true));
+                refreshHistory();
+            }
+            function startNew() {
+                saveSession();
+                sessionId = 'cs-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+                messages = [];
+                renderLog = [];
+                log.innerHTML = '';
+                refreshHistory();
+                input.focus();
+            }
+            newBtn.addEventListener('click', startNew);
+            histSel.addEventListener('change', () => { if (histSel.value) { saveSession(); openSession(histSel.value); } });
+            refreshHistory();
 
             function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
             function mdInline(s) {
@@ -99,7 +162,8 @@ var adminTemplates = map[string]string{
                 }
                 return out.join('');
             }
-            function bubble(role, html) {
+            function bubble(role, html, restoring) {
+                if (!restoring) renderLog.push({role: role, html: html});
                 const div = document.createElement('div');
                 div.style.cssText = 'margin-bottom:14px;max-width:85%;padding:10px 14px;border-radius:12px;line-height:1.5;' +
                     (role === 'user'
@@ -146,8 +210,11 @@ var adminTemplates = map[string]string{
                     if (!res.ok) throw new Error(data.error || res.statusText);
                     thinking.innerHTML = md(data.reply || '(no reply)') + actionChips(data.actions);
                     messages.push({role: 'assistant', content: data.reply || ''});
+                    renderLog[renderLog.length - 1] = {role: 'assistant', html: thinking.innerHTML};
+                    saveSession();
                 } catch (err) {
                     thinking.innerHTML = '<span style="color:#d9534f;">Error: ' + esc(err.message) + '</span>';
+                    renderLog[renderLog.length - 1] = {role: 'assistant', html: thinking.innerHTML};
                 }
                 timers.forEach(clearTimeout);
                 send.disabled = false;

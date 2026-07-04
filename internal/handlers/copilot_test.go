@@ -29,7 +29,7 @@ func TestCopilotPage(t *testing.T) {
 		t.Errorf("copilot page missing expected markup")
 	}
 	// The chat renderer must ship the table/list markdown support.
-	for _, want := range []string{"cp-table", "isTableRow", "cp-typing"} {
+	for _, want := range []string{"cp-table", "isTableRow", "cp-typing", "cp-history", "lc_copilot_sessions"} {
 		if !strings.Contains(rr.Body.String(), want) {
 			t.Errorf("copilot page missing renderer piece %q", want)
 		}

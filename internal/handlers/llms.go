@@ -28,13 +28,24 @@ func (h *Handler) resolveBaseURL(r *http.Request) string {
 }
 
 // listLLMContent returns all live published pages sorted by path.
-func (h *Handler) listLLMContent(ctx context.Context) ([]models.Content, error) {
+// includeText controls whether plain_text is fetched (llms-full.txt only).
+// The projection matters: full documents carry embeddings (~4KB/page) and
+// data maps, which made these endpoints take tens of seconds on large sites.
+func (h *Handler) listLLMContent(ctx context.Context, includeText bool) ([]models.Content, error) {
 	filter := bson.M{
 		"published": true,
 		"deleted":   bson.M{"$ne": true},
 		"fork_id":   bson.M{"$exists": false},
 	}
-	opts := options.Find().SetSort(bson.D{{Key: "full_path", Value: 1}})
+	projection := bson.M{
+		"title": 1, "slug": 1, "full_path": 1, "meta_description": 1, "published_at": 1,
+	}
+	if includeText {
+		projection["plain_text"] = 1
+	}
+	opts := options.Find().
+		SetSort(bson.D{{Key: "full_path", Value: 1}}).
+		SetProjection(projection)
 	cursor, err := h.db.FindMany(ctx, "content", filter, opts)
 	if err != nil {
 		return nil, err
@@ -60,7 +71,7 @@ func (h *Handler) ServeLlmsTxt(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-	contents, err := h.listLLMContent(ctx)
+	contents, err := h.listLLMContent(ctx, false)
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
@@ -104,7 +115,7 @@ func (h *Handler) ServeLlmsFullTxt(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-	contents, err := h.listLLMContent(ctx)
+	contents, err := h.listLLMContent(ctx, true)
 	if err != nil {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return

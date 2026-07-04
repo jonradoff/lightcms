@@ -4,6 +4,16 @@ All notable changes to LightCMS are documented here, organized by version.
 
 ---
 
+## [7.0.8] - 2026-07-04
+
+### Added
+- Copilot keeps a history of chat sessions (per browser): a "Previous chats" selector restores earlier conversations with full context, and "New chat" starts fresh. Up to 30 sessions retained.
+
+### Fixed
+- /llms.txt and /llms-full.txt now query with field projections instead of loading full content documents (which include per-page embeddings) — on large sites these endpoints took 40+ seconds and pressured server memory.
+
+---
+
 ## [7.0.7] - 2026-07-04
 
 ### Added
