@@ -4,6 +4,23 @@ All notable changes to LightCMS are documented here, organized by version.
 
 ---
 
+## [6.2.0] - 2026-07-03
+
+### Added — the agentic release
+- **llms.txt & llms-full.txt**: auto-generated Markdown site index and full plain-text content for AI crawlers (llmstxt.org proposal), plus schema.org JSON-LD (BlogPosting/NewsArticle/WebPage) on all published pages.
+- **Fork-sandboxed agent sessions ("PRs for content")**: MCP tools `start_agent_sandbox` / `get_agent_sandbox` / `end_agent_sandbox`. While active, all agent content writes copy-on-write into a fork; publishing, deleting, and bulk operations are blocked; humans review the per-field diff (`GET /api/v1/forks/{id}/diff`, `get_fork_diff`) and merge.
+- **Agent governance**: API keys accept a `scopes` permission allowlist and a `sandbox_only` flag (server-enforced fork-only writes). Every MCP session gets an agent-session ID; `GET /api/v1/agent-sessions/{id}/changes` lists everything a session changed and `POST .../rollback` undoes it as a unit.
+- **Change provenance**: content versions record actor (human|agent), via (ui|api|copilot), and agent session. API edits now carry version attribution.
+- **Admin copilot** (`/cm/copilot`): natural-language content editing via an Anthropic tool-use loop with per-tool RBAC and audit logging.
+- **Self-hosted embeddings**: `LIGHTCMS_EMBEDDINGS_PROVIDER=ollama` generates semantic-search embeddings locally (default model nomic-embed-text) — no hosted API required.
+- **Public read-only MCP endpoint** (`/mcp-public`): visitors' agents can search_site / get_page / list_pages / get_site_info with no authentication; drafts and forks are structurally excluded.
+- **Maintenance scans**: daily site-health reports (stale pages, missing meta descriptions, drafts, optional broken-link job) via API and MCP tools.
+
+### Fixed
+- Editing an unpublished fork copy no longer deletes the live page's static file; fork content can no longer overwrite live static files or pollute the embedding index.
+
+---
+
 ## [6.1.1] - 2026-03-31
 
 ### Security

@@ -7,6 +7,18 @@
 
 LightCMS is a Go-powered content management system built for the AI era. It's simultaneously **AI-native** (semantic search, built-in Claude-powered chat widget, MCP server for agent control), **agentically controllable** (Claude Code and any MCP client can read, write, publish, and bulk-import content via 106 MCP tools), and **agentically updatable** (the codebase is clean, well-structured Go — coding agents can safely extend it). For teams that want a CMS that works with AI rather than around it.
 
+## What's New in v6.2
+
+| Feature | Summary |
+|---------|---------|
+| **Agent Sandbox ("PRs for content")** | Agents work in an isolated fork with copy-on-write; humans review a per-field diff and merge. Live content is untouchable until merge. |
+| **Agent Governance** | Scoped API keys, sandbox-only keys (server-enforced), per-session change ledger with one-call rollback, and per-version provenance (human vs agent, which session). |
+| **Admin Copilot** | `/cm/copilot` — edit, create, and publish content in plain language, with RBAC and full audit logging. |
+| **llms.txt + JSON-LD** | Auto-generated `/llms.txt` and `/llms-full.txt` for AI crawlers, schema.org structured data on every page. |
+| **MCP for Readers** | Public read-only MCP endpoint at `/mcp-public` — visitors' agents can search and read the site natively. |
+| **Local Embeddings** | `LIGHTCMS_EMBEDDINGS_PROVIDER=ollama` for fully self-hosted semantic search — no API credits. |
+| **Self-Maintaining Sites** | Daily maintenance scans surface stale pages, missing meta, and broken links as an agent-ready work queue. |
+
 ## What's New in v6.0
 
 | Feature | Summary |
