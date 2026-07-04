@@ -182,6 +182,55 @@ When creating or updating content via MCP or admin UI, the following markup feat
 - **Public read-only MCP**: `/mcp-public` (no auth) exposes search_site/get_page/list_pages/get_site_info to visitors' agents; `/llms.txt` and `/llms-full.txt` serve AI crawlers.
 - **Admin copilot**: `/cm/copilot` lets editors drive content operations in natural language (requires ANTHROPIC_API_KEY; model via LIGHTCMS_COPILOT_MODEL).
 
+## Engineering Invariants & Lessons (v7.x) — READ BEFORE CHANGING CODE
+
+Hard-won rules from building v7. Violating these has bitten us before:
+
+### Module path & forking
+- The module is `github.com/jonradoff/lightcms/v7`. Go's semantic import versioning means a major-version bump (v8.x tags) requires renaming the module path to `/v8` across every import. If you FORK this repo, rename the module to your own path first:
+  `sed -i '' 's|github.com/jonradoff/lightcms/v7|github.com/YOU/yourcms/v7|g' go.mod $(find . -name '*.go' -not -path './bin/*')`
+- pkg.go.dev only indexes modules whose declared path matches the repo host path.
+
+### Release process
+- Every release: bump `build.json` (the admin sidebar displays this version), add a CHANGELOG.md entry, tag `vX.Y.Z`, and rebuild `bin/lightcms-mcp`.
+
+### Template/JS escaping (caused a production bug)
+- The admin UI is Go `html/template` const strings in `internal/handlers/admin_templates.go` (`adminLayoutStart`/`adminLayoutEnd`; the copilot drawer lives in adminLayoutEnd).
+- html/template ALREADY quotes and escapes values in `<script>` context. NEVER pre-quote with `printf "%q"` — `{{.CSRFToken}}` bare is correct; pre-quoting double-wraps the value in literal quotes (this broke copilot CSRF in production).
+
+### Fork-content safety invariant
+- Content with `ForkID != nil` shares its `full_path` with the live page. It must NEVER generate or remove static files, or touch the embedding index. `GenerateStaticPage` and `UpdateContent` guard this — preserve those guards in any new content-mutation path.
+
+### Provenance & agent sessions
+- Every content mutation path must stamp `services.WithEditorEmail` and `services.WithProvenance` on the context (the /api/v1 middleware does this for API calls; the admin UI and copilot do it explicitly). Session rollback (`/api/v1/agent-sessions/{id}/rollback`) selects revert targets BY PROVENANCE — a session's own versions are never rollback targets. Timestamps race (a session's version write can land before its async audit entry); do not reintroduce timestamp-based selection.
+- The MCP server sends `X-Agent-Session` on every request; audit logs record it.
+
+### Performance: content queries need projections
+- `models.Content` carries a ~4KB embedding vector and full data map per document. List-style endpoints (llms.txt, feeds, indexes) MUST use MongoDB projections — loading full documents made /llms.txt take 40+ seconds and starve the 1GB production VM.
+- Analytics hour-bucket queries use an EXCLUSIVE upper bound (`$lt untilKey`); pass `until = now + 1h` to include the current hour.
+
+### Testing
+- DB tests need `.env.test` with MONGODB_URI; the database name MUST contain "test" (safety guard). Run DB packages with `-p 1`.
+- New MongoDB collections MUST be added to `CleanupCollections` in `internal/testutil/testutil.go`, or leftover data makes tests flake across runs (bit us with `maintenance_reports`).
+- Tests asserting on collection contents should match by seeded paths/IDs, not exact counts — background goroutines (index regen, keyword rebuild) can insert content mid-test.
+- Coverage gate: Codecov ≥80% (target margin ~85%); codecov.yml excludes cmd/, testutil, internal/handlers, content_watcher.go. Codecov's line metric reads ~2 points BELOW `go tool cover` statement totals.
+- Transient Atlas DNS failures ("no such host", "server selection timeout") are environmental — rerun before investigating.
+
+### Copilot architecture
+- The admin copilot (`/cm/copilot/chat`) is an Anthropic tool-use loop in `internal/handlers/copilot.go` executing directly against the service layer (NOT via the MCP client). To add a copilot tool: add its schema to `copilotToolDefs()` and its execution to `executeCopilotTool()` with an explicit `auth.HasPermission` check, and audit-log writes. Model: `LIGHTCMS_COPILOT_MODEL` env (default claude-sonnet-4-6); requires `ANTHROPIC_API_KEY`.
+
+### Environment variables added in v7
+- `ANTHROPIC_API_KEY` — copilot + chat widget answer synthesis
+- `LIGHTCMS_COPILOT_MODEL` — copilot model override
+- `LIGHTCMS_EMBEDDINGS_PROVIDER=ollama`, `OLLAMA_URL`, `OLLAMA_EMBED_MODEL` — local embeddings (Atlas vector index dims must match the model: voyage-4-lite 1024, nomic-embed-text 768)
+
+### Public agent-facing endpoints (no auth)
+- `/llms.txt`, `/llms-full.txt` — AI-crawler site index (generated on the fly, projected queries)
+- `/mcp-public` — read-only MCP server for visitors' agents (search_site, get_page, list_pages, get_site_info); drafts/forks structurally excluded
+
+### Deploy quirks
+- `fly deploy` uploads a ~185MB build context (content/ + static/) with no visible progress — deploys take ~8 minutes and are NOT hung. `fly secrets set --stage` avoids bouncing the legacy machine; staged secrets apply on the next `./deploy.sh`.
+
 ## Script Policy
 
 Site-wide setting `markdown_script_policy` (configurable via `update_site_config`):
