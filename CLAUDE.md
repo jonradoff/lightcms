@@ -231,7 +231,7 @@ Hard-won rules from building v7. Violating these has bitten us before:
 
 ### Deploy quirks
 - `fly deploy` uploads a ~185MB build context (content/ + static/) with no visible progress — deploys take ~8 minutes and are NOT hung.
-- `fly secrets set` does NOT restart the legacy machine (it is outside Fly release management, same reason deploy.sh exists). Secrets stay staged until `fly machines restart d890122a371528 -a metavert-cms` or the next `./deploy.sh`.
+- `fly secrets set` does NOT restart the legacy machine (it is outside Fly release management, same reason deploy.sh exists). Secrets stay staged until `fly machines update d890122a371528 -a metavert-cms --yes` or the next `./deploy.sh` — a plain `fly machines restart` reuses the old machine config and does NOT inject new secrets (verify with `fly ssh console -C 'sh -c env'`).
 
 ## Script Policy
 
