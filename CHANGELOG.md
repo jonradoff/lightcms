@@ -4,6 +4,16 @@ All notable changes to LightCMS are documented here, organized by version.
 
 ---
 
+## [7.1.0] - 2026-07-04
+
+### Changed
+- Copilot is now a slide-in drawer available on every admin page (floating 🤖 button, bottom right; ESC or ✕ to close) instead of a dedicated section — ask for help without losing your place. /cm/copilot redirects to the dashboard with the drawer open.
+
+### Added
+- Copilot can read the daily maintenance report (get_maintenance_report): stale pages, missing meta descriptions, lingering drafts — "what needs attention on my site?" now has an answer.
+
+---
+
 ## [7.0.9] - 2026-07-04
 
 ### Added

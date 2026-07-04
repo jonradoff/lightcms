@@ -18,22 +18,36 @@ func TestCopilotPage(t *testing.T) {
 	defer cleanup()
 	h.SetAnthropicAPIKey("test-key")
 
+	// The old dedicated page redirects to the dashboard with the drawer open.
 	req := sessionReq("GET", "/cm/copilot", nil, nil)
 	rr := httptest.NewRecorder()
 	h.CopilotPage(rr, req)
+	if rr.Code != 303 || rr.Header().Get("Location") != "/cm?copilot=1" {
+		t.Fatalf("expected redirect to /cm?copilot=1, got %d %q", rr.Code, rr.Header().Get("Location"))
+	}
 
+	// The drawer (chat runtime) ships on every admin page for editors+.
+	req = sessionReq("GET", "/cm/analytics", nil, nil)
+	rr = httptest.NewRecorder()
+	h.AnalyticsPage(rr, req)
 	if rr.Code != 200 {
-		t.Fatalf("status = %d, body: %.300s", rr.Code, rr.Body.String())
+		t.Fatalf("analytics status = %d", rr.Code)
 	}
-	if !strings.Contains(rr.Body.String(), "Copilot") || !strings.Contains(rr.Body.String(), "cp-input") {
-		t.Errorf("copilot page missing expected markup")
-	}
-	// The chat renderer must ship the table/list markdown support.
-	for _, want := range []string{"cp-table", "isTableRow", "cp-typing", "cp-history", "lc_copilot_sessions"} {
-		if !strings.Contains(rr.Body.String(), want) {
-			t.Errorf("copilot page missing renderer piece %q", want)
+	body := rr.Body.String()
+	for _, want := range []string{"cp-drawer", "cp-fab", "cp-input", "cp-table", "isTableRow", "cp-typing", "cp-history", "lc_copilot_sessions", "cpOpen"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("admin page missing copilot drawer piece %q", want)
 		}
 	}
+
+	// Without an Anthropic key the drawer is absent.
+	h.SetAnthropicAPIKey("")
+	rr = httptest.NewRecorder()
+	h.AnalyticsPage(rr, sessionReq("GET", "/cm/analytics", nil, nil))
+	if strings.Contains(rr.Body.String(), "cp-drawer") {
+		t.Errorf("drawer should be hidden without ANTHROPIC_API_KEY")
+	}
+	h.SetAnthropicAPIKey("test-key")
 
 	// Unauthenticated request is refused.
 	rr = httptest.NewRecorder()
@@ -192,9 +206,9 @@ func TestSidebarShowsVersion(t *testing.T) {
 	defer cleanup()
 	h.SetAnthropicAPIKey("k")
 
-	req := sessionReq("GET", "/cm/copilot", nil, nil)
+	req := sessionReq("GET", "/cm/analytics", nil, nil)
 	rr := httptest.NewRecorder()
-	h.CopilotPage(rr, req)
+	h.AnalyticsPage(rr, req)
 	if rr.Code != 200 {
 		t.Fatalf("status = %d", rr.Code)
 	}
@@ -219,9 +233,9 @@ func TestCopilotCSRFTokenNotDoubleQuoted(t *testing.T) {
 
 	// Render through the real CSRF middleware so {{.CSRFToken}} is non-empty.
 	key := sha256.Sum256([]byte("test-csrf-key"))
-	protected := csrf.Protect(key[:], csrf.Secure(false), csrf.Path("/cm"))(http.HandlerFunc(h.CopilotPage))
+	protected := csrf.Protect(key[:], csrf.Secure(false), csrf.Path("/cm"))(http.HandlerFunc(h.AnalyticsPage))
 
-	req := sessionReq("GET", "/cm/copilot", nil, nil)
+	req := sessionReq("GET", "/cm/analytics", nil, nil)
 	rr := httptest.NewRecorder()
 	protected.ServeHTTP(rr, req)
 	if rr.Code != 200 {

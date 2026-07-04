@@ -398,6 +398,7 @@ func main() {
 	linkCheckerService := services.NewLinkCheckerService(db)
 	maintenanceService := services.NewMaintenanceService(db, linkCheckerService)
 	go maintenanceService.Start(bgCtx)
+	h.SetMaintenanceService(maintenanceService)
 	apiHandler := handlers.NewAPIHandler(contentService, templateService, assetService, settingsService, apiKeyService, auditService, snippetService)
 	apiHandler.SetSearchService(searchService)
 	apiHandler.SetForkService(forkService)

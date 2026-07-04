@@ -92,6 +92,12 @@ type Handler struct {
 	anthropicURLOverride string
 	commentService       *services.CommentService
 	approvalService      *services.ApprovalService
+	maintenanceService   *services.MaintenanceService
+}
+
+// SetMaintenanceService wires the maintenance scan service (used by the copilot).
+func (h *Handler) SetMaintenanceService(m *services.MaintenanceService) {
+	h.maintenanceService = m
 }
 
 // SetCloudflareService wires the Cloudflare service into the handler (used for health checks on the config page).
@@ -3991,6 +3997,12 @@ func (h *Handler) renderAdmin(w http.ResponseWriter, r *http.Request, name strin
 
 	// Running software version, shown under the sidebar logo
 	data["AppVersion"] = build.GetVersion()
+
+	// Copilot drawer: available on every admin page for editors+ when the
+	// Anthropic key is configured
+	if user, okU := h.auth.GetCurrentUser(r); okU {
+		data["CopilotEnabled"] = h.anthropicAPIKey != "" && auth.HasPermission(user.Role, auth.PermContentEdit)
+	}
 
 	ctx := r.Context()
 	theme, _ := h.db.GetThemeSettings(ctx)

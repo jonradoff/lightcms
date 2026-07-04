@@ -41,6 +41,7 @@ Rules:
 - Always include a concise version_comment when creating or updating content.
 - Content "data" fields depend on the page's template — call get_content or list_templates to learn field names before writing them.
 - Confirm destructive intents: if the user asks for something sweeping (many pages), summarize what you would do and ask before doing it.
+- get_maintenance_report lists stale pages, missing meta descriptions, and drafts — use it for "what needs attention" questions.
 - Site analytics are available via get_analytics (top pages, referrers, traffic summary) — use it for questions about popularity or traffic.
 - Be concise. After acting, state plainly what changed and give the page path(s).`
 
@@ -82,6 +83,8 @@ func copilotToolDefs() []map[string]interface{} {
 				"data":            map[string]interface{}{"type": "object", "description": "Template data fields"},
 				"version_comment": str("Required: short description"),
 			}, "template_name", "title", "slug", "version_comment")},
+		{"name": "get_maintenance_report", "description": "Latest site-health scan: stale pages (>180 days unmodified), published pages missing meta descriptions, and lingering drafts. Use as a work queue for site upkeep.",
+			"input_schema": obj(map[string]interface{}{})},
 		{"name": "get_analytics", "description": "Site analytics: most popular pages (by views), top referrers, or a traffic summary (DAU/MAU/uptime), over the last N days. Human traffic only unless include_bots is true.",
 			"input_schema": obj(map[string]interface{}{
 				"metric":       str("One of: top_pages, top_referrers, summary"),
@@ -262,6 +265,23 @@ func (h *Handler) executeCopilotTool(ctx context.Context, role, sessionID string
 		return ok(map[string]interface{}{"success": true, "id": c.ID.Hex(), "path": c.FullPath, "published": false},
 			&copilotAction{Tool: name, Summary: "Created draft " + c.FullPath, IsWrite: true})
 
+	case "get_maintenance_report":
+		if !auth.HasPermission(role, auth.PermContentView) {
+			return deny(auth.PermContentView)
+		}
+		if h.maintenanceService == nil {
+			return fail(fmt.Errorf("maintenance service unavailable"))
+		}
+		report, err := h.maintenanceService.LatestReport(ctx)
+		if err != nil {
+			// No stored report yet — run a scan on demand.
+			report, err = h.maintenanceService.RunScan(ctx, false)
+			if err != nil {
+				return fail(err)
+			}
+		}
+		return ok(report, nil)
+
 	case "get_analytics":
 		if !auth.HasPermission(role, auth.PermSettingsView) {
 			return deny(auth.PermSettingsView)
@@ -357,17 +377,16 @@ type anthropicMessage struct {
 	Content interface{} `json:"content"` // string or []anthropicContentBlock
 }
 
-// CopilotPage renders the copilot chat panel.
+// CopilotPage redirects to the dashboard with the copilot drawer open —
+// the copilot is a slide-in panel on every admin page rather than a
+// dedicated section.
 func (h *Handler) CopilotPage(w http.ResponseWriter, r *http.Request) {
 	user, okUser := h.auth.GetCurrentUser(r)
 	if !okUser || !auth.HasPermission(user.Role, auth.PermContentEdit) {
 		http.Error(w, "Forbidden — copilot requires editor access", http.StatusForbidden)
 		return
 	}
-	h.renderAdmin(w, r, "copilot", map[string]interface{}{
-		"Title":     "Copilot",
-		"AIEnabled": h.anthropicAPIKey != "",
-	})
+	http.Redirect(w, r, "/cm?copilot=1", http.StatusSeeOther)
 }
 
 // CopilotChat runs one copilot turn: it forwards the conversation to the

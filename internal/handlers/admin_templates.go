@@ -1,233 +1,6 @@
 package handlers
 
 var adminTemplates = map[string]string{
-	"copilot": adminLayoutStart + `
-        <div class="page-header">
-            <h1>🤖 Copilot</h1>
-            <p style="color: var(--text-muted);">Ask for content changes in plain language — search, edit, create, and publish pages. Every change is versioned and audit-logged.</p>
-        </div>
-        {{if not .AIEnabled}}
-        <div class="card" style="border-color: #e0a030;">
-            <p>⚠️ The copilot needs <code>ANTHROPIC_API_KEY</code> configured on the server.</p>
-        </div>
-        {{else}}
-        <style>
-        .cp-typing { display: inline-flex; gap: 4px; align-items: center; }
-        .cp-typing span {
-            width: 7px; height: 7px; border-radius: 50%;
-            background: var(--text-muted, #999);
-            animation: cp-bounce 1.2s infinite ease-in-out;
-        }
-        .cp-typing span:nth-child(2) { animation-delay: 0.15s; }
-        .cp-typing span:nth-child(3) { animation-delay: 0.3s; }
-        @keyframes cp-bounce {
-            0%, 60%, 100% { transform: translateY(0); opacity: .45; }
-            30% { transform: translateY(-5px); opacity: 1; }
-        }
-        .cp-status { margin-left: 8px; color: var(--text-muted, #888); font-size: 13px; }
-        .cp-table { border-collapse: collapse; margin: 8px 0; font-size: 13px; width: 100%; }
-        .cp-table th, .cp-table td {
-            border: 1px solid var(--border, #ddd);
-            padding: 5px 10px; text-align: left; vertical-align: top;
-        }
-        .cp-table th { background: var(--bg, #f6f6f6); font-weight: 600; }
-        .cp-table tr:nth-child(even) td { background: rgba(128,128,128,0.05); }
-        </style>
-        <div style="display:flex; gap:8px; align-items:center; margin-bottom:10px; flex-wrap:wrap;">
-            <button id="cp-new" class="btn" style="font-size:13px;">＋ New chat</button>
-            <select id="cp-history" style="max-width:340px; padding:6px 10px; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text); font:inherit; font-size:13px;">
-                <option value="">Previous chats…</option>
-            </select>
-        </div>
-        <div class="card" style="display flex; padding: 0;">
-            <div id="cp-log" style="height: 55vh; overflow-y: auto; padding: 20px;"></div>
-            <div style="border-top: 1px solid var(--border); padding: 12px; display: flex; gap: 8px;">
-                <textarea id="cp-input" rows="2" placeholder="e.g. Fix the typo in the pricing page headline…"
-                    style="flex: 1; resize: none; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); font: inherit;"></textarea>
-                <button id="cp-send" class="btn btn-primary" style="align-self: flex-end;">Send</button>
-            </div>
-        </div>
-        <script>
-        (function() {
-            const log = document.getElementById('cp-log');
-            const input = document.getElementById('cp-input');
-            const send = document.getElementById('cp-send');
-            const newBtn = document.getElementById('cp-new');
-            const histSel = document.getElementById('cp-history');
-            let messages = [];
-            let renderLog = []; // [{role, html}] for restoring rendered bubbles
-
-            // --- session history (localStorage, most recent first, cap 30) ---
-            const STORE = 'lc_copilot_sessions';
-            let sessionId = 'cs-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
-            function loadStore() {
-                try { return JSON.parse(localStorage.getItem(STORE)) || []; } catch (e) { return []; }
-            }
-            function saveSession() {
-                if (!messages.length) return;
-                let store = loadStore().filter(s => s.id !== sessionId);
-                store.unshift({
-                    id: sessionId,
-                    title: (messages[0].content || 'Chat').slice(0, 60),
-                    ts: Date.now(),
-                    messages: messages,
-                    renderLog: renderLog
-                });
-                if (store.length > 30) store = store.slice(0, 30);
-                try { localStorage.setItem(STORE, JSON.stringify(store)); } catch (e) {}
-                refreshHistory();
-            }
-            function refreshHistory() {
-                const store = loadStore();
-                histSel.innerHTML = '<option value="">Previous chats…</option>';
-                store.forEach(s => {
-                    const o = document.createElement('option');
-                    o.value = s.id;
-                    o.textContent = new Date(s.ts).toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'}) + ' — ' + s.title;
-                    if (s.id === sessionId) o.selected = true;
-                    histSel.appendChild(o);
-                });
-            }
-            function openSession(id) {
-                const s = loadStore().find(x => x.id === id);
-                if (!s) return;
-                sessionId = s.id;
-                messages = s.messages || [];
-                renderLog = s.renderLog || [];
-                log.innerHTML = '';
-                renderLog.forEach(b => bubble(b.role, b.html, true));
-                refreshHistory();
-            }
-            function startNew() {
-                saveSession();
-                sessionId = 'cs-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
-                messages = [];
-                renderLog = [];
-                log.innerHTML = '';
-                refreshHistory();
-                input.focus();
-            }
-            newBtn.addEventListener('click', startNew);
-            histSel.addEventListener('change', () => { if (histSel.value) { saveSession(); openSession(histSel.value); } });
-            refreshHistory();
-
-            function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
-            function mdInline(s) {
-                return esc(s)
-                    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-                    .replace(/` + "`" + `([^` + "`" + `]+)` + "`" + `/g, '<code>$1</code>');
-            }
-            function isTableRow(line) { return /^\s*\|.*\|\s*$/.test(line); }
-            function isTableSep(line) { return /^\s*\|?[\s:|-]+\|?\s*$/.test(line) && line.indexOf('-') !== -1; }
-            function splitRow(line) {
-                return line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(c => c.trim());
-            }
-            function md(s) {
-                const lines = s.split('\n');
-                const out = [];
-                let i = 0;
-                while (i < lines.length) {
-                    // Markdown table: header row, separator row, body rows
-                    if (isTableRow(lines[i]) && i + 1 < lines.length && isTableSep(lines[i + 1])) {
-                        const head = splitRow(lines[i]);
-                        i += 2;
-                        const rows = [];
-                        while (i < lines.length && isTableRow(lines[i])) {
-                            rows.push(splitRow(lines[i]));
-                            i++;
-                        }
-                        let t = '<table class="cp-table"><thead><tr>';
-                        head.forEach(h => t += '<th>' + mdInline(h) + '</th>');
-                        t += '</tr></thead><tbody>';
-                        rows.forEach(r => {
-                            t += '<tr>';
-                            for (let c = 0; c < head.length; c++) t += '<td>' + mdInline(r[c] || '') + '</td>';
-                            t += '</tr>';
-                        });
-                        out.push(t + '</tbody></table>');
-                        continue;
-                    }
-                    // Bullet list runs
-                    if (/^\s*[-*] /.test(lines[i])) {
-                        let l = '<ul style="margin:6px 0 6px 20px;">';
-                        while (i < lines.length && /^\s*[-*] /.test(lines[i])) {
-                            l += '<li>' + mdInline(lines[i].replace(/^\s*[-*] /, '')) + '</li>';
-                            i++;
-                        }
-                        out.push(l + '</ul>');
-                        continue;
-                    }
-                    out.push(mdInline(lines[i]) + '<br>');
-                    i++;
-                }
-                return out.join('');
-            }
-            function bubble(role, html, restoring) {
-                if (!restoring) renderLog.push({role: role, html: html});
-                const div = document.createElement('div');
-                div.style.cssText = 'margin-bottom:14px;max-width:85%;padding:10px 14px;border-radius:12px;line-height:1.5;' +
-                    (role === 'user'
-                        ? 'margin-left:auto;background:var(--primary);color:#fff;'
-                        : 'background:var(--bg);border:1px solid var(--border);');
-                div.innerHTML = html;
-                log.appendChild(div);
-                log.scrollTop = log.scrollHeight;
-                return div;
-            }
-            function actionChips(actions) {
-                if (!actions || !actions.length) return '';
-                return '<div style="margin-top:8px;">' + actions.map(a =>
-                    '<span style="display:inline-block;margin:2px 4px 0 0;padding:2px 10px;border-radius:999px;font-size:12px;background:rgba(80,160,80,.15);border:1px solid rgba(80,160,80,.4);">✓ ' + esc(a.summary) + '</span>'
-                ).join('') + '</div>';
-            }
-
-            async function submit() {
-                const text = input.value.trim();
-                if (!text || send.disabled) return;
-                input.value = '';
-                bubble('user', esc(text));
-                messages.push({role: 'user', content: text});
-                send.disabled = true;
-                const thinking = bubble('assistant',
-                    '<span class="cp-typing"><span></span><span></span><span></span></span>' +
-                    '<span class="cp-status">Thinking…</span>');
-                const statusEl = thinking.querySelector('.cp-status');
-                const phases = [
-                    [6000,  'Working — reading your site…'],
-                    [15000, 'Still working — running content tools…'],
-                    [35000, 'Long task — multiple edits may be in progress…'],
-                    [70000, 'Almost there — complex requests can take a couple of minutes…']
-                ];
-                const timers = phases.map(([ms, msg]) =>
-                    setTimeout(() => { if (statusEl) statusEl.textContent = msg; }, ms));
-                try {
-                    const res = await fetch('/cm/copilot/chat', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json', 'X-CSRF-Token': {{.CSRFToken}}},
-                        body: JSON.stringify({messages: messages})
-                    });
-                    const data = await res.json();
-                    if (!res.ok) throw new Error(data.error || res.statusText);
-                    thinking.innerHTML = md(data.reply || '(no reply)') + actionChips(data.actions);
-                    messages.push({role: 'assistant', content: data.reply || ''});
-                    renderLog[renderLog.length - 1] = {role: 'assistant', html: thinking.innerHTML};
-                    saveSession();
-                } catch (err) {
-                    thinking.innerHTML = '<span style="color:#d9534f;">Error: ' + esc(err.message) + '</span>';
-                    renderLog[renderLog.length - 1] = {role: 'assistant', html: thinking.innerHTML};
-                }
-                timers.forEach(clearTimeout);
-                send.disabled = false;
-                input.focus();
-            }
-            send.addEventListener('click', submit);
-            input.addEventListener('keydown', e => {
-                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
-            });
-        })();
-        </script>
-        {{end}}
-` + adminLayoutEnd,
 
 	"login": `<!DOCTYPE html>
 <html lang="en">
@@ -9447,7 +9220,7 @@ const adminLayoutStart = `<!DOCTYPE html>
                 </div>
                 <div class="nav-section">
                     <div class="nav-section-title">Tools</div>
-                    <a href="/cm/copilot" class="nav-link">🤖 Copilot</a>
+                    <a href="#" onclick="if(window.cpOpen){cpOpen();return false;}" class="nav-link">🤖 Copilot</a>
                     <a href="/cm/tools/search" class="nav-link">🔍 End User Search</a>
                     <a href="/cm/tools/chat" class="nav-link">💬 Chat Widget</a>
                     <a href="/cm/tools/broken-links" class="nav-link">🔗 Broken Link Finder</a>
@@ -9608,5 +9381,231 @@ const adminLayoutEnd = `
         return false; // Prevent form submission
     }
     </script>
+
+    {{if .CopilotEnabled}}
+    <style>
+    #cp-fab {
+        position: fixed; right: 22px; bottom: 22px; z-index: 10500;
+        width: 52px; height: 52px; border-radius: 50%; border: none; cursor: pointer;
+        background: var(--primary, #4f6ef7); color: #fff; font-size: 24px;
+        box-shadow: 0 6px 20px rgba(0,0,0,.35); transition: transform .15s;
+    }
+    #cp-fab:hover { transform: scale(1.08); }
+    #cp-drawer {
+        position: fixed; top: 0; right: 0; height: 100vh; width: min(440px, 96vw);
+        background: var(--bg-card, #1e293b); border-left: 1px solid var(--border, #333);
+        z-index: 10600; display: flex; flex-direction: column;
+        transform: translateX(105%); transition: transform .22s ease;
+        box-shadow: -12px 0 40px rgba(0,0,0,.45);
+    }
+    #cp-drawer.open { transform: translateX(0); }
+    .cp-typing { display: inline-flex; gap: 4px; align-items: center; }
+    .cp-typing span {
+        width: 7px; height: 7px; border-radius: 50%;
+        background: var(--text-muted, #999);
+        animation: cp-bounce 1.2s infinite ease-in-out;
+    }
+    .cp-typing span:nth-child(2) { animation-delay: 0.15s; }
+    .cp-typing span:nth-child(3) { animation-delay: 0.3s; }
+    @keyframes cp-bounce {
+        0%, 60%, 100% { transform: translateY(0); opacity: .45; }
+        30% { transform: translateY(-5px); opacity: 1; }
+    }
+    .cp-status { margin-left: 8px; color: var(--text-muted, #888); font-size: 13px; }
+    .cp-table { border-collapse: collapse; margin: 8px 0; font-size: 12.5px; width: 100%; }
+    .cp-table th, .cp-table td { border: 1px solid var(--border, #444); padding: 4px 8px; text-align: left; vertical-align: top; }
+    .cp-table th { background: rgba(128,128,128,.12); font-weight: 600; }
+    .cp-table tr:nth-child(even) td { background: rgba(128,128,128,.05); }
+    </style>
+    <button id="cp-fab" title="Copilot">🤖</button>
+    <div id="cp-drawer" aria-label="Copilot panel">
+        <div style="display:flex; align-items:center; gap:8px; padding:12px 14px; border-bottom:1px solid var(--border,#333);">
+            <strong style="flex:0 0 auto;">🤖 Copilot</strong>
+            <button id="cp-new" class="btn" style="font-size:12px; padding:4px 10px;">＋ New</button>
+            <select id="cp-history" style="flex:1; min-width:0; padding:4px 8px; border:1px solid var(--border,#444); border-radius:8px; background:var(--bg,#111); color:var(--text,#eee); font-size:12px;">
+                <option value="">Previous chats…</option>
+            </select>
+            <button id="cp-close" class="btn" style="font-size:14px; padding:4px 10px;" title="Close">✕</button>
+        </div>
+        <div id="cp-log" style="flex:1; overflow-y:auto; padding:16px;"></div>
+        <div style="border-top:1px solid var(--border,#333); padding:10px; display:flex; gap:8px;">
+            <textarea id="cp-input" rows="2" placeholder="Ask the copilot…"
+                style="flex:1; resize:none; padding:9px; border:1px solid var(--border,#444); border-radius:8px; background:var(--bg,#111); color:var(--text,#eee); font:inherit; font-size:13px;"></textarea>
+            <button id="cp-send" class="btn btn-primary" style="align-self:flex-end;">Send</button>
+        </div>
+    </div>
+    <script>
+    (function() {
+        const drawer = document.getElementById('cp-drawer');
+        const fab = document.getElementById('cp-fab');
+        const log = document.getElementById('cp-log');
+        const input = document.getElementById('cp-input');
+        const send = document.getElementById('cp-send');
+        const newBtn = document.getElementById('cp-new');
+        const histSel = document.getElementById('cp-history');
+        let messages = [];
+        let renderLog = [];
+
+        window.cpOpen = function() { drawer.classList.add('open'); input.focus(); };
+        function cpClose() { drawer.classList.remove('open'); }
+        fab.addEventListener('click', () => drawer.classList.contains('open') ? cpClose() : window.cpOpen());
+        document.getElementById('cp-close').addEventListener('click', cpClose);
+        document.addEventListener('keydown', e => { if (e.key === 'Escape') cpClose(); });
+        if (new URLSearchParams(location.search).get('copilot') === '1') window.cpOpen();
+
+        const STORE = 'lc_copilot_sessions';
+        let sessionId = 'cs-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+        function loadStore() {
+            try { return JSON.parse(localStorage.getItem(STORE)) || []; } catch (e) { return []; }
+        }
+        function saveSession() {
+            if (!messages.length) return;
+            let store = loadStore().filter(s => s.id !== sessionId);
+            store.unshift({ id: sessionId, title: (messages[0].content || 'Chat').slice(0, 60), ts: Date.now(), messages: messages, renderLog: renderLog });
+            if (store.length > 30) store = store.slice(0, 30);
+            try { localStorage.setItem(STORE, JSON.stringify(store)); } catch (e) {}
+            refreshHistory();
+        }
+        function refreshHistory() {
+            const store = loadStore();
+            histSel.innerHTML = '<option value="">Previous chats…</option>';
+            store.forEach(s => {
+                const o = document.createElement('option');
+                o.value = s.id;
+                o.textContent = new Date(s.ts).toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'}) + ' — ' + s.title;
+                if (s.id === sessionId) o.selected = true;
+                histSel.appendChild(o);
+            });
+        }
+        function openSession(id) {
+            const s = loadStore().find(x => x.id === id);
+            if (!s) return;
+            sessionId = s.id;
+            messages = s.messages || [];
+            renderLog = s.renderLog || [];
+            log.innerHTML = '';
+            renderLog.forEach(b => bubble(b.role, b.html, true));
+            refreshHistory();
+        }
+        newBtn.addEventListener('click', () => {
+            saveSession();
+            sessionId = 'cs-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+            messages = []; renderLog = []; log.innerHTML = '';
+            refreshHistory(); input.focus();
+        });
+        histSel.addEventListener('change', () => { if (histSel.value) { saveSession(); openSession(histSel.value); } });
+        refreshHistory();
+
+        function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+        function mdInline(s) {
+            return esc(s)
+                .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+                .replace(/` + "`" + `([^` + "`" + `]+)` + "`" + `/g, '<code>$1</code>');
+        }
+        function isTableRow(line) { return /^\s*\|.*\|\s*$/.test(line); }
+        function isTableSep(line) { return /^\s*\|?[\s:|-]+\|?\s*$/.test(line) && line.indexOf('-') !== -1; }
+        function splitRow(line) {
+            return line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(c => c.trim());
+        }
+        function md(s) {
+            const lines = s.split('\n');
+            const out = [];
+            let i = 0;
+            while (i < lines.length) {
+                if (isTableRow(lines[i]) && i + 1 < lines.length && isTableSep(lines[i + 1])) {
+                    const head = splitRow(lines[i]);
+                    i += 2;
+                    const rows = [];
+                    while (i < lines.length && isTableRow(lines[i])) { rows.push(splitRow(lines[i])); i++; }
+                    let t = '<table class="cp-table"><thead><tr>';
+                    head.forEach(h => t += '<th>' + mdInline(h) + '</th>');
+                    t += '</tr></thead><tbody>';
+                    rows.forEach(r => {
+                        t += '<tr>';
+                        for (let c = 0; c < head.length; c++) t += '<td>' + mdInline(r[c] || '') + '</td>';
+                        t += '</tr>';
+                    });
+                    out.push(t + '</tbody></table>');
+                    continue;
+                }
+                if (/^\s*[-*] /.test(lines[i])) {
+                    let l = '<ul style="margin:6px 0 6px 18px;">';
+                    while (i < lines.length && /^\s*[-*] /.test(lines[i])) {
+                        l += '<li>' + mdInline(lines[i].replace(/^\s*[-*] /, '')) + '</li>';
+                        i++;
+                    }
+                    out.push(l + '</ul>');
+                    continue;
+                }
+                out.push(mdInline(lines[i]) + '<br>');
+                i++;
+            }
+            return out.join('');
+        }
+        function bubble(role, html, restoring) {
+            if (!restoring) renderLog.push({role: role, html: html});
+            const div = document.createElement('div');
+            div.style.cssText = 'margin-bottom:12px;max-width:92%;padding:9px 12px;border-radius:12px;line-height:1.5;font-size:13.5px;' +
+                (role === 'user'
+                    ? 'margin-left:auto;background:var(--primary,#4f6ef7);color:#fff;'
+                    : 'background:var(--bg,#0f172a);border:1px solid var(--border,#333);');
+            div.innerHTML = html;
+            log.appendChild(div);
+            log.scrollTop = log.scrollHeight;
+            return div;
+        }
+        function actionChips(actions) {
+            if (!actions || !actions.length) return '';
+            return '<div style="margin-top:8px;">' + actions.map(a =>
+                '<span style="display:inline-block;margin:2px 4px 0 0;padding:2px 10px;border-radius:999px;font-size:11.5px;background:rgba(80,160,80,.15);border:1px solid rgba(80,160,80,.4);">✓ ' + esc(a.summary) + '</span>'
+            ).join('') + '</div>';
+        }
+
+        async function submit() {
+            const text = input.value.trim();
+            if (!text || send.disabled) return;
+            input.value = '';
+            bubble('user', esc(text));
+            messages.push({role: 'user', content: text});
+            send.disabled = true;
+            const thinking = bubble('assistant',
+                '<span class="cp-typing"><span></span><span></span><span></span></span>' +
+                '<span class="cp-status">Thinking…</span>');
+            const statusEl = thinking.querySelector('.cp-status');
+            const phases = [
+                [6000,  'Working — reading your site…'],
+                [15000, 'Still working — running content tools…'],
+                [35000, 'Long task — multiple edits may be in progress…'],
+                [70000, 'Almost there — complex requests can take a couple of minutes…']
+            ];
+            const timers = phases.map(([ms, msg]) =>
+                setTimeout(() => { if (statusEl) statusEl.textContent = msg; }, ms));
+            try {
+                const res = await fetch('/cm/copilot/chat', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json', 'X-CSRF-Token': {{.CSRFToken}}},
+                    body: JSON.stringify({messages: messages})
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || res.statusText);
+                thinking.innerHTML = md(data.reply || '(no reply)') + actionChips(data.actions);
+                messages.push({role: 'assistant', content: data.reply || ''});
+                renderLog[renderLog.length - 1] = {role: 'assistant', html: thinking.innerHTML};
+                saveSession();
+            } catch (err) {
+                thinking.innerHTML = '<span style="color:#d9534f;">Error: ' + esc(err.message) + '</span>';
+                renderLog[renderLog.length - 1] = {role: 'assistant', html: thinking.innerHTML};
+            }
+            timers.forEach(clearTimeout);
+            send.disabled = false;
+            input.focus();
+        }
+        send.addEventListener('click', submit);
+        input.addEventListener('keydown', e => {
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
+        });
+    })();
+    </script>
+    {{end}}
 </body>
 </html>`
