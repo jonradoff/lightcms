@@ -195,3 +195,30 @@ func buildJSONLD(content *models.Content, tmpl *models.Template, siteName, baseU
 	safe := strings.ReplaceAll(string(b), "</", `<\/`)
 	return `<script type="application/ld+json">` + safe + `</script>`
 }
+
+// buildWebsiteJSONLD returns the schema.org WebSite document for the
+// homepage, including a SearchAction advertising the public search endpoint
+// (used by search engines for sitelinks search and by visiting agents).
+func buildWebsiteJSONLD(siteName, tagline, baseURL string) string {
+	base := strings.TrimRight(baseURL, "/")
+	doc := map[string]interface{}{
+		"@context": "https://schema.org",
+		"@type":    "WebSite",
+		"name":     siteName,
+		"url":      base,
+		"potentialAction": map[string]interface{}{
+			"@type":       "SearchAction",
+			"target":      base + "/api/search?q={search_term_string}",
+			"query-input": "required name=search_term_string",
+		},
+	}
+	if tagline != "" {
+		doc["description"] = tagline
+	}
+	b, err := json.Marshal(doc)
+	if err != nil {
+		return ""
+	}
+	safe := strings.ReplaceAll(string(b), "</", `<\/`)
+	return `<script type="application/ld+json">` + safe + `</script>`
+}

@@ -4,6 +4,13 @@ All notable changes to LightCMS are documented here, organized by version.
 
 ---
 
+## [7.0.1] - 2026-07-04
+
+### Added
+- Homepage now emits schema.org WebSite JSON-LD (name, tagline, URL) with a SearchAction advertising the public search endpoint — previously the homepage was the one page without structured data.
+
+---
+
 ## [7.0.0] - 2026-07-04
 
 ### Added — the agentic release

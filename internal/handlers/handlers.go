@@ -3831,7 +3831,14 @@ func (h *Handler) renderPublic(w http.ResponseWriter, r *http.Request, theme *da
 }
 
 func (h *Handler) renderPublicWithOptions(w http.ResponseWriter, r *http.Request, theme *database.ThemeSettings, content string, useHeader, useFooter bool) {
-	h.renderPublicWithSEO(w, r, theme, content, useHeader, useFooter, "", "", "", "")
+	// The homepage renders through this generic path; give it a schema.org
+	// WebSite node (the appropriate homepage structured data) so it isn't
+	// the one page without JSON-LD.
+	jsonLD := ""
+	if r.URL.Path == "/" {
+		jsonLD = buildWebsiteJSONLD(theme.SiteName, theme.SiteTagline, h.resolveBaseURL(r))
+	}
+	h.renderPublicWithSEO(w, r, theme, content, useHeader, useFooter, "", "", "", "", jsonLD)
 }
 
 func (h *Handler) renderPublicWithSEO(w http.ResponseWriter, r *http.Request, theme *database.ThemeSettings, content string, useHeader, useFooter bool, title, metaDescription, ogImage, canonicalURL string, structuredData ...string) {

@@ -187,3 +187,40 @@ func TestServePage_IncludesJSONLD(t *testing.T) {
 		t.Errorf("served page missing BlogPosting type\nbody head: %.500s", body)
 	}
 }
+
+func TestBuildWebsiteJSONLD(t *testing.T) {
+	got := buildWebsiteJSONLD("My Site", "A tagline.", "https://example.com/")
+	for _, want := range []string{
+		`"@type":"WebSite"`,
+		`"name":"My Site"`,
+		`"description":"A tagline."`,
+		`"url":"https://example.com"`,
+		`"@type":"SearchAction"`,
+		`"target":"https://example.com/api/search?q={search_term_string}"`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %s in %s", want, got)
+		}
+	}
+	// No tagline → no description key.
+	got = buildWebsiteJSONLD("X", "", "https://x.com")
+	if strings.Contains(got, "description") {
+		t.Errorf("empty tagline should omit description: %s", got)
+	}
+}
+
+func TestHomepage_WebsiteJSONLD(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	req := httptest.NewRequest("GET", "/", nil)
+	rr := httptest.NewRecorder()
+	h.ServePage(rr, req)
+
+	if rr.Code != 200 {
+		t.Skipf("homepage render returned %d (no homepage content in test DB)", rr.Code)
+	}
+	if !strings.Contains(rr.Body.String(), `"@type":"WebSite"`) {
+		t.Errorf("homepage missing WebSite JSON-LD")
+	}
+}
