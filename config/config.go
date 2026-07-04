@@ -18,6 +18,8 @@ type Config struct {
 	SecureCookies   bool   `json:"secure_cookies"`    // Set to true in production (requires HTTPS)
 	VoyageAPIKey    string `json:"voyage_api_key"`    // Voyage AI API key for semantic search embeddings
 	AnthropicAPIKey string `json:"anthropic_api_key"` // Anthropic API key for chat widget answer synthesis
+	ResendAPIKey    string `json:"resend_api_key"`    // Resend API key for outbound email (CMS Agent digests)
+	EmailFrom       string `json:"email_from"`        // From address for outbound email (e.g. "LightCMS Agent <agent@example.com>")
 }
 
 // DefaultDev returns default development configuration
@@ -117,6 +119,8 @@ func loadFromEnv() (*Config, error) {
 	}
 
 	cfg.VoyageAPIKey = os.Getenv("VOYAGE_API_KEY")
+	cfg.ResendAPIKey = os.Getenv("RESEND_API_KEY")
+	cfg.EmailFrom = os.Getenv("EMAIL_FROM")
 	cfg.AnthropicAPIKey = os.Getenv("ANTHROPIC_API_KEY")
 
 	return cfg, nil

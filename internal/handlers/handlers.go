@@ -93,6 +93,7 @@ type Handler struct {
 	commentService       *services.CommentService
 	approvalService      *services.ApprovalService
 	maintenanceService   *services.MaintenanceService
+	agentService         *services.AgentService
 }
 
 // SetMaintenanceService wires the maintenance scan service (used by the copilot).

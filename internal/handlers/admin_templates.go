@@ -2,6 +2,80 @@ package handlers
 
 var adminTemplates = map[string]string{
 
+	"agent_tool": adminLayoutStart + `
+        <div class="page-header">
+            <h1>🤵 CMS Agent</h1>
+            <p style="color: var(--text-muted);">Your site's built-in agent. It runs the daily analyses (site health, traffic, agent activity) and reports to you by email. More capabilities coming.</p>
+        </div>
+
+        {{if .Error}}<div class="card" style="border-color: #ef4444; margin-bottom: 1rem;"><p style="color:#f87171;">⚠️ {{.Error}}</p></div>{{end}}
+
+        {{if not .EmailConfigured}}
+        <div class="card" style="border-color: #e0a030; margin-bottom: 1rem;">
+            <h3 style="margin-top:0;">📮 Email delivery not configured</h3>
+            <p>The CMS Agent sends email through <a href="https://resend.com" target="_blank" style="color: var(--primary);">Resend</a>. To enable it:</p>
+            <ol style="line-height:1.9;">
+                <li>Create a Resend account and API key, and verify your sending domain.</li>
+                <li>Set <code>RESEND_API_KEY</code> and <code>EMAIL_FROM</code> (e.g. <code>LightCMS Agent &lt;agent@yourdomain.com&gt;</code>) as environment variables — or <code>resend_api_key</code> / <code>email_from</code> in config.dev.json.</li>
+                <li>Restart the server.</li>
+            </ol>
+        </div>
+        {{end}}
+
+        <div class="card">
+            <form method="POST" action="/cm/tools/agent/config">
+                {{.CSRFField}}
+                <div style="display:flex; align-items:center; gap:10px; margin-bottom:1.25rem;">
+                    <input type="checkbox" id="enabled" name="enabled" {{if .Config.Enabled}}checked{{end}} style="width:18px; height:18px;">
+                    <label for="enabled" style="font-weight:600;">Send me digests</label>
+                </div>
+
+                <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:1rem; margin-bottom:1.25rem;">
+                    <div>
+                        <label style="display:block; font-size:0.85rem; color:var(--text-muted); margin-bottom:4px;">Recipient email</label>
+                        <input type="email" name="email" value="{{.Config.Email}}" placeholder="you@example.com"
+                            style="width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text); font:inherit;">
+                    </div>
+                    <div>
+                        <label style="display:block; font-size:0.85rem; color:var(--text-muted); margin-bottom:4px;">Frequency</label>
+                        <select name="frequency" style="width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text); font:inherit;">
+                            <option value="daily" {{if eq .Config.Frequency "daily"}}selected{{end}}>Daily</option>
+                            <option value="weekdays" {{if eq .Config.Frequency "weekdays"}}selected{{end}}>Weekdays only</option>
+                            <option value="weekly" {{if eq .Config.Frequency "weekly"}}selected{{end}}>Weekly (Mondays)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label style="display:block; font-size:0.85rem; color:var(--text-muted); margin-bottom:4px;">Send hour (UTC)</label>
+                        <input type="number" name="send_hour" min="0" max="23" value="{{.Config.SendHour}}"
+                            style="width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text); font:inherit;">
+                    </div>
+                </div>
+
+                <h3 style="font-size:1rem; margin-bottom:0.5rem;">What the agent reports on</h3>
+                <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:0.5rem 1.5rem; margin-bottom:1.5rem;">
+                    <label style="display:flex; gap:8px; align-items:flex-start;"><input type="checkbox" name="include_site_health" {{if .Config.IncludeSiteHealth}}checked{{end}}> <span><strong>Site health</strong> — stale pages, missing meta descriptions, lingering drafts</span></label>
+                    <label style="display:flex; gap:8px; align-items:flex-start;"><input type="checkbox" name="include_traffic" {{if .Config.IncludeTraffic}}checked{{end}}> <span><strong>Traffic</strong> — visitors, uptime, top pages and referrers</span></label>
+                    <label style="display:flex; gap:8px; align-items:flex-start;"><input type="checkbox" name="include_pending" {{if .Config.IncludePending}}checked{{end}}> <span><strong>Awaiting review</strong> — forks to merge, approvals, scheduled posts</span></label>
+                    <label style="display:flex; gap:8px; align-items:flex-start;"><input type="checkbox" name="include_agent_work" {{if .Config.IncludeAgentWork}}checked{{end}}> <span><strong>Agent activity</strong> — what AI agents changed, from provenance</span></label>
+                    <label style="display:flex; gap:8px; align-items:flex-start;"><input type="checkbox" name="include_broken_links" {{if .Config.IncludeBrokenLinks}}checked{{end}}> <span><strong>Broken links</strong> — runs a link-check job (slower)</span></label>
+                    <label style="display:flex; gap:8px; align-items:flex-start;"><input type="checkbox" name="include_ai_commentary" {{if .Config.IncludeAICommentary}}checked{{end}} {{if not .AIAvailable}}disabled{{end}}> <span><strong>AI commentary</strong> — Claude writes an executive summary{{if not .AIAvailable}} (requires ANTHROPIC_API_KEY){{end}}</span></label>
+                </div>
+
+                <button type="submit" class="btn btn-primary">Save Configuration</button>
+            </form>
+        </div>
+
+        <div class="card" style="margin-top:1rem;">
+            <h3 style="margin-top:0; font-size:1rem;">Status</h3>
+            {{if .Config.LastDigestAt}}<p>Last digest: {{.Config.LastDigestAt.Format "Jan 2, 2006 15:04"}} UTC</p>{{else}}<p style="color:var(--text-muted);">No digest sent yet.</p>{{end}}
+            {{if .Config.LastError}}<p style="color:#f87171;">Last error: {{.Config.LastError}}</p>{{end}}
+            <form method="POST" action="/cm/tools/agent/test" style="margin-top:0.5rem;">
+                {{.CSRFField}}
+                <button type="submit" class="btn" {{if not .EmailConfigured}}disabled{{end}}>Send test digest now</button>
+            </form>
+        </div>
+` + adminLayoutEnd,
+
 	"login": `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -9221,6 +9295,7 @@ const adminLayoutStart = `<!DOCTYPE html>
                 <div class="nav-section">
                     <div class="nav-section-title">Tools</div>
                     <a href="#" onclick="if(window.cpOpen){cpOpen();return false;}" class="nav-link">🤖 Copilot</a>
+                    <a href="/cm/tools/agent" class="nav-link">🤵 CMS Agent</a>
                     <a href="/cm/tools/search" class="nav-link">🔍 End User Search</a>
                     <a href="/cm/tools/chat" class="nav-link">💬 Chat Widget</a>
                     <a href="/cm/tools/broken-links" class="nav-link">🔗 Broken Link Finder</a>

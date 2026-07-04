@@ -4,6 +4,15 @@ All notable changes to LightCMS are documented here, organized by version.
 
 ---
 
+## [7.2.0] - 2026-07-04
+
+### Added — the CMS Agent
+- New "CMS Agent" tool (/cm/tools/agent, admin only): the site's built-in agent, starting as configurable email digests of the analyses LightCMS already runs internally. Configure recipient, frequency (daily/weekdays/weekly), send hour (UTC), and sections: site health, traffic summary, awaiting-review queue (forks/approvals/scheduled), agent activity (from provenance), broken-link checks, and optional AI commentary (Claude writes an executive summary; requires ANTHROPIC_API_KEY).
+- Outbound email via Resend: set RESEND_API_KEY and EMAIL_FROM (env) or resend_api_key/email_from (config.dev.json). Zero new dependencies — a single HTTPS call. "Send test digest now" button and last-sent/last-error status on the config screen.
+- Digest sends are logged to the agent_digests collection; the scheduler checks every 10 minutes and dedupes to one digest per due day.
+
+---
+
 ## [7.1.2] - 2026-07-04
 
 ### Added

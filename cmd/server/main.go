@@ -376,6 +376,9 @@ func main() {
 	admin.HandleFunc("/tools/search/reindex", h.SearchToolReindex).Methods("POST")
 	admin.HandleFunc("/tools/search/config", h.SearchToolSaveConfig).Methods("POST")
 	admin.HandleFunc("/copilot", h.CopilotPage).Methods("GET")
+	admin.HandleFunc("/tools/agent", h.AgentToolPage).Methods("GET")
+	admin.HandleFunc("/tools/agent/config", h.AgentToolSaveConfig).Methods("POST")
+	admin.HandleFunc("/tools/agent/test", h.AgentToolSendTest).Methods("POST")
 	admin.HandleFunc("/copilot/chat", h.CopilotChat).Methods("POST")
 	admin.HandleFunc("/tools/chat", h.ChatWidgetPage).Methods("GET")
 	admin.HandleFunc("/tools/chat/config", h.ChatWidgetSaveConfig).Methods("POST")
@@ -399,6 +402,13 @@ func main() {
 	maintenanceService := services.NewMaintenanceService(db, linkCheckerService)
 	go maintenanceService.Start(bgCtx)
 	h.SetMaintenanceService(maintenanceService)
+
+	// CMS Agent: email digests of the daily analyses (Resend for delivery)
+	emailService := services.NewEmailService(cfg.ResendAPIKey, cfg.EmailFrom)
+	agentService := services.NewAgentService(db, emailService, maintenanceService,
+		analyticsService, forkService, approvalService, cfg.BaseURL, cfg.AnthropicAPIKey)
+	go agentService.Start(bgCtx)
+	h.SetAgentService(agentService)
 	apiHandler := handlers.NewAPIHandler(contentService, templateService, assetService, settingsService, apiKeyService, auditService, snippetService)
 	apiHandler.SetSearchService(searchService)
 	apiHandler.SetForkService(forkService)

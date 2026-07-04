@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jonradoff/lightcms/v7/internal/services"
+
 	"github.com/gorilla/csrf"
 )
 
@@ -287,5 +289,63 @@ func TestExecuteCopilotTool_Analytics(t *testing.T) {
 		map[string]interface{}{"metric": "nonsense"})
 	if !strings.Contains(out, "metric must be") {
 		t.Errorf("invalid metric: %s", out)
+	}
+}
+
+func TestAgentToolPage(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+	h.SetAgentService(services.NewAgentService(nil, services.NewEmailService("", ""), nil, nil, nil, nil, "http://x", ""))
+
+	// Needs a DB-backed service for config reads — rebuild with real db.
+	h.SetAgentService(services.NewAgentService(h.db, services.NewEmailService("", ""), nil, nil, nil, nil, "http://x", ""))
+
+	req := sessionReq("GET", "/cm/tools/agent", nil, nil)
+	rr := httptest.NewRecorder()
+	h.AgentToolPage(rr, req)
+	if rr.Code != 200 {
+		t.Fatalf("status = %d", rr.Code)
+	}
+	body := rr.Body.String()
+	for _, want := range []string{"CMS Agent", "Email delivery not configured", "RESEND_API_KEY",
+		"include_site_health", "include_traffic", "include_pending", "include_broken_links",
+		"include_agent_work", "include_ai_commentary", "Send test digest now"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("agent page missing %q", want)
+		}
+	}
+
+	// Save config via form POST.
+	form := "enabled=on&email=o%40x.com&frequency=weekly&send_hour=9&include_traffic=on"
+	req = sessionReq("POST", "/cm/tools/agent/config", strings.NewReader(form), nil)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr = httptest.NewRecorder()
+	h.AgentToolSaveConfig(rr, req)
+	if rr.Code != 303 {
+		t.Fatalf("save: status = %d body=%.200s", rr.Code, rr.Body.String())
+	}
+	cfg := h.agentService.GetConfig(context.Background())
+	if !cfg.Enabled || cfg.Email != "o@x.com" || cfg.Frequency != "weekly" || cfg.SendHour != 9 {
+		t.Errorf("saved config: %+v", cfg)
+	}
+	if cfg.IncludeSiteHealth || !cfg.IncludeTraffic {
+		t.Errorf("checkbox state wrong: %+v", cfg)
+	}
+
+	// Invalid config re-renders with error.
+	form = "enabled=on&email=&frequency=daily&send_hour=9"
+	req = sessionReq("POST", "/cm/tools/agent/config", strings.NewReader(form), nil)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr = httptest.NewRecorder()
+	h.AgentToolSaveConfig(rr, req)
+	if rr.Code != 200 || !strings.Contains(rr.Body.String(), "recipient email is required") {
+		t.Errorf("invalid save: status=%d", rr.Code)
+	}
+
+	// Unauthenticated → redirected away.
+	rr = httptest.NewRecorder()
+	h.AgentToolPage(rr, httptest.NewRequest("GET", "/cm/tools/agent", nil))
+	if rr.Code != 303 {
+		t.Errorf("unauth: status = %d, want 303", rr.Code)
 	}
 }

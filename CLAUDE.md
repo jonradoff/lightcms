@@ -220,7 +220,8 @@ Hard-won rules from building v7. Violating these has bitten us before:
 - The admin copilot (`/cm/copilot/chat`) is an Anthropic tool-use loop in `internal/handlers/copilot.go` executing directly against the service layer (NOT via the MCP client). To add a copilot tool: add its schema to `copilotToolDefs()` and its execution to `executeCopilotTool()` with an explicit `auth.HasPermission` check, and audit-log writes. Model: `LIGHTCMS_COPILOT_MODEL` env (default claude-sonnet-4-6); requires `ANTHROPIC_API_KEY`.
 
 ### Environment variables added in v7
-- `ANTHROPIC_API_KEY` — copilot + chat widget answer synthesis
+- `ANTHROPIC_API_KEY` — copilot + chat widget answer synthesis + CMS Agent AI commentary
+- `RESEND_API_KEY`, `EMAIL_FROM` — outbound email for CMS Agent digests (Resend; config keys resend_api_key/email_from)
 - `LIGHTCMS_COPILOT_MODEL` — copilot model override
 - `LIGHTCMS_EMBEDDINGS_PROVIDER=ollama`, `OLLAMA_URL`, `OLLAMA_EMBED_MODEL` — local embeddings (Atlas vector index dims must match the model: voyage-4-lite 1024, nomic-embed-text 768)
 
