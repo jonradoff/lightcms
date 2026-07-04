@@ -62,7 +62,7 @@ var adminTemplates = map[string]string{
                 try {
                     const res = await fetch('/cm/copilot/chat', {
                         method: 'POST',
-                        headers: {'Content-Type': 'application/json', 'X-CSRF-Token': {{.CSRFToken | printf "%q"}}},
+                        headers: {'Content-Type': 'application/json', 'X-CSRF-Token': {{.CSRFToken}}},
                         body: JSON.stringify({messages: messages})
                     });
                     const data = await res.json();

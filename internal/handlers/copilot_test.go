@@ -2,12 +2,15 @@ package handlers
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/gorilla/csrf"
 )
 
 func TestCopilotPage(t *testing.T) {
@@ -196,5 +199,35 @@ func TestSidebarShowsVersion(t *testing.T) {
 	// renders — assert the "v<something>" mechanism, not the exact number.
 	if !regexp.MustCompile(`class="sidebar-version">v[0-9][0-9.]*<`).MatchString(rr.Body.String()) {
 		t.Errorf("sidebar version not rendered as v<semver>")
+	}
+}
+
+// TestCopilotCSRFTokenNotDoubleQuoted guards against re-introducing the
+// printf %q bug: html/template already emits a quoted JS string for
+// {{.CSRFToken}} in script context, so pre-quoting produced a token wrapped
+// in literal quote characters that failed CSRF validation in production.
+func TestCopilotCSRFTokenNotDoubleQuoted(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+	h.SetAnthropicAPIKey("k")
+
+	// Render through the real CSRF middleware so {{.CSRFToken}} is non-empty.
+	key := sha256.Sum256([]byte("test-csrf-key"))
+	protected := csrf.Protect(key[:], csrf.Secure(false), csrf.Path("/cm"))(http.HandlerFunc(h.CopilotPage))
+
+	req := sessionReq("GET", "/cm/copilot", nil, nil)
+	rr := httptest.NewRecorder()
+	protected.ServeHTTP(rr, req)
+	if rr.Code != 200 {
+		t.Fatalf("status = %d", rr.Code)
+	}
+	m := regexp.MustCompile(`'X-CSRF-Token': (\S+)}`).FindStringSubmatch(rr.Body.String())
+	if m == nil {
+		t.Fatal("could not locate X-CSRF-Token expression in rendered page")
+	}
+	expr := m[1]
+	// Must be exactly one level of JS quoting around a non-empty token.
+	if !regexp.MustCompile(`^"[^"\\]+"$`).MatchString(expr) {
+		t.Errorf("CSRF token expression malformed (double-quoted or empty): %s", expr)
 	}
 }

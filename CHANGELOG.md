@@ -4,6 +4,13 @@ All notable changes to LightCMS are documented here, organized by version.
 
 ---
 
+## [7.0.4] - 2026-07-04
+
+### Fixed
+- Copilot chat requests failed CSRF validation ("Invalid or missing CSRF token"): the page template pre-quoted the token with printf %q inside a script block, but html/template already quotes values in JS context, so the browser sent a token wrapped in literal quote characters. Regression test renders through the real CSRF middleware.
+
+---
+
 ## [7.0.3] - 2026-07-04
 
 ### Fixed
