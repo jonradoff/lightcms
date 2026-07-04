@@ -57,21 +57,9 @@ func (h *Handler) AnalyticsPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	now := time.Now().UTC()
+	since, until, rangeParam, rangeStart, rangeEnd := parseAnalyticsRange(r)
 
-	rangeParam := r.URL.Query().Get("range")
-	var since time.Time
-	switch rangeParam {
-	case "7d":
-		since = now.Add(-7 * 24 * time.Hour)
-	case "30d":
-		since = now.Add(-30 * 24 * time.Hour)
-	default:
-		since = now.Add(-24 * time.Hour)
-		rangeParam = "24h"
-	}
-
-	stats, err := h.analyticsService.GetHourlyStats(ctx, since, now)
+	stats, err := h.analyticsService.GetHourlyStats(ctx, since, until)
 	if err != nil {
 		log.Printf("[analytics] GetHourlyStats error: %v", err)
 	}
@@ -88,29 +76,29 @@ func (h *Handler) AnalyticsPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Top pages (with edit IDs resolved) — all three views for client-side tab switching
-	topPagesHuman, err := h.analyticsService.GetTopPages(ctx, since, now, 20, services.BotFilterHuman)
+	topPagesHuman, err := h.analyticsService.GetTopPages(ctx, since, until, 20, services.BotFilterHuman)
 	if err != nil {
 		log.Printf("[analytics] GetTopPages error: %v", err)
 	}
 	h.resolveEditIDs(ctx, topPagesHuman)
-	topPagesBot, _ := h.analyticsService.GetTopPages(ctx, since, now, 20, services.BotFilterBot)
+	topPagesBot, _ := h.analyticsService.GetTopPages(ctx, since, until, 20, services.BotFilterBot)
 	h.resolveEditIDs(ctx, topPagesBot)
-	topPagesAll, _ := h.analyticsService.GetTopPages(ctx, since, now, 20, services.BotFilterAll)
+	topPagesAll, _ := h.analyticsService.GetTopPages(ctx, since, until, 20, services.BotFilterAll)
 	h.resolveEditIDs(ctx, topPagesAll)
 	topPagesHumanJSON, _ := json.Marshal(topPagesHuman)
 	topPagesBotJSON, _ := json.Marshal(topPagesBot)
 	topPagesAllJSON, _ := json.Marshal(topPagesAll)
 
 	// Top referrers — all three views for client-side tab switching
-	refHuman, _ := h.analyticsService.GetTopReferrers(ctx, since, now, 20, services.BotFilterHuman)
-	refBot, _ := h.analyticsService.GetTopReferrers(ctx, since, now, 20, services.BotFilterBot)
-	refAll, _ := h.analyticsService.GetTopReferrers(ctx, since, now, 20, services.BotFilterAll)
+	refHuman, _ := h.analyticsService.GetTopReferrers(ctx, since, until, 20, services.BotFilterHuman)
+	refBot, _ := h.analyticsService.GetTopReferrers(ctx, since, until, 20, services.BotFilterBot)
+	refAll, _ := h.analyticsService.GetTopReferrers(ctx, since, until, 20, services.BotFilterAll)
 	refHumanJSON, _ := json.Marshal(refHuman)
 	refBotJSON, _ := json.Marshal(refBot)
 	refAllJSON, _ := json.Marshal(refAll)
 
 	// User agent breakdown
-	userAgents, err := h.analyticsService.GetUserAgents(ctx, since, now)
+	userAgents, err := h.analyticsService.GetUserAgents(ctx, since, until)
 	if err != nil {
 		log.Printf("[analytics] GetUserAgents error: %v", err)
 	}
@@ -120,6 +108,8 @@ func (h *Handler) AnalyticsPage(w http.ResponseWriter, r *http.Request) {
 		"Stats":             stats,
 		"StatsJSON":         services.HourlyStatsJSON(stats),
 		"Range":             rangeParam,
+		"RangeStart":        rangeStart,
+		"RangeEnd":          rangeEnd,
 		"UptimePercent":     uptimePct,
 		"TotalVisitors":     totalVisitors,
 		"HumanVisitors":     humanVisitors,
@@ -150,25 +140,13 @@ func (h *Handler) AnalyticsPageDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	now := time.Now().UTC()
+	since, until, rangeParam, rangeStart, rangeEnd := parseAnalyticsRange(r)
 
-	rangeParam := r.URL.Query().Get("range")
-	var since time.Time
-	switch rangeParam {
-	case "7d":
-		since = now.Add(-7 * 24 * time.Hour)
-	case "30d":
-		since = now.Add(-30 * 24 * time.Hour)
-	default:
-		since = now.Add(-24 * time.Hour)
-		rangeParam = "24h"
-	}
+	totalViews := h.analyticsService.GetPageViews(ctx, since, until, pagePath)
 
-	totalViews := h.analyticsService.GetPageViews(ctx, since, now, pagePath)
-
-	prHuman, _ := h.analyticsService.GetPageReferrers(ctx, since, now, pagePath, 20, services.BotFilterHuman)
-	prBot, _ := h.analyticsService.GetPageReferrers(ctx, since, now, pagePath, 20, services.BotFilterBot)
-	prAll, _ := h.analyticsService.GetPageReferrers(ctx, since, now, pagePath, 20, services.BotFilterAll)
+	prHuman, _ := h.analyticsService.GetPageReferrers(ctx, since, until, pagePath, 20, services.BotFilterHuman)
+	prBot, _ := h.analyticsService.GetPageReferrers(ctx, since, until, pagePath, 20, services.BotFilterBot)
+	prAll, _ := h.analyticsService.GetPageReferrers(ctx, since, until, pagePath, 20, services.BotFilterAll)
 	prHumanJSON, _ := json.Marshal(prHuman)
 	prBotJSON, _ := json.Marshal(prBot)
 	prAllJSON, _ := json.Marshal(prAll)
@@ -183,6 +161,8 @@ func (h *Handler) AnalyticsPageDetail(w http.ResponseWriter, r *http.Request) {
 	h.renderAdmin(w, r, "analytics_page", map[string]interface{}{
 		"PagePath":     pagePath,
 		"Range":        rangeParam,
+		"RangeStart":   rangeStart,
+		"RangeEnd":     rangeEnd,
 		"TotalViews":   totalViews,
 		"RefHumanJSON": string(prHumanJSON),
 		"RefBotJSON":   string(prBotJSON),
@@ -206,27 +186,15 @@ func (h *Handler) AnalyticsReferrerReport(w http.ResponseWriter, r *http.Request
 	}
 
 	ctx := r.Context()
-	now := time.Now().UTC()
+	since, until, rangeParam, rangeStart, rangeEnd := parseAnalyticsRange(r)
 
-	rangeParam := r.URL.Query().Get("range")
-	var since time.Time
-	switch rangeParam {
-	case "7d":
-		since = now.Add(-7 * 24 * time.Hour)
-	case "30d":
-		since = now.Add(-30 * 24 * time.Hour)
-	default:
-		since = now.Add(-24 * time.Hour)
-		rangeParam = "24h"
-	}
-
-	hitsHuman := h.analyticsService.GetReferrerHits(ctx, since, now, referrer, services.BotFilterHuman)
-	hitsBot := h.analyticsService.GetReferrerHits(ctx, since, now, referrer, services.BotFilterBot)
+	hitsHuman := h.analyticsService.GetReferrerHits(ctx, since, until, referrer, services.BotFilterHuman)
+	hitsBot := h.analyticsService.GetReferrerHits(ctx, since, until, referrer, services.BotFilterBot)
 	hitsAll := hitsHuman + hitsBot
 
-	pagesHuman, _ := h.analyticsService.GetTopPagesByReferrer(ctx, since, now, referrer, 50, services.BotFilterHuman)
-	pagesBot, _ := h.analyticsService.GetTopPagesByReferrer(ctx, since, now, referrer, 50, services.BotFilterBot)
-	pagesAll, _ := h.analyticsService.GetTopPagesByReferrer(ctx, since, now, referrer, 50, services.BotFilterAll)
+	pagesHuman, _ := h.analyticsService.GetTopPagesByReferrer(ctx, since, until, referrer, 50, services.BotFilterHuman)
+	pagesBot, _ := h.analyticsService.GetTopPagesByReferrer(ctx, since, until, referrer, 50, services.BotFilterBot)
+	pagesAll, _ := h.analyticsService.GetTopPagesByReferrer(ctx, since, until, referrer, 50, services.BotFilterAll)
 	h.resolveEditIDs(ctx, pagesHuman)
 	h.resolveEditIDs(ctx, pagesBot)
 	h.resolveEditIDs(ctx, pagesAll)
@@ -237,6 +205,8 @@ func (h *Handler) AnalyticsReferrerReport(w http.ResponseWriter, r *http.Request
 	h.renderAdmin(w, r, "analytics_referrer", map[string]interface{}{
 		"Referrer":       referrer,
 		"Range":          rangeParam,
+		"RangeStart":     rangeStart,
+		"RangeEnd":       rangeEnd,
 		"HitsHuman":      hitsHuman,
 		"HitsBot":        hitsBot,
 		"HitsAll":        hitsAll,
@@ -244,4 +214,42 @@ func (h *Handler) AnalyticsReferrerReport(w http.ResponseWriter, r *http.Request
 		"PagesBotJSON":   string(pagesBotJSON),
 		"PagesAllJSON":   string(pagesAllJSON),
 	})
+}
+
+// parseAnalyticsRange interprets range/start/end query parameters shared by
+// the analytics pages. Presets: 24h (default), 7d, 30d, 60d, 90d.
+// range=custom reads start/end as YYYY-MM-DD with an inclusive end date.
+func parseAnalyticsRange(r *http.Request) (since, until time.Time, rangeParam, startStr, endStr string) {
+	now := time.Now().UTC()
+	until = now
+	rangeParam = r.URL.Query().Get("range")
+	switch rangeParam {
+	case "7d":
+		since = now.Add(-7 * 24 * time.Hour)
+	case "30d":
+		since = now.Add(-30 * 24 * time.Hour)
+	case "60d":
+		since = now.Add(-60 * 24 * time.Hour)
+	case "90d":
+		since = now.Add(-90 * 24 * time.Hour)
+	case "custom":
+		s, errS := time.Parse("2006-01-02", r.URL.Query().Get("start"))
+		e, errE := time.Parse("2006-01-02", r.URL.Query().Get("end"))
+		if errS != nil || errE != nil || e.Before(s) {
+			since = now.Add(-24 * time.Hour)
+			rangeParam = "24h"
+			return
+		}
+		since = s
+		until = e.Add(24 * time.Hour) // include the whole end day
+		if until.After(now) {
+			until = now
+		}
+		startStr = r.URL.Query().Get("start")
+		endStr = r.URL.Query().Get("end")
+	default:
+		since = now.Add(-24 * time.Hour)
+		rangeParam = "24h"
+	}
+	return
 }

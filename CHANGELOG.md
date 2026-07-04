@@ -4,6 +4,13 @@ All notable changes to LightCMS are documented here, organized by version.
 
 ---
 
+## [7.0.9] - 2026-07-04
+
+### Added
+- Analytics pages (dashboard, per-page, per-referrer) offer 60-day and 90-day presets plus a custom date-range picker (inclusive end date). All three pages share one range parser.
+
+---
+
 ## [7.0.8] - 2026-07-04
 
 ### Added

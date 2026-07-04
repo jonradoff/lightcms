@@ -6772,6 +6772,15 @@ async function doSearch(q) {
                 <a href="/cm/analytics?range=24h" class="btn {{if eq .Range "24h"}}btn-primary{{else}}btn-secondary{{end}}" style="padding: 0.375rem 0.75rem; font-size: 0.875rem;">24 Hours</a>
                 <a href="/cm/analytics?range=7d" class="btn {{if eq .Range "7d"}}btn-primary{{else}}btn-secondary{{end}}" style="padding: 0.375rem 0.75rem; font-size: 0.875rem;">7 Days</a>
                 <a href="/cm/analytics?range=30d" class="btn {{if eq .Range "30d"}}btn-primary{{else}}btn-secondary{{end}}" style="padding: 0.375rem 0.75rem; font-size: 0.875rem;">30 Days</a>
+                <a href="/cm/analytics?range=60d" class="btn {{if eq .Range "60d"}}btn-primary{{else}}btn-secondary{{end}}" style="padding: 0.375rem 0.75rem; font-size: 0.875rem;">60 Days</a>
+                <a href="/cm/analytics?range=90d" class="btn {{if eq .Range "90d"}}btn-primary{{else}}btn-secondary{{end}}" style="padding: 0.375rem 0.75rem; font-size: 0.875rem;">90 Days</a>
+                <form method="GET" action="/cm/analytics" style="display: inline-flex; gap: 6px; align-items: center; margin-left: 8px;">
+                    <input type="hidden" name="range" value="custom">
+                    <input type="date" name="start" value="{{.RangeStart}}" required style="padding: 0.3rem 0.5rem; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); font-size: 0.8rem;">
+                    <span style="color: var(--text-muted);">–</span>
+                    <input type="date" name="end" value="{{.RangeEnd}}" required style="padding: 0.3rem 0.5rem; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); font-size: 0.8rem;">
+                    <button type="submit" class="btn {{if eq .Range "custom"}}btn-primary{{else}}btn-secondary{{end}}" style="padding: 0.375rem 0.75rem; font-size: 0.875rem;">Apply</button>
+                </form>
             </div>
 
             <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
@@ -7295,6 +7304,16 @@ async function doSearch(q) {
                 <a href="/cm/analytics/page?path={{.PagePath}}&range=24h" class="btn {{if eq .Range "24h"}}btn-primary{{else}}btn-secondary{{end}}" style="padding: 0.375rem 0.75rem; font-size: 0.875rem;">24 Hours</a>
                 <a href="/cm/analytics/page?path={{.PagePath}}&range=7d" class="btn {{if eq .Range "7d"}}btn-primary{{else}}btn-secondary{{end}}" style="padding: 0.375rem 0.75rem; font-size: 0.875rem;">7 Days</a>
                 <a href="/cm/analytics/page?path={{.PagePath}}&range=30d" class="btn {{if eq .Range "30d"}}btn-primary{{else}}btn-secondary{{end}}" style="padding: 0.375rem 0.75rem; font-size: 0.875rem;">30 Days</a>
+                <a href="/cm/analytics/page?path={{.PagePath}}&range=60d" class="btn {{if eq .Range "60d"}}btn-primary{{else}}btn-secondary{{end}}" style="padding: 0.375rem 0.75rem; font-size: 0.875rem;">60 Days</a>
+                <a href="/cm/analytics/page?path={{.PagePath}}&range=90d" class="btn {{if eq .Range "90d"}}btn-primary{{else}}btn-secondary{{end}}" style="padding: 0.375rem 0.75rem; font-size: 0.875rem;">90 Days</a>
+                <form method="GET" action="/cm/analytics/page" style="display: inline-flex; gap: 6px; align-items: center; margin-left: 8px;">
+                    <input type="hidden" name="range" value="custom">
+                    <input type="hidden" name="path" value="{{.PagePath}}">
+                    <input type="date" name="start" value="{{.RangeStart}}" required style="padding: 0.3rem 0.5rem; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); font-size: 0.8rem;">
+                    <span style="color: var(--text-muted);">–</span>
+                    <input type="date" name="end" value="{{.RangeEnd}}" required style="padding: 0.3rem 0.5rem; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); font-size: 0.8rem;">
+                    <button type="submit" class="btn {{if eq .Range "custom"}}btn-primary{{else}}btn-secondary{{end}}" style="padding: 0.375rem 0.75rem; font-size: 0.875rem;">Apply</button>
+                </form>
             </div>
 
             <div class="page-detail-meta">
@@ -7403,6 +7422,16 @@ async function doSearch(q) {
                 <a href="/cm/analytics/referrer?referrer={{.Referrer}}&range=24h" class="btn {{if eq .Range "24h"}}btn-primary{{else}}btn-secondary{{end}}" style="padding: 0.375rem 0.75rem; font-size: 0.875rem;">24 Hours</a>
                 <a href="/cm/analytics/referrer?referrer={{.Referrer}}&range=7d" class="btn {{if eq .Range "7d"}}btn-primary{{else}}btn-secondary{{end}}" style="padding: 0.375rem 0.75rem; font-size: 0.875rem;">7 Days</a>
                 <a href="/cm/analytics/referrer?referrer={{.Referrer}}&range=30d" class="btn {{if eq .Range "30d"}}btn-primary{{else}}btn-secondary{{end}}" style="padding: 0.375rem 0.75rem; font-size: 0.875rem;">30 Days</a>
+                <a href="/cm/analytics/referrer?referrer={{.Referrer}}&range=60d" class="btn {{if eq .Range "60d"}}btn-primary{{else}}btn-secondary{{end}}" style="padding: 0.375rem 0.75rem; font-size: 0.875rem;">60 Days</a>
+                <a href="/cm/analytics/referrer?referrer={{.Referrer}}&range=90d" class="btn {{if eq .Range "90d"}}btn-primary{{else}}btn-secondary{{end}}" style="padding: 0.375rem 0.75rem; font-size: 0.875rem;">90 Days</a>
+                <form method="GET" action="/cm/analytics/referrer" style="display: inline-flex; gap: 6px; align-items: center; margin-left: 8px;">
+                    <input type="hidden" name="range" value="custom">
+                    <input type="hidden" name="referrer" value="{{.Referrer}}">
+                    <input type="date" name="start" value="{{.RangeStart}}" required style="padding: 0.3rem 0.5rem; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); font-size: 0.8rem;">
+                    <span style="color: var(--text-muted);">–</span>
+                    <input type="date" name="end" value="{{.RangeEnd}}" required style="padding: 0.3rem 0.5rem; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); font-size: 0.8rem;">
+                    <button type="submit" class="btn {{if eq .Range "custom"}}btn-primary{{else}}btn-secondary{{end}}" style="padding: 0.375rem 0.75rem; font-size: 0.875rem;">Apply</button>
+                </form>
             </div>
 
             <div class="ref-meta">
