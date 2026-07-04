@@ -375,6 +375,8 @@ func main() {
 	admin.HandleFunc("/tools/search/test", h.SearchToolTest).Methods("GET")
 	admin.HandleFunc("/tools/search/reindex", h.SearchToolReindex).Methods("POST")
 	admin.HandleFunc("/tools/search/config", h.SearchToolSaveConfig).Methods("POST")
+	admin.HandleFunc("/copilot", h.CopilotPage).Methods("GET")
+	admin.HandleFunc("/copilot/chat", h.CopilotChat).Methods("POST")
 	admin.HandleFunc("/tools/chat", h.ChatWidgetPage).Methods("GET")
 	admin.HandleFunc("/tools/chat/config", h.ChatWidgetSaveConfig).Methods("POST")
 

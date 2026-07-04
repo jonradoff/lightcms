@@ -1,6 +1,89 @@
 package handlers
 
 var adminTemplates = map[string]string{
+	"copilot": adminLayoutStart + `
+        <div class="page-header">
+            <h1>🤖 Copilot</h1>
+            <p style="color: var(--text-muted);">Ask for content changes in plain language — search, edit, create, and publish pages. Every change is versioned and audit-logged.</p>
+        </div>
+        {{if not .AIEnabled}}
+        <div class="card" style="border-color: #e0a030;">
+            <p>⚠️ The copilot needs <code>ANTHROPIC_API_KEY</code> configured on the server.</p>
+        </div>
+        {{else}}
+        <div class="card" style="display flex; padding: 0;">
+            <div id="cp-log" style="height: 55vh; overflow-y: auto; padding: 20px;"></div>
+            <div style="border-top: 1px solid var(--border); padding: 12px; display: flex; gap: 8px;">
+                <textarea id="cp-input" rows="2" placeholder="e.g. Fix the typo in the pricing page headline…"
+                    style="flex: 1; resize: none; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); font: inherit;"></textarea>
+                <button id="cp-send" class="btn btn-primary" style="align-self: flex-end;">Send</button>
+            </div>
+        </div>
+        <script>
+        (function() {
+            const log = document.getElementById('cp-log');
+            const input = document.getElementById('cp-input');
+            const send = document.getElementById('cp-send');
+            const messages = [];
+
+            function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+            function md(s) {
+                return esc(s)
+                    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+                    .replace(/` + "`" + `([^` + "`" + `]+)` + "`" + `/g, '<code>$1</code>')
+                    .replace(/\n/g, '<br>');
+            }
+            function bubble(role, html) {
+                const div = document.createElement('div');
+                div.style.cssText = 'margin-bottom:14px;max-width:85%;padding:10px 14px;border-radius:12px;line-height:1.5;' +
+                    (role === 'user'
+                        ? 'margin-left:auto;background:var(--primary);color:#fff;'
+                        : 'background:var(--bg);border:1px solid var(--border);');
+                div.innerHTML = html;
+                log.appendChild(div);
+                log.scrollTop = log.scrollHeight;
+                return div;
+            }
+            function actionChips(actions) {
+                if (!actions || !actions.length) return '';
+                return '<div style="margin-top:8px;">' + actions.map(a =>
+                    '<span style="display:inline-block;margin:2px 4px 0 0;padding:2px 10px;border-radius:999px;font-size:12px;background:rgba(80,160,80,.15);border:1px solid rgba(80,160,80,.4);">✓ ' + esc(a.summary) + '</span>'
+                ).join('') + '</div>';
+            }
+
+            async function submit() {
+                const text = input.value.trim();
+                if (!text || send.disabled) return;
+                input.value = '';
+                bubble('user', esc(text));
+                messages.push({role: 'user', content: text});
+                send.disabled = true;
+                const thinking = bubble('assistant', '<em>Working…</em>');
+                try {
+                    const res = await fetch('/cm/copilot/chat', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json', 'X-CSRF-Token': {{.CSRFToken | printf "%q"}}},
+                        body: JSON.stringify({messages: messages})
+                    });
+                    const data = await res.json();
+                    if (!res.ok) throw new Error(data.error || res.statusText);
+                    thinking.innerHTML = md(data.reply || '(no reply)') + actionChips(data.actions);
+                    messages.push({role: 'assistant', content: data.reply || ''});
+                } catch (err) {
+                    thinking.innerHTML = '<span style="color:#d9534f;">Error: ' + esc(err.message) + '</span>';
+                }
+                send.disabled = false;
+                input.focus();
+            }
+            send.addEventListener('click', submit);
+            input.addEventListener('keydown', e => {
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); }
+            });
+        })();
+        </script>
+        {{end}}
+` + adminLayoutEnd,
+
 	"login": `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -9184,6 +9267,7 @@ const adminLayoutStart = `<!DOCTYPE html>
                 </div>
                 <div class="nav-section">
                     <div class="nav-section-title">Tools</div>
+                    <a href="/cm/copilot" class="nav-link">🤖 Copilot</a>
                     <a href="/cm/tools/search" class="nav-link">🔍 End User Search</a>
                     <a href="/cm/tools/chat" class="nav-link">💬 Chat Widget</a>
                     <a href="/cm/tools/broken-links" class="nav-link">🔗 Broken Link Finder</a>

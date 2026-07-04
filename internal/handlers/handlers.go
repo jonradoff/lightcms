@@ -88,8 +88,10 @@ type Handler struct {
 	cfService        *services.CloudflareService
 	proxyConfig      *middleware.TrustedProxyConfig
 	anthropicAPIKey  string
-	commentService   *services.CommentService
-	approvalService  *services.ApprovalService
+	// anthropicURLOverride redirects copilot API calls (tests only).
+	anthropicURLOverride string
+	commentService       *services.CommentService
+	approvalService      *services.ApprovalService
 }
 
 // SetCloudflareService wires the Cloudflare service into the handler (used for health checks on the config page).
