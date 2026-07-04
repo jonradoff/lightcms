@@ -7,6 +7,15 @@
 
 LightCMS is a Go-powered content management system built for the AI era. It's simultaneously **AI-native** (semantic search, built-in Claude-powered chat widget, MCP server for agent control), **agentically controllable** (Claude Code and any MCP client can read, write, publish, and bulk-import content via 106 MCP tools), and **agentically updatable** (the codebase is clean, well-structured Go — coding agents can safely extend it). For teams that want a CMS that works with AI rather than around it.
 
+## What's New in v7.1
+
+| Feature | Summary |
+|---------|---------|
+| **Ambient Copilot** | The copilot is a slide-in drawer on every admin page — floating 🤖 button, fullscreen toggle, ChatGPT-style searchable chat history, live typing indicator, and rendered tables. It edits, creates, publishes, and reads analytics and maintenance reports in plain language. |
+| **Analytics Ranges** | 60/90-day presets and custom date ranges across all analytics views. |
+| **Fast AI-Crawler Endpoints** | llms.txt serves in ~1 second on large sites (projected queries), and homepages emit schema.org WebSite JSON-LD with SearchAction. |
+| **Version Visibility** | The admin sidebar shows the running version. |
+
 ## What's New in v7.0
 
 | Feature | Summary |
