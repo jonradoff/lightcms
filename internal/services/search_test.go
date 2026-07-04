@@ -2,6 +2,9 @@ package services
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -580,4 +583,76 @@ func TestSearchService_SearchSemantic_NoVoyageKey(t *testing.T) {
 	// Should return empty or error gracefully (no voyage key)
 	_ = results
 	_ = err
+}
+
+func TestOllamaEmbeddingProvider(t *testing.T) {
+	db, cleanup := testutil.MustConnectTestDB(t)
+	defer cleanup()
+
+	// Fake Ollama server.
+	var gotModel, gotPrompt string
+	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/embeddings" {
+			http.NotFound(w, r)
+			return
+		}
+		var req struct {
+			Model  string `json:"model"`
+			Prompt string `json:"prompt"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		gotModel, gotPrompt = req.Model, req.Prompt
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"embedding": []float32{0.1, 0.2, 0.3},
+		})
+	}))
+	defer fake.Close()
+
+	t.Setenv("LIGHTCMS_EMBEDDINGS_PROVIDER", "ollama")
+	t.Setenv("OLLAMA_URL", fake.URL)
+	t.Setenv("OLLAMA_EMBED_MODEL", "test-embed-model")
+
+	s := NewSearchService(db, "") // no Voyage key
+	if !s.EmbeddingsEnabled() {
+		t.Fatal("EmbeddingsEnabled should be true with ollama provider")
+	}
+	if s.HasVoyageKey() {
+		t.Fatal("HasVoyageKey should be false")
+	}
+
+	emb, err := s.generateEmbedding(context.Background(), "hello world", "document")
+	if err != nil {
+		t.Fatalf("generateEmbedding: %v", err)
+	}
+	if len(emb) != 3 || emb[1] != 0.2 {
+		t.Errorf("embedding = %v", emb)
+	}
+	if gotModel != "test-embed-model" || gotPrompt != "hello world" {
+		t.Errorf("request: model=%q prompt=%q", gotModel, gotPrompt)
+	}
+
+	// Error paths: non-200 and empty embedding.
+	fail := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "model not found", 404)
+	}))
+	defer fail.Close()
+	t.Setenv("OLLAMA_URL", fail.URL)
+	s2 := NewSearchService(db, "")
+	if _, err := s2.generateEmbedding(context.Background(), "x", "document"); err == nil {
+		t.Error("expected error from failing ollama server")
+	}
+}
+
+func TestEmbeddingsDisabledWithoutProvider(t *testing.T) {
+	db, cleanup := testutil.MustConnectTestDB(t)
+	defer cleanup()
+
+	t.Setenv("LIGHTCMS_EMBEDDINGS_PROVIDER", "")
+	s := NewSearchService(db, "")
+	if s.EmbeddingsEnabled() {
+		t.Error("EmbeddingsEnabled should be false with no provider")
+	}
+	if _, _, err := s.BatchGenerateEmbeddings(context.Background()); err == nil {
+		t.Error("BatchGenerateEmbeddings should error without a provider")
+	}
 }

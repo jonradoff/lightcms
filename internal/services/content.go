@@ -146,7 +146,7 @@ func (s *ContentService) keywordRebuildWorker() {
 
 // triggerEmbedding asynchronously generates an embedding for the given content
 func (s *ContentService) triggerEmbedding(contentID primitive.ObjectID) {
-	if s.searchService == nil || !s.searchService.HasVoyageKey() {
+	if s.searchService == nil || !s.searchService.EmbeddingsEnabled() {
 		return
 	}
 	go func() {

@@ -220,7 +220,7 @@ func (h *Handler) SearchToolPage(w http.ResponseWriter, r *http.Request) {
 
 	data := map[string]interface{}{
 		"SearchEnabled":       true,
-		"SemanticEnabled":     h.searchService.HasVoyageKey(),
+		"SemanticEnabled":     h.searchService.EmbeddingsEnabled(),
 		"BaseURL":             h.baseURL,
 		"SearchRankingConfig": searchCfg,
 		"SavedConfig":         r.URL.Query().Get("saved") == "1",
@@ -342,7 +342,7 @@ func (h *Handler) SearchToolReindex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !h.searchService.HasVoyageKey() {
+	if !h.searchService.EmbeddingsEnabled() {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{"error": "semantic search not configured — set VOYAGE_API_KEY to enable embeddings"})

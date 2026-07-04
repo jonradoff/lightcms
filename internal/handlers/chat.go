@@ -182,7 +182,7 @@ func (h *Handler) ChatWidgetPage(w http.ResponseWriter, r *http.Request) {
 	data := map[string]interface{}{
 		"ChatConfig":      cfg,
 		"BaseURL":         h.baseURL,
-		"SemanticEnabled": h.searchService.HasVoyageKey(),
+		"SemanticEnabled": h.searchService.EmbeddingsEnabled(),
 		"HaikuEnabled":    h.anthropicAPIKey != "",
 		"Saved":           r.URL.Query().Get("saved") == "1",
 	}

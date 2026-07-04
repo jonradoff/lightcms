@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"regexp"
 	"sort"
 	"strings"
@@ -86,7 +87,13 @@ type SuggestPage struct {
 type SearchService struct {
 	db           *database.DB
 	voyageAPIKey string
-	httpClient   *http.Client
+	// Local/self-hosted embedding provider (Ollama). When configured via
+	// LIGHTCMS_EMBEDDINGS_PROVIDER=ollama, embeddings are generated locally
+	// with no external API or per-call cost.
+	embedProvider string // "voyage" (default) or "ollama"
+	ollamaURL     string
+	ollamaModel   string
+	httpClient    *http.Client
 
 	keywordsMu sync.RWMutex
 	keywords   []string // cached extracted keywords, sorted by frequency desc
@@ -108,15 +115,37 @@ func NewSearchService(db *database.DB, voyageAPIKey string) *SearchService {
 		httpClient = wc
 	}
 	return &SearchService{
-		db:           db,
-		voyageAPIKey: voyageAPIKey,
-		httpClient:   httpClient,
+		db:            db,
+		voyageAPIKey:  voyageAPIKey,
+		embedProvider: strings.ToLower(os.Getenv("LIGHTCMS_EMBEDDINGS_PROVIDER")),
+		ollamaURL:     strings.TrimRight(getenvDefault("OLLAMA_URL", "http://localhost:11434"), "/"),
+		ollamaModel:   getenvDefault("OLLAMA_EMBED_MODEL", "nomic-embed-text"),
+		httpClient:    httpClient,
 	}
 }
 
 // HasVoyageKey returns true if a Voyage API key is configured
 func (s *SearchService) HasVoyageKey() bool {
 	return s.voyageAPIKey != ""
+}
+
+// EmbeddingsEnabled reports whether any embedding provider is configured:
+// Voyage AI (hosted) or Ollama (local, LIGHTCMS_EMBEDDINGS_PROVIDER=ollama).
+// NOTE: the MongoDB Atlas vector index dimensions must match the model
+// (voyage-4-lite: 1024, nomic-embed-text: 768).
+func (s *SearchService) EmbeddingsEnabled() bool {
+	if s.embedProvider == "ollama" {
+		return true
+	}
+	return s.voyageAPIKey != ""
+}
+
+// getenvDefault returns the env var value or a default when unset.
+func getenvDefault(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
 }
 
 var hrefRe = regexp.MustCompile(`href="(/[^"#?][^"]*)"`)
@@ -272,7 +301,7 @@ func (s *SearchService) Search(ctx context.Context, query, mode string, limit in
 	case "exact":
 		return s.SearchFullText(ctx, query, limit)
 	case "semantic":
-		if !s.HasVoyageKey() {
+		if !s.EmbeddingsEnabled() {
 			return s.SearchFullText(ctx, query, limit)
 		}
 		return s.SearchSemantic(ctx, query, limit)
@@ -372,8 +401,8 @@ func (s *SearchService) SearchFullText(ctx context.Context, query string, limit 
 
 // SearchSemantic performs vector similarity search using MongoDB Atlas $vectorSearch
 func (s *SearchService) SearchSemantic(ctx context.Context, query string, limit int) ([]SearchResult, error) {
-	if !s.HasVoyageKey() {
-		return nil, fmt.Errorf("semantic search unavailable: no Voyage API key configured")
+	if !s.EmbeddingsEnabled() {
+		return nil, fmt.Errorf("semantic search unavailable: no embedding provider configured (set VOYAGE_API_KEY or LIGHTCMS_EMBEDDINGS_PROVIDER=ollama)")
 	}
 
 	queryEmbedding, err := s.generateEmbedding(ctx, query, "query")
@@ -557,8 +586,8 @@ func (s *SearchService) UpdateContentEmbedding(ctx context.Context, contentID pr
 
 // BatchGenerateEmbeddings generates embeddings for all published content that needs them
 func (s *SearchService) BatchGenerateEmbeddings(ctx context.Context) (processed, errCount int, err error) {
-	if !s.HasVoyageKey() {
-		return 0, 0, fmt.Errorf("no Voyage API key configured")
+	if !s.EmbeddingsEnabled() {
+		return 0, 0, fmt.Errorf("no embedding provider configured (set VOYAGE_API_KEY or LIGHTCMS_EMBEDDINGS_PROVIDER=ollama)")
 	}
 
 	// Find all published, non-deleted content
@@ -843,9 +872,13 @@ func extractPhrases(text string, freq map[string]int) {
 
 // generateEmbedding calls Voyage AI API to generate a vector embedding
 func (s *SearchService) generateEmbedding(ctx context.Context, text, inputType string) ([]float32, error) {
-	// Truncate very long text (Voyage has token limits)
+	// Truncate very long text (providers have token limits)
 	if len(text) > 32000 {
 		text = text[:32000]
+	}
+
+	if s.embedProvider == "ollama" {
+		return s.generateEmbeddingOllama(ctx, text)
 	}
 
 	reqBody := map[string]interface{}{
@@ -972,4 +1005,47 @@ func truncateText(text string, maxLen int) string {
 		truncated = truncated[:idx]
 	}
 	return truncated + "..."
+}
+
+// generateEmbeddingOllama generates an embedding with a local Ollama server
+// (POST /api/embeddings). Self-hosted, no external API or per-call cost.
+func (s *SearchService) generateEmbeddingOllama(ctx context.Context, text string) ([]float32, error) {
+	reqBody, err := json.Marshal(map[string]interface{}{
+		"model":  s.ollamaModel,
+		"prompt": text,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", s.ollamaURL+"/api/embeddings", bytes.NewReader(reqBody))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("ollama request failed (is Ollama running at %s?): %w", s.ollamaURL, err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read ollama response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("ollama returned %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var result struct {
+		Embedding []float32 `json:"embedding"`
+	}
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("failed to parse ollama response: %w", err)
+	}
+	if len(result.Embedding) == 0 {
+		return nil, fmt.Errorf("ollama returned an empty embedding (model %s)", s.ollamaModel)
+	}
+	return result.Embedding, nil
 }
