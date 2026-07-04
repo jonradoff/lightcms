@@ -3,6 +3,8 @@ package handlers
 import (
 	"context"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -258,5 +260,59 @@ func TestRawHomepage_WebsiteJSONLDInjection(t *testing.T) {
 	}
 	if !strings.Contains(body, "<body>home</body>") {
 		t.Errorf("authored content altered")
+	}
+}
+
+// TestSlugWithPeriod verifies that slugs containing periods work end to end:
+// creation, static generation, and public serving (the dot-in-path asset
+// shortcut must fall through to content when no asset file exists).
+func TestSlugWithPeriod(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	tmplID := seedTemplate(t, h.db, "Page", "page")
+	ctx := context.Background()
+
+	c := &models.Content{
+		TemplateID: tmplID, TemplateName: "Page",
+		Title: "Release Two Point Oh", Slug: "release-2.0",
+		Data: map[string]interface{}{"Body": "dotted slug body"}, Published: true,
+	}
+	if err := h.contentService.CreateContent(ctx, c, "dotted slug test"); err != nil {
+		t.Fatalf("CreateContent: %v", err)
+	}
+	if c.FullPath != "/release-2.0" {
+		t.Fatalf("full_path = %q, want /release-2.0", c.FullPath)
+	}
+
+	// Static file generated with .html suffix appended (no collision with
+	// the asset-serving path, which has no suffix).
+	staticPath := filepath.Join("content", "generated", "release-2.0.html")
+	defer os.Remove(staticPath)
+	if _, err := os.Stat(staticPath); err != nil {
+		t.Errorf("static file not generated at %s: %v", staticPath, err)
+	}
+
+	// Public request: the "contains a dot → asset?" branch must fall
+	// through and serve the page.
+	req := httptest.NewRequest("GET", "/release-2.0", nil)
+	req = mux.SetURLVars(req, map[string]string{"slug": "release-2.0"})
+	rr := httptest.NewRecorder()
+	h.ServePage(rr, req)
+	if rr.Code != 200 {
+		t.Fatalf("ServePage status = %d", rr.Code)
+	}
+	if ct := rr.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+		t.Errorf("Content-Type = %q, want text/html (not asset MIME)", ct)
+	}
+	if !strings.Contains(rr.Body.String(), "Release Two Point Oh") {
+		t.Errorf("page body missing content")
+	}
+
+	// It also appears in llms.txt like any other page.
+	rr = httptest.NewRecorder()
+	h.ServeLlmsTxt(rr, httptest.NewRequest("GET", "/llms.txt", nil))
+	if !strings.Contains(rr.Body.String(), "/release-2.0") {
+		t.Errorf("llms.txt missing dotted-slug page")
 	}
 }
