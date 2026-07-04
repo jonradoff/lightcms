@@ -51,3 +51,38 @@ func (a *APIHandler) APIAgentSessionRollback(w http.ResponseWriter, r *http.Requ
 	})
 	a.jsonResponse(w, http.StatusOK, result)
 }
+
+// SetMaintenanceService injects the maintenance scan service.
+func (a *APIHandler) SetMaintenanceService(m *services.MaintenanceService) {
+	a.maintenanceService = m
+}
+
+// APIMaintenanceReport returns the most recent maintenance report.
+func (a *APIHandler) APIMaintenanceReport(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermContentView) {
+		return
+	}
+	report, err := a.maintenanceService.LatestReport(r.Context())
+	if err != nil {
+		a.jsonError(w, http.StatusNotFound, "no maintenance report yet — run a scan first")
+		return
+	}
+	a.jsonResponse(w, http.StatusOK, report)
+}
+
+// APIMaintenanceScan runs a maintenance scan now and returns the report.
+func (a *APIHandler) APIMaintenanceScan(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermContentView) {
+		return
+	}
+	withLinks := r.URL.Query().Get("link_check") == "true"
+	report, err := a.maintenanceService.RunScan(r.Context(), withLinks)
+	if err != nil {
+		a.jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	a.auditLog(r, "maintenance.scan", "maintenance", report.ID.Hex(), map[string]interface{}{
+		"stale": len(report.StalePages), "missing_meta": len(report.MissingMeta), "drafts": len(report.Drafts),
+	})
+	a.jsonResponse(w, http.StatusOK, report)
+}

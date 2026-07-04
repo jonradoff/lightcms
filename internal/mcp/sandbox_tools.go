@@ -290,3 +290,39 @@ func (s *Server) registerGovernanceTools() {
 		return jsonResult(result), nil, nil
 	})
 }
+
+type MaintenanceScanInput struct {
+	LinkCheck bool `json:"link_check,omitempty" jsonschema:"Also start an async broken-link check job"`
+}
+
+// registerMaintenanceTools adds the self-maintenance tools.
+func (s *Server) registerMaintenanceTools() {
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "get_maintenance_report",
+		Title:       "Get Maintenance Report",
+		Description: "The latest site-health scan: stale pages (no update in ~6 months), published pages missing meta descriptions, and lingering drafts. Use it as a work queue — fix issues via the sandbox workflow.",
+		Annotations: &mcp.ToolAnnotations{Title: "Get Maintenance Report", ReadOnlyHint: true},
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args struct{}) (*mcp.CallToolResult, any, error) {
+		report, err := s.client.GetMaintenanceReport(ctx)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		return jsonResult(report), nil, nil
+	})
+
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "run_maintenance_scan",
+		Title:       "Run Maintenance Scan",
+		Description: "Run a site-health scan now and return the fresh report. Scans also run automatically once a day.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:        "Run Maintenance Scan",
+			ReadOnlyHint: false, DestructiveHint: boolPtr(false), IdempotentHint: true, OpenWorldHint: boolPtr(false),
+		},
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args MaintenanceScanInput) (*mcp.CallToolResult, any, error) {
+		report, err := s.client.RunMaintenanceScan(ctx, args.LinkCheck)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		return jsonResult(report), nil, nil
+	})
+}

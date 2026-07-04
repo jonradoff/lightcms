@@ -32,6 +32,7 @@ type APIHandler struct {
 	approvalService     *services.ApprovalService
 	userService         *services.UserService
 	agentSessionService *services.AgentSessionService
+	maintenanceService  *services.MaintenanceService
 }
 
 // SetCommentService wires in the comment service.

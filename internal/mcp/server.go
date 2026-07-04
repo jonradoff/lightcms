@@ -52,6 +52,7 @@ func NewServer(client *apiclient.Client) *Server {
 	s.registerApprovalTools()
 	s.registerSandboxTools()
 	s.registerGovernanceTools()
+	s.registerMaintenanceTools()
 
 	// Register resources
 	s.registerResources()

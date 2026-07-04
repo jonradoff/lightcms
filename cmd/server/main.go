@@ -396,6 +396,8 @@ func main() {
 	// REST API v1 routes (API key authenticated, JSON only)
 	apiKeyService := services.NewAPIKeyService(db)
 	linkCheckerService := services.NewLinkCheckerService(db)
+	maintenanceService := services.NewMaintenanceService(db, linkCheckerService)
+	go maintenanceService.Start(bgCtx)
 	apiHandler := handlers.NewAPIHandler(contentService, templateService, assetService, settingsService, apiKeyService, auditService, snippetService)
 	apiHandler.SetSearchService(searchService)
 	apiHandler.SetForkService(forkService)
@@ -407,6 +409,7 @@ func main() {
 	apiHandler.SetApprovalService(approvalService)
 	apiHandler.SetUserService(userService)
 	apiHandler.SetAgentSessionService(services.NewAgentSessionService(auditService, contentService))
+	apiHandler.SetMaintenanceService(maintenanceService)
 	apiAuthMiddleware := middleware.NewAPIAuth(func(ctx context.Context, rawKey string) (interface{}, error) {
 		apiKey, err := apiKeyService.ValidateAPIKey(ctx, rawKey)
 		if err != nil {
@@ -608,6 +611,10 @@ func main() {
 	// Agent session ledger & rollback
 	apiv1.HandleFunc("/agent-sessions/{id}/changes", apiHandler.APIAgentSessionChanges).Methods("GET")
 	apiv1.HandleFunc("/agent-sessions/{id}/rollback", apiHandler.APIAgentSessionRollback).Methods("POST")
+
+	// Maintenance scans (self-maintaining site routines)
+	apiv1.HandleFunc("/maintenance/report", apiHandler.APIMaintenanceReport).Methods("GET")
+	apiv1.HandleFunc("/maintenance/scan", apiHandler.APIMaintenanceScan).Methods("POST")
 	apiv1.HandleFunc("/forks/{id}/merge", apiHandler.APIMergeFork).Methods("POST")
 	apiv1.HandleFunc("/forks/{id}/archive", apiHandler.APIArchiveFork).Methods("POST")
 

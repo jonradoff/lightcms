@@ -1335,3 +1335,26 @@ func (c *Client) RejectRequest(ctx context.Context, id string, req ApproveReject
 func (c *Client) CancelApprovalRequest(ctx context.Context, id string) error {
 	return c.do(ctx, "POST", "/approval-requests/"+id+"/cancel", nil, nil)
 }
+
+// GetMaintenanceReport returns the latest maintenance scan report.
+func (c *Client) GetMaintenanceReport(ctx context.Context) (map[string]interface{}, error) {
+	var result map[string]interface{}
+	if err := c.do(ctx, "GET", "/maintenance/report", nil, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// RunMaintenanceScan runs a maintenance scan now (optionally with an async
+// broken-link check) and returns the fresh report.
+func (c *Client) RunMaintenanceScan(ctx context.Context, withLinkCheck bool) (map[string]interface{}, error) {
+	path := "/maintenance/scan"
+	if withLinkCheck {
+		path += "?link_check=true"
+	}
+	var result map[string]interface{}
+	if err := c.do(ctx, "POST", path, nil, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
