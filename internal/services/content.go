@@ -218,6 +218,11 @@ func (s *ContentService) CreateContent(ctx context.Context, content *models.Cont
 		content.FullPath = "/"
 	}
 
+	// Reject case-variant duplicates (paths are case-insensitive).
+	if conflict := s.findPathCaseConflict(ctx, content.FullPath, primitive.NilObjectID); conflict != nil {
+		return fmt.Errorf("path %s conflicts with existing page %s — paths are case-insensitive", content.FullPath, conflict.FullPath)
+	}
+
 	// Merge inline #tags from data fields into content.Tags
 	mergeInlineTags(content)
 
@@ -449,6 +454,13 @@ func (s *ContentService) UpdateContent(ctx context.Context, content *models.Cont
 		content.FullPath = "/" + content.Slug
 	} else {
 		content.FullPath = "/"
+	}
+
+	// Reject case-variant duplicates (paths are case-insensitive).
+	if content.FullPath != original.FullPath {
+		if conflict := s.findPathCaseConflict(ctx, content.FullPath, content.ID); conflict != nil {
+			return fmt.Errorf("path %s conflicts with existing page %s — paths are case-insensitive", content.FullPath, conflict.FullPath)
+		}
 	}
 
 	// Merge inline #tags from data fields into content.Tags
@@ -692,10 +704,50 @@ func (s *ContentService) GetContent(ctx context.Context, id primitive.ObjectID) 
 // GetContentByPath retrieves content by full path
 func (s *ContentService) GetContentByPath(ctx context.Context, path string) (*models.Content, error) {
 	var content models.Content
-	if err := s.db.FindOne(ctx, "content", bson.M{"full_path": path, "deleted": bson.M{"$ne": true}}, &content); err != nil {
+	if err := s.db.FindOne(ctx, "content", bson.M{"full_path": path, "deleted": bson.M{"$ne": true}}, &content); err == nil {
+		return &content, nil
+	}
+	// Paths are case-insensitive: fall back to a case-insensitive exact
+	// match so /claude.md resolves the page stored as /CLAUDE.md. The
+	// canonical (stored) casing is preserved in the returned content.
+	ciFilter := bson.M{
+		"full_path": caseInsensitivePathRegex(path),
+		"deleted":   bson.M{"$ne": true},
+		"fork_id":   bson.M{"$exists": false},
+	}
+	if err := s.db.FindOne(ctx, "content", ciFilter, &content); err != nil {
 		return nil, fmt.Errorf("content not found: %w", err)
 	}
 	return &content, nil
+}
+
+// caseInsensitivePathRegex builds an anchored, case-insensitive exact-match
+// filter for a full_path (QuoteMeta handles dots and other specials).
+func caseInsensitivePathRegex(path string) bson.M {
+	return bson.M{"$regex": "^" + regexp.QuoteMeta(path) + "$", "$options": "i"}
+}
+
+// findPathCaseConflict returns a live page whose full_path equals fullPath
+// case-insensitively but differs in casing (paths are case-insensitive, so
+// /CLAUDE.md and /claude.md cannot coexist). excludeID skips the page being
+// updated; pass primitive.NilObjectID for creates.
+func (s *ContentService) findPathCaseConflict(ctx context.Context, fullPath string, excludeID primitive.ObjectID) *models.Content {
+	filter := bson.M{
+		"full_path": caseInsensitivePathRegex(fullPath),
+		"deleted":   bson.M{"$ne": true},
+		"fork_id":   bson.M{"$exists": false},
+	}
+	if !excludeID.IsZero() {
+		filter["_id"] = bson.M{"$ne": excludeID}
+	}
+	var existing models.Content
+	if err := s.db.FindOne(ctx, "content", filter, &existing); err != nil {
+		return nil
+	}
+	if existing.FullPath == fullPath {
+		return nil // byte-identical path: the unique index handles true duplicates
+	}
+	return &existing
 }
 
 // GetBacklinks finds all published content that links to the given path via internal_links.

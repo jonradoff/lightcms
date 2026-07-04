@@ -3566,6 +3566,18 @@ func (h *Handler) ServePage(w http.ResponseWriter, r *http.Request) {
 		// Fall back to legacy slug lookup
 		legacyFilter := bson.M{"published": true, "slug": slug, "fork_id": bson.M{"$exists": false}}
 		if err := h.db.FindOne(ctx, "content", legacyFilter, &content); err != nil {
+			// Paths are case-insensitive: try a case-insensitive match and
+			// 301 to the canonical casing (e.g. /claude.md -> /CLAUDE.md).
+			ciFilter := bson.M{
+				"published": true,
+				"full_path": bson.M{"$regex": "^" + regexp.QuoteMeta(fullPath) + "$", "$options": "i"},
+				"fork_id":   bson.M{"$exists": false},
+			}
+			if err := h.db.FindOne(ctx, "content", ciFilter, &content); err == nil && content.FullPath != fullPath {
+				w.Header().Set("Cache-Control", "public, max-age=3600")
+				http.Redirect(w, r, content.FullPath, http.StatusMovedPermanently)
+				return
+			}
 			h.serve404(w, r, theme)
 			return
 		}

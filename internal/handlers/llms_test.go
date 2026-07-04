@@ -316,3 +316,81 @@ func TestSlugWithPeriod(t *testing.T) {
 		t.Errorf("llms.txt missing dotted-slug page")
 	}
 }
+
+// TestSlugCasePreservedButInsensitive: slugs keep their authored casing
+// (/CLAUDE.md), lookups are case-insensitive (wrong casing 301s to the
+// canonical URL), and case-variant duplicates are rejected.
+func TestSlugCasePreservedButInsensitive(t *testing.T) {
+	h, cleanup := newTestHandler(t)
+	defer cleanup()
+
+	tmplID := seedTemplate(t, h.db, "Page", "page")
+	ctx := context.Background()
+
+	c := &models.Content{
+		TemplateID: tmplID, TemplateName: "Page",
+		Title: "Claude Instructions", Slug: "CLAUDE.md",
+		Data: map[string]interface{}{"Body": "agent instructions"}, Published: true,
+	}
+	if err := h.contentService.CreateContent(ctx, c, "case test"); err != nil {
+		t.Fatalf("CreateContent: %v", err)
+	}
+	defer os.Remove(filepath.Join("content", "generated", "CLAUDE.md.html"))
+	if c.FullPath != "/CLAUDE.md" {
+		t.Fatalf("full_path = %q — casing not preserved", c.FullPath)
+	}
+
+	// Canonical casing serves directly.
+	req := httptest.NewRequest("GET", "/CLAUDE.md", nil)
+	req = mux.SetURLVars(req, map[string]string{"slug": "CLAUDE.md"})
+	rr := httptest.NewRecorder()
+	h.ServePage(rr, req)
+	if rr.Code != 200 {
+		t.Fatalf("canonical: status = %d", rr.Code)
+	}
+
+	// Wrong casing 301s to canonical.
+	req = httptest.NewRequest("GET", "/claude.md", nil)
+	req = mux.SetURLVars(req, map[string]string{"slug": "claude.md"})
+	rr = httptest.NewRecorder()
+	h.ServePage(rr, req)
+	if rr.Code != 301 || rr.Header().Get("Location") != "/CLAUDE.md" {
+		t.Fatalf("lowercase: status = %d, location = %q, want 301 -> /CLAUDE.md", rr.Code, rr.Header().Get("Location"))
+	}
+
+	// Service-level by-path lookup resolves case-insensitively too.
+	got, err := h.contentService.GetContentByPath(ctx, "/Claude.MD")
+	if err != nil || got.FullPath != "/CLAUDE.md" {
+		t.Errorf("GetContentByPath CI: got %v, err %v", got, err)
+	}
+
+	// Case-variant duplicate creation is rejected.
+	dup := &models.Content{
+		TemplateID: tmplID, TemplateName: "Page",
+		Title: "Dup", Slug: "claude.md", Data: map[string]interface{}{},
+	}
+	if err := h.contentService.CreateContent(ctx, dup, "dup"); err == nil {
+		t.Error("case-variant duplicate create should be rejected")
+	} else if !strings.Contains(err.Error(), "case-insensitive") {
+		t.Errorf("unexpected error: %v", err)
+	}
+
+	// Case-variant rename of another page is rejected.
+	other := &models.Content{
+		TemplateID: tmplID, TemplateName: "Page",
+		Title: "Other", Slug: "other-page", Data: map[string]interface{}{},
+	}
+	if err := h.contentService.CreateContent(ctx, other, "other"); err != nil {
+		t.Fatalf("create other: %v", err)
+	}
+	other.Slug = "Claude.md"
+	if err := h.contentService.UpdateContent(ctx, other, "rename"); err == nil {
+		t.Error("case-variant rename should be rejected")
+	}
+
+	// Same-case update of the original page itself still works.
+	c.Title = "Claude Instructions v2"
+	if err := h.contentService.UpdateContent(ctx, c, "retitle"); err != nil {
+		t.Errorf("self-update should not conflict: %v", err)
+	}
+}

@@ -4,6 +4,13 @@ All notable changes to LightCMS are documented here, organized by version.
 
 ---
 
+## [7.1.2] - 2026-07-04
+
+### Added
+- Slugs preserve their authored casing (e.g. /CLAUDE.md) while resolving case-insensitively: wrong-case requests 301 to the canonical URL, by-path lookups and upserts match case-insensitively, and case-variant duplicate paths are rejected at create/rename time.
+
+---
+
 ## [7.1.1] - 2026-07-04
 
 ### Changed
