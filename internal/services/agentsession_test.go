@@ -42,9 +42,13 @@ func TestAgentSession_ChangesAndRollback(t *testing.T) {
 	time.Sleep(1100 * time.Millisecond)
 	sessionStart := time.Now()
 
+	// The agent's own update carries session provenance, exactly as the API
+	// middleware stamps it in production — rollback must skip this version
+	// even when its timestamp races the audit entry's.
+	sessCtx := WithProvenance(ctx, Provenance{Actor: "agent", Via: "api", AgentSession: "agent-test-sess1"})
 	updated.Title = "After Agent"
 	updated.Data = map[string]interface{}{"body": "agent-modified"}
-	if err := cs.UpdateContent(ctx, updated, "agent change"); err != nil {
+	if err := cs.UpdateContent(sessCtx, updated, "agent change"); err != nil {
 		t.Fatalf("UpdateContent: %v", err)
 	}
 

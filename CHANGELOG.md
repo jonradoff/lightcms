@@ -4,6 +4,13 @@ All notable changes to LightCMS are documented here, organized by version.
 
 ---
 
+## [7.0.5] - 2026-07-04
+
+### Fixed
+- Agent-session rollback could "revert" a page to the session's own version when the version write landed before the session's audit entry (timing race, caught by CI). Rollback now selects targets by version provenance — a session's own versions are never rollback targets — with timestamp comparison only as a fallback for pre-provenance versions.
+
+---
+
 ## [7.0.4] - 2026-07-04
 
 ### Fixed

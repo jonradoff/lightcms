@@ -145,7 +145,11 @@ func (s *AgentSessionService) Rollback(ctx context.Context, sessionID string) (*
 				result.Restored = append(result.Restored, item.ContentID)
 			}
 		default:
-			// Updated: revert to the newest version that predates the session.
+			// Updated: revert to the newest version NOT authored by this
+			// session. Provenance (version.AgentSession) is authoritative —
+			// timestamps race, because a session's version write can land
+			// milliseconds before its own audit entry. Versions without
+			// provenance fall back to the timestamp comparison.
 			versions, err := s.content.GetVersions(ctx, id)
 			if err != nil || len(versions) == 0 {
 				result.Skipped = append(result.Skipped, RollbackSkipReason{item.ContentID, "no version history"})
@@ -153,10 +157,14 @@ func (s *AgentSessionService) Rollback(ctx context.Context, sessionID string) (*
 			}
 			target := -1
 			for _, v := range versions { // newest first
-				if v.CreatedAt.Before(item.FirstAt) {
-					target = v.Version
-					break
+				if v.AgentSession == sessionID {
+					continue // the session's own change — never a rollback target
 				}
+				if v.AgentSession == "" && !v.CreatedAt.Before(item.FirstAt) {
+					continue // no provenance: only trust versions that predate the session
+				}
+				target = v.Version
+				break
 			}
 			if target < 0 {
 				result.Skipped = append(result.Skipped, RollbackSkipReason{item.ContentID, "no version predates the session"})
