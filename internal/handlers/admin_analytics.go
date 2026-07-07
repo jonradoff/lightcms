@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -11,27 +12,30 @@ import (
 	"github.com/jonradoff/lightcms/v7/internal/services"
 
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-// resolveEditIDs looks up content IDs by full_path for the given page stats
-// so the template can link to the edit page.
-func (h *Handler) resolveEditIDs(ctx interface {
-	Deadline() (time.Time, bool)
-	Done() <-chan struct{}
-	Err() error
-	Value(interface{}) interface{}
-}, pages []services.PageStat) {
-	if len(pages) == 0 {
+// resolveEditIDs looks up content IDs by full_path for the given page stat
+// lists so the template can link to the edit page. All lists are resolved
+// with a single projected query over the union of their paths.
+func (h *Handler) resolveEditIDs(ctx context.Context, pageLists ...[]services.PageStat) {
+	pathSet := make(map[string]struct{})
+	for _, pages := range pageLists {
+		for _, p := range pages {
+			pathSet[p.Path] = struct{}{}
+		}
+	}
+	if len(pathSet) == 0 {
 		return
 	}
-	paths := make([]string, len(pages))
-	for i, p := range pages {
-		paths[i] = p.Path
+	paths := make([]string, 0, len(pathSet))
+	for p := range pathSet {
+		paths = append(paths, p)
 	}
 	cursor, err := h.db.FindMany(ctx, "content", bson.M{
 		"full_path": bson.M{"$in": paths},
 		"deleted":   bson.M{"$ne": true},
-	}, nil)
+	}, options.Find().SetProjection(bson.M{"full_path": 1}))
 	if err != nil {
 		return
 	}
@@ -43,8 +47,10 @@ func (h *Handler) resolveEditIDs(ctx interface {
 	for _, d := range docs {
 		byPath[d.FullPath] = d.ID.Hex()
 	}
-	for i := range pages {
-		pages[i].EditID = byPath[pages[i].Path]
+	for _, pages := range pageLists {
+		for i := range pages {
+			pages[i].EditID = byPath[pages[i].Path]
+		}
 	}
 }
 
@@ -80,11 +86,9 @@ func (h *Handler) AnalyticsPage(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("[analytics] GetTopPages error: %v", err)
 	}
-	h.resolveEditIDs(ctx, topPagesHuman)
 	topPagesBot, _ := h.analyticsService.GetTopPages(ctx, since, until, 20, services.BotFilterBot)
-	h.resolveEditIDs(ctx, topPagesBot)
 	topPagesAll, _ := h.analyticsService.GetTopPages(ctx, since, until, 20, services.BotFilterAll)
-	h.resolveEditIDs(ctx, topPagesAll)
+	h.resolveEditIDs(ctx, topPagesHuman, topPagesBot, topPagesAll)
 	topPagesHumanJSON, _ := json.Marshal(topPagesHuman)
 	topPagesBotJSON, _ := json.Marshal(topPagesBot)
 	topPagesAllJSON, _ := json.Marshal(topPagesAll)
@@ -195,9 +199,7 @@ func (h *Handler) AnalyticsReferrerReport(w http.ResponseWriter, r *http.Request
 	pagesHuman, _ := h.analyticsService.GetTopPagesByReferrer(ctx, since, until, referrer, 50, services.BotFilterHuman)
 	pagesBot, _ := h.analyticsService.GetTopPagesByReferrer(ctx, since, until, referrer, 50, services.BotFilterBot)
 	pagesAll, _ := h.analyticsService.GetTopPagesByReferrer(ctx, since, until, referrer, 50, services.BotFilterAll)
-	h.resolveEditIDs(ctx, pagesHuman)
-	h.resolveEditIDs(ctx, pagesBot)
-	h.resolveEditIDs(ctx, pagesAll)
+	h.resolveEditIDs(ctx, pagesHuman, pagesBot, pagesAll)
 	pagesHumanJSON, _ := json.Marshal(pagesHuman)
 	pagesBotJSON, _ := json.Marshal(pagesBot)
 	pagesAllJSON, _ := json.Marshal(pagesAll)

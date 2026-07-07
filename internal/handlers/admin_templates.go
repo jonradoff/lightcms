@@ -6801,6 +6801,10 @@ async function doSearch(q) {
                 svg.innerHTML = '';
                 svg.removeAttribute('viewBox');
                 document.getElementById('trendLegend').style.display = 'none';
+                // Reset trend KPI so a tab without enough data doesn't keep the previous tab's value
+                var trendCard = document.getElementById('trendPctCard');
+                trendCard.textContent = '—';
+                trendCard.style.color = '';
 
                 var barGap = visitors.length <= 48 ? 2 : visitors.length <= 168 ? 1 : 0;
                 chart.style.gap = barGap + 'px';
@@ -6876,10 +6880,9 @@ async function doSearch(q) {
                         // Update trend % KPI card
                         if (y1 > 0) {
                             var pctChange = ((y2 - y1) / y1 * 100);
-                            var card = document.getElementById('trendPctCard');
                             var sign = pctChange >= 0 ? '+' : '';
-                            card.textContent = sign + pctChange.toFixed(1) + '%';
-                            card.style.color = pctChange > 0 ? '#4ade80' : pctChange < 0 ? '#f87171' : '#e2e8f0';
+                            trendCard.textContent = sign + pctChange.toFixed(1) + '%';
+                            trendCard.style.color = pctChange > 0 ? '#4ade80' : pctChange < 0 ? '#f87171' : '#e2e8f0';
                         }
                     }
                 }

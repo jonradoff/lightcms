@@ -4,6 +4,17 @@ All notable changes to LightCMS are documented here, organized by version.
 
 ---
 
+## [7.2.2] - 2026-07-07
+
+### Fixed
+- Analytics: the trend-% KPI card resets when switching visitor tabs, instead of keeping the previous tab's value when the new tab has too little data for a regression.
+
+### Changed
+- Analytics edit-link resolution now runs one projected query over all tab datasets instead of three full-document queries (avoids loading embedding vectors per the projection invariant).
+- Deduplicated the top-pages aggregation pipeline in the analytics service.
+
+---
+
 ## [7.2.1] - 2026-07-04
 
 ### Fixed

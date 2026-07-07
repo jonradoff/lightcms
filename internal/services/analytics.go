@@ -689,9 +689,9 @@ func (s *AnalyticsService) GetTopPages(ctx context.Context, since, until time.Ti
 
 	// For "all", merge human + bot + legacy combined field
 	if filter == BotFilterAll {
-		h, _ := s.GetTopPages(ctx, since, until, limit*2, BotFilterHuman)
-		b, _ := s.GetTopPages(ctx, since, until, limit*2, BotFilterBot)
-		legacy := s.queryTopPagesField(ctx, sinceKey, untilKey, "page_views", limit*2)
+		h, _ := s.queryTopPagesField(ctx, sinceKey, untilKey, pvField(BotFilterHuman), limit*2)
+		b, _ := s.queryTopPagesField(ctx, sinceKey, untilKey, pvField(BotFilterBot), limit*2)
+		legacy, _ := s.queryTopPagesField(ctx, sinceKey, untilKey, "page_views", limit*2)
 		merged := make(map[string]int)
 		for _, p := range h {
 			merged[p.Path] += p.Views
@@ -716,7 +716,11 @@ func (s *AnalyticsService) GetTopPages(ctx context.Context, since, until time.Ti
 		return results, nil
 	}
 
-	field := pvField(filter)
+	return s.queryTopPagesField(ctx, sinceKey, untilKey, pvField(filter), limit)
+}
+
+// queryTopPagesField runs the standard page views aggregation on a specific field name.
+func (s *AnalyticsService) queryTopPagesField(ctx context.Context, sinceKey, untilKey, field string, limit int) ([]PageStat, error) {
 	pipeline := bson.A{
 		bson.M{"$match": bson.M{
 			"user_id": hourlyUserID,
@@ -734,7 +738,6 @@ func (s *AnalyticsService) GetTopPages(ctx context.Context, since, until time.Ti
 		bson.M{"$sort": bson.M{"views": -1}},
 		bson.M{"$limit": limit},
 	}
-
 	var raw []struct {
 		Key   string `bson:"_id"`
 		Views int    `bson:"views"`
@@ -742,48 +745,11 @@ func (s *AnalyticsService) GetTopPages(ctx context.Context, since, until time.Ti
 	if err := s.db.Aggregate(ctx, activityCollection, pipeline, &raw); err != nil {
 		return nil, err
 	}
-
-	results := make([]PageStat, 0, len(raw))
-	for _, r := range raw {
-		results = append(results, PageStat{
-			Path:  unescapeMongoKey(r.Key),
-			Views: r.Views,
-		})
-	}
-	return results, nil
-}
-
-// queryTopPagesField runs the standard page views aggregation on a specific field name.
-func (s *AnalyticsService) queryTopPagesField(ctx context.Context, sinceKey, untilKey, field string, limit int) []PageStat {
-	pipeline := bson.A{
-		bson.M{"$match": bson.M{
-			"user_id": hourlyUserID,
-			"date":    bson.M{"$gte": sinceKey, "$lt": untilKey},
-			field:     bson.M{"$exists": true},
-		}},
-		bson.M{"$project": bson.M{
-			"pv_array": bson.M{"$objectToArray": "$" + field},
-		}},
-		bson.M{"$unwind": "$pv_array"},
-		bson.M{"$group": bson.M{
-			"_id":   "$pv_array.k",
-			"views": bson.M{"$sum": "$pv_array.v"},
-		}},
-		bson.M{"$sort": bson.M{"views": -1}},
-		bson.M{"$limit": limit},
-	}
-	var raw []struct {
-		Key   string `bson:"_id"`
-		Views int    `bson:"views"`
-	}
-	if err := s.db.Aggregate(ctx, activityCollection, pipeline, &raw); err != nil {
-		return nil
-	}
 	results := make([]PageStat, 0, len(raw))
 	for _, r := range raw {
 		results = append(results, PageStat{Path: unescapeMongoKey(r.Key), Views: r.Views})
 	}
-	return results
+	return results, nil
 }
 
 // ReferrerStat represents a referrer domain and its hit count.
