@@ -1358,3 +1358,34 @@ func (c *Client) RunMaintenanceScan(ctx context.Context, withLinkCheck bool) (ma
 	}
 	return result, nil
 }
+
+// GetIndexNowStatus returns IndexNow status, key file URL, and recent submissions.
+func (c *Client) GetIndexNowStatus(ctx context.Context) (map[string]interface{}, error) {
+	var result map[string]interface{}
+	if err := c.do(ctx, "GET", "/indexnow", nil, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// SetIndexNowEnabled turns automatic IndexNow submission on or off.
+func (c *Client) SetIndexNowEnabled(ctx context.Context, enabled bool) (map[string]interface{}, error) {
+	var result map[string]interface{}
+	if err := c.do(ctx, "PUT", "/indexnow", map[string]interface{}{"enabled": enabled}, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// SubmitIndexNow submits every published page (all=true) or queues specific paths.
+func (c *Client) SubmitIndexNow(ctx context.Context, all bool, paths []string) (map[string]interface{}, error) {
+	body := map[string]interface{}{"all": all}
+	if len(paths) > 0 {
+		body["paths"] = paths
+	}
+	var result map[string]interface{}
+	if err := c.do(ctx, "POST", "/indexnow/submit", body, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}

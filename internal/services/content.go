@@ -70,6 +70,7 @@ type ContentService struct {
 	searchService    *SearchService
 	webhookService   *WebhookService
 	cfService        *CloudflareService
+	indexNow         *IndexNowService
 	indexRegenCh     chan struct{} // coalescing trigger for RegenerateIndexPages
 	keywordRebuildCh chan struct{} // coalescing trigger for RebuildKeywords
 
@@ -113,6 +114,32 @@ func (s *ContentService) SetWebhookService(ws *WebhookService) {
 // SetCloudflareService sets the Cloudflare service for cache purging.
 func (s *ContentService) SetCloudflareService(cf *CloudflareService) {
 	s.cfService = cf
+}
+
+// SetIndexNowService sets the IndexNow service for search-engine change notification.
+func (s *ContentService) SetIndexNowService(in *IndexNowService) {
+	s.indexNow = in
+}
+
+type indexNowSuppressKey struct{}
+
+// WithoutIndexNow marks ctx so page regenerations under it are not submitted
+// to IndexNow. Used for site-wide re-renders (template, theme, snippet
+// changes) where the pages' content did not change.
+func WithoutIndexNow(ctx context.Context) context.Context {
+	return context.WithValue(ctx, indexNowSuppressKey{}, true)
+}
+
+// notifyIndexNow queues live paths for IndexNow submission (no-op if
+// IndexNow isn't wired or ctx is a site-wide regeneration).
+func (s *ContentService) notifyIndexNow(ctx context.Context, paths ...string) {
+	if s.indexNow == nil {
+		return
+	}
+	if suppressed, _ := ctx.Value(indexNowSuppressKey{}).(bool); suppressed {
+		return
+	}
+	s.indexNow.Notify(paths...)
 }
 
 // PurgeCloudflareURLs purges specific paths from the Cloudflare cache.
@@ -529,6 +556,19 @@ func (s *ContentService) UpdateContent(ctx context.Context, content *models.Cont
 		s.removeStaticPage(content.FullPath)
 	}
 
+	// Tell search engines about live-URL transitions. Edits to published
+	// pages are notified from static generation, only when the HTML changed.
+	if content.ForkID == nil {
+		if content.Published && !original.Published {
+			s.notifyIndexNow(ctx, content.FullPath) // newly live
+		} else if !content.Published && original.Published {
+			s.notifyIndexNow(ctx, original.FullPath) // gone
+		}
+		if original.Published && original.FullPath != content.FullPath {
+			s.notifyIndexNow(ctx, original.FullPath, content.FullPath) // moved
+		}
+	}
+
 	// Rebuild search keyword cache when content changes
 	s.triggerKeywordRebuild()
 
@@ -637,6 +677,9 @@ func (s *ContentService) DeleteContent(ctx context.Context, id primitive.ObjectI
 
 	// Remove static page
 	s.removeStaticPage(content.FullPath)
+	if content.Published && content.ForkID == nil {
+		s.notifyIndexNow(ctx, content.FullPath)
+	}
 
 	// Rebuild search keyword cache
 	s.triggerKeywordRebuild()
@@ -684,6 +727,9 @@ func (s *ContentService) RestoreContent(ctx context.Context, id primitive.Object
 
 	if content.Published {
 		s.GenerateStaticPage(ctx, &content)
+		if content.ForkID == nil {
+			s.notifyIndexNow(ctx, content.FullPath)
+		}
 	}
 
 	// Rebuild search keyword cache
@@ -1229,6 +1275,9 @@ func (s *ContentService) generateStaticPageWithWikilinkIndex(ctx context.Context
 	// Update content hash in DB
 	content.ContentHash = hash
 	s.db.UpdateOne(ctx, "content", bson.M{"_id": content.ID}, bson.M{"$set": bson.M{"content_hash": hash}})
+
+	// The rendered page actually changed — tell search engines.
+	s.notifyIndexNow(ctx, content.FullPath)
 
 	return nil
 }
@@ -1963,6 +2012,7 @@ func (s *ContentService) RegenerateIndexPages(ctx context.Context) {
 // Clears all content hashes first so every page is regenerated (needed when
 // theme/template/snippet changes affect rendered output globally).
 func (s *ContentService) RegenerateAllContent(ctx context.Context) error {
+	ctx = WithoutIndexNow(ctx) // site-wide re-render, not a content change
 	// Clear all content hashes to force full regeneration
 	s.db.Collection("content").UpdateMany(ctx,
 		bson.M{"content_hash": bson.M{"$exists": true}},

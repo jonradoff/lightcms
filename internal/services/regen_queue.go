@@ -110,7 +110,7 @@ func (q *RegenQueue) worker(ctx context.Context) {
 
 // processJob runs a single regeneration job with a 5-minute timeout.
 func (q *RegenQueue) processJob(ctx context.Context, req regenRequest) {
-	jobCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	jobCtx, cancel := context.WithTimeout(WithoutIndexNow(ctx), 5*time.Minute) // layout change, not a content change
 	defer cancel()
 
 	// Mark job as running.

@@ -326,3 +326,63 @@ func (s *Server) registerMaintenanceTools() {
 		return jsonResult(report), nil, nil
 	})
 }
+
+type IndexNowSetInput struct {
+	Enabled bool `json:"enabled" jsonschema:"true to submit changed pages to IndexNow automatically, false to stop"`
+}
+
+type IndexNowSubmitInput struct {
+	All   bool     `json:"all,omitempty" jsonschema:"Submit every published page (limited to once per hour)"`
+	Paths []string `json:"paths,omitempty" jsonschema:"Specific site paths to submit, e.g. [\"/blog/post\"]"`
+}
+
+// registerIndexNowTools adds the IndexNow search-engine notification tools.
+func (s *Server) registerIndexNowTools() {
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "get_indexnow_status",
+		Title:       "Get IndexNow Status",
+		Description: "IndexNow notifies Bing, Yandex and other engines when pages change. Returns whether it is active (and why not if inactive), the key file URL, whether the key file verified, total URLs submitted, and recent submissions with HTTP results.",
+		Annotations: &mcp.ToolAnnotations{Title: "Get IndexNow Status", ReadOnlyHint: true},
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args struct{}) (*mcp.CallToolResult, any, error) {
+		st, err := s.client.GetIndexNowStatus(ctx)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		return jsonResult(st), nil, nil
+	})
+
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "set_indexnow_enabled",
+		Title:       "Enable/Disable IndexNow",
+		Description: "Turn automatic IndexNow submission on or off for this site (on by default).",
+		Annotations: &mcp.ToolAnnotations{
+			Title:        "Enable/Disable IndexNow",
+			ReadOnlyHint: false, DestructiveHint: boolPtr(false), IdempotentHint: true, OpenWorldHint: boolPtr(false),
+		},
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args IndexNowSetInput) (*mcp.CallToolResult, any, error) {
+		st, err := s.client.SetIndexNowEnabled(ctx, args.Enabled)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		return jsonResult(st), nil, nil
+	})
+
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "submit_indexnow",
+		Title:       "Submit URLs to IndexNow",
+		Description: "Submit pages to IndexNow now. Changes are already submitted automatically on publish/update/delete; use this to resubmit specific paths, or all=true to submit every published page (once per hour max).",
+		Annotations: &mcp.ToolAnnotations{
+			Title:        "Submit URLs to IndexNow",
+			ReadOnlyHint: false, DestructiveHint: boolPtr(false), IdempotentHint: false, OpenWorldHint: boolPtr(true),
+		},
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args IndexNowSubmitInput) (*mcp.CallToolResult, any, error) {
+		if !args.All && len(args.Paths) == 0 {
+			return errorResult(fmt.Errorf("provide all=true or a list of paths")), nil, nil
+		}
+		res, err := s.client.SubmitIndexNow(ctx, args.All, args.Paths)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		return jsonResult(res), nil, nil
+	})
+}

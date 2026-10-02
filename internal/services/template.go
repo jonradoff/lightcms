@@ -146,6 +146,7 @@ func (s *TemplateService) ListTemplates(ctx context.Context) ([]models.Template,
 
 // regenerateContentByTemplate regenerates all content using a specific template
 func (s *TemplateService) regenerateContentByTemplate(ctx context.Context, templateID primitive.ObjectID) {
+	ctx = WithoutIndexNow(ctx) // layout change, not a content change
 	cursor, err := s.db.FindMany(ctx, "content",
 		bson.M{"template_id": templateID, "published": true, "deleted": bson.M{"$ne": true}}, nil)
 	if err != nil {

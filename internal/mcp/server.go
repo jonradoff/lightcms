@@ -53,6 +53,7 @@ func NewServer(client *apiclient.Client) *Server {
 	s.registerSandboxTools()
 	s.registerGovernanceTools()
 	s.registerMaintenanceTools()
+	s.registerIndexNowTools()
 
 	// Register resources
 	s.registerResources()

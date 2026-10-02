@@ -94,6 +94,7 @@ type Handler struct {
 	approvalService      *services.ApprovalService
 	maintenanceService   *services.MaintenanceService
 	agentService         *services.AgentService
+	indexNowService      *services.IndexNowService
 }
 
 // SetMaintenanceService wires the maintenance scan service (used by the copilot).
@@ -5100,7 +5101,10 @@ func (h *Handler) DeleteAsset(w http.ResponseWriter, r *http.Request) {
 // GenerateSitemap creates/updates the sitemap.xml file
 func (h *Handler) GenerateSitemap(ctx context.Context, baseURL string) error {
 	// Get all published content
-	cursor, err := h.db.FindMany(ctx, "content", bson.M{"published": true})
+	// Live pages only: soft-deleted pages and fork copies (which share their
+	// live page's path) don't belong in the sitemap.
+	cursor, err := h.db.FindMany(ctx, "content", bson.M{"published": true, "deleted": bson.M{"$ne": true}, "fork_id": nil},
+		options.Find().SetProjection(bson.M{"full_path": 1, "slug": 1, "category": 1, "updated_at": 1}))
 	if err != nil {
 		return err
 	}

@@ -2,6 +2,78 @@ package handlers
 
 var adminTemplates = map[string]string{
 
+	"indexnow_tool": adminLayoutStart + `
+        <div class="page-header">
+            <h1>📡 IndexNow</h1>
+            <p style="color: var(--text-muted);">Tells Bing, Yandex, Seznam, Naver and other <a href="https://www.indexnow.org" target="_blank" style="color: var(--primary);">IndexNow</a> search engines the moment a page is published, updated, moved or removed — instead of waiting for them to recrawl.</p>
+        </div>
+
+        {{if .Error}}<div class="card" style="border-color: #ef4444; margin-bottom: 1rem;"><p style="color:#f87171; margin:0;">⚠️ {{.Error}}</p></div>{{end}}
+        {{if .Saved}}<div class="card" style="border-color: #22c55e; margin-bottom: 1rem;"><p style="color:#4ade80; margin:0;">✅ Saved.</p></div>{{end}}
+        {{if .Rotated}}<div class="card" style="border-color: #22c55e; margin-bottom: 1rem;"><p style="color:#4ade80; margin:0;">✅ New key generated. The old key file stops working immediately.</p></div>{{end}}
+        {{if .Notice}}<div class="card" style="border-color: #22c55e; margin-bottom: 1rem;"><p style="color:#4ade80; margin:0;">✅ {{.Notice}}</p></div>{{end}}
+
+        <div class="card" style="margin-bottom:1rem;">
+            <h3 style="margin-top:0; font-size:1rem;">Status</h3>
+            {{if .Status.Active}}
+            <p style="margin:0 0 0.5rem;"><span style="color:#4ade80; font-weight:600;">● Active</span> — changes to published pages are submitted automatically.</p>
+            {{else if .Status.Ineligible}}
+            <p style="margin:0 0 0.5rem;"><span style="color:#e0a030; font-weight:600;">● Inactive on this server</span> — {{.Status.Ineligible}}. IndexNow only runs in production with a public <code>BASE_URL</code>.</p>
+            {{else}}
+            <p style="margin:0 0 0.5rem;"><span style="color:var(--text-muted); font-weight:600;">● Turned off</span> for this site.</p>
+            {{end}}
+            {{if .Status.VerifyError}}<p style="color:#f87171; margin:0 0 0.5rem;">Key file check failed: {{.Status.VerifyError}}</p>{{else if .Status.Verified}}<p style="color:var(--text-muted); margin:0 0 0.5rem;">Key file verified at your public URL.</p>{{end}}
+            <p style="margin:0 0 0.25rem;">Key file: {{if .Status.KeyURL}}<a href="{{.Status.KeyURL}}" target="_blank" style="color: var(--primary);"><code>{{.Status.KeyURL}}</code></a>{{end}}</p>
+            <p style="margin:0 0 0.25rem;">URLs submitted: <strong>{{.Status.TotalSubmitted}}</strong>{{if .Status.PendingCount}} · {{.Status.PendingCount}} queued{{end}}</p>
+            <p style="margin:0 0 0.25rem;">Initial full-site submission: {{if .Status.InitialSubmitAt}}{{.Status.InitialSubmitAt.Format "Jan 2, 2006 15:04"}} UTC{{else}}<span style="color:var(--text-muted);">not yet (runs automatically shortly after IndexNow becomes active)</span>{{end}}</p>
+            {{if .Status.LastSubmitAt}}<p style="margin:0;">Last submission: {{.Status.LastSubmitAt.Format "Jan 2, 2006 15:04"}} UTC{{if .Status.LastStatus}} · HTTP {{.Status.LastStatus}}{{end}}{{if .Status.LastError}} · <span style="color:#f87171;">{{.Status.LastError}}</span>{{end}}</p>{{end}}
+        </div>
+
+        <div class="card" style="margin-bottom:1rem;">
+            <form method="POST" action="/cm/tools/indexnow">
+                {{.CSRFField}}
+                <input type="hidden" name="action" value="save">
+                <div style="display:flex; align-items:center; gap:10px; margin-bottom:1rem;">
+                    <input type="checkbox" id="enabled" name="enabled" {{if .Status.Enabled}}checked{{end}} style="width:18px; height:18px;">
+                    <label for="enabled" style="font-weight:600;">Submit changed pages to IndexNow</label>
+                </div>
+                <button type="submit" class="btn btn-primary">Save</button>
+            </form>
+            <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-top:1rem; padding-top:1rem; border-top:1px solid var(--border);">
+                <form method="POST" action="/cm/tools/indexnow">
+                    {{.CSRFField}}
+                    <input type="hidden" name="action" value="submit_all">
+                    <button type="submit" class="btn" {{if not .Status.Active}}disabled{{end}}>Submit all published pages now</button>
+                </form>
+                <form method="POST" action="/cm/tools/indexnow">
+                    {{.CSRFField}}
+                    <input type="hidden" name="action" value="rotate">
+                    <button type="submit" class="btn">Generate new key</button>
+                </form>
+            </div>
+            <p style="color:var(--text-muted); font-size:0.85rem; margin:0.75rem 0 0;">Full-site submission is limited to once an hour. Edits are batched for a few seconds, and each URL is resubmitted at most once every 10 minutes. Template, theme and snippet changes that re-render the whole site are not submitted.</p>
+        </div>
+
+        {{if .Status.History}}
+        <div class="card">
+            <h3 style="margin-top:0; font-size:1rem;">Recent submissions</h3>
+            <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
+                <thead><tr style="text-align:left; color:var(--text-muted);"><th style="padding:6px 8px;">When (UTC)</th><th style="padding:6px 8px;">Trigger</th><th style="padding:6px 8px;">URLs</th><th style="padding:6px 8px;">Result</th></tr></thead>
+                <tbody>
+                {{range .Status.History}}
+                <tr style="border-top:1px solid var(--border);">
+                    <td style="padding:6px 8px; white-space:nowrap;">{{.At.Format "Jan 2 15:04:05"}}</td>
+                    <td style="padding:6px 8px;">{{.Trigger}}</td>
+                    <td style="padding:6px 8px;" title="{{range .Sample}}{{.}}&#10;{{end}}">{{.URLCount}}</td>
+                    <td style="padding:6px 8px;">{{if .Error}}<span style="color:#f87171;">{{.Error}}</span>{{else}}<span style="color:#4ade80;">HTTP {{.Status}}</span>{{end}}</td>
+                </tr>
+                {{end}}
+                </tbody>
+            </table>
+        </div>
+        {{end}}
+` + adminLayoutEnd,
+
 	"agent_tool": adminLayoutStart + `
         <div class="page-header">
             <h1>🤵 CMS Agent</h1>
@@ -9302,6 +9374,7 @@ const adminLayoutStart = `<!DOCTYPE html>
                     <div class="nav-section-title">Tools</div>
                     <a href="#" onclick="if(window.cpOpen){cpOpen();return false;}" class="nav-link">🤖 Copilot</a>
                     <a href="/cm/tools/agent" class="nav-link">🤵 CMS Agent</a>
+                    <a href="/cm/tools/indexnow" class="nav-link">📡 IndexNow</a>
                     <a href="/cm/tools/search" class="nav-link">🔍 End User Search</a>
                     <a href="/cm/tools/chat" class="nav-link">💬 Chat Widget</a>
                     <a href="/cm/tools/broken-links" class="nav-link">🔗 Broken Link Finder</a>

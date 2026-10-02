@@ -4,6 +4,21 @@ All notable changes to LightCMS are documented here, organized by version.
 
 ---
 
+## [7.2.3] - 2026-10-01
+
+### Added — IndexNow
+- LightCMS now notifies IndexNow search engines (Bing, Yandex, Seznam, Naver, Yep, and others, through api.indexnow.org) whenever a public URL changes. That covers publish, unpublish, edits that change the rendered page, renames (old and new URL), deletes and restores. Works on every install with no setup: each site gets its own random key, served at `/{key}.txt` and stored in the settings collection as `indexnow_config`.
+- Safe by default for self-hosters: inactive in development mode or when `BASE_URL` is not a public domain (localhost, IPs, .local/.test/.internal, example.com). Before submitting anything, the server fetches its own key file through `BASE_URL`, so a staging copy or misconfigured instance never submits for a domain it doesn't serve.
+- Polite submission: changes are debounced into batches (up to 10,000 URLs per request). Each URL is resubmitted at most once per 10 minutes. 429/5xx responses retry with backoff; 400/403/422 are recorded and not retried. Template, theme, snippet and "regenerate all" re-renders are not submitted, because the content didn't change.
+- One-time catch-up: the first time IndexNow is active on a site, every published page is submitted once. The claim is atomic, so multiple machines sharing a database submit once, and a failed attempt is retried hourly.
+- Admin screen at Tools → IndexNow (/cm/tools/indexnow): on/off toggle, key file link and verification status, totals, recent submissions with HTTP results, "Submit all published pages now" (at most once an hour), and key rotation.
+- REST: `GET/PUT /api/v1/indexnow`, `POST /api/v1/indexnow/submit` (`{"all": true}` or `{"paths": [...]}`). MCP: `get_indexnow_status`, `set_indexnow_enabled`, `submit_indexnow` (124 tools total).
+
+### Fixed
+- sitemap.xml no longer lists soft-deleted pages or fork copies, and its query uses a projection instead of loading full content documents.
+
+---
+
 ## [7.2.2] - 2026-07-07
 
 ### Fixed

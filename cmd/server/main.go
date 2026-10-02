@@ -157,12 +157,19 @@ func main() {
 	// Wire services together
 	contentService.SetWebhookService(webhookService)
 	contentService.SetCloudflareService(cfService)
+
+	// IndexNow: notify search engines of changed URLs. Self-gating — inactive
+	// in development or without a public BASE_URL, and verifies its own key
+	// file through BASE_URL before submitting anything.
+	indexNowService := services.NewIndexNowService(db, cfg.BaseURL, cfg.IsDev())
+	contentService.SetIndexNowService(indexNowService)
 	templateService.SetRegenQueue(regenQueue)
 
 	// Start background goroutines
 	bgCtx, bgCancel := context.WithCancel(context.Background())
 	defer bgCancel()
 	go schedulerService.Start(bgCtx)
+	go indexNowService.Start(bgCtx)
 	regenQueue.Start(bgCtx)
 
 	// Inject new services into handler
@@ -170,6 +177,7 @@ func main() {
 	h.SetLockService(lockService)
 	h.SetImportService(importService)
 	h.SetCloudflareService(cfService)
+	h.SetIndexNowService(indexNowService)
 
 	// Initialize search service (always available; semantic search requires Voyage API key)
 	searchService := services.NewSearchService(db, cfg.VoyageAPIKey)
@@ -377,6 +385,8 @@ func main() {
 	admin.HandleFunc("/tools/search/config", h.SearchToolSaveConfig).Methods("POST")
 	admin.HandleFunc("/copilot", h.CopilotPage).Methods("GET")
 	admin.HandleFunc("/tools/agent", h.AgentToolPage).Methods("GET")
+	admin.HandleFunc("/tools/indexnow", h.IndexNowToolPage).Methods("GET")
+	admin.HandleFunc("/tools/indexnow", h.IndexNowToolAction).Methods("POST")
 	admin.HandleFunc("/tools/agent/config", h.AgentToolSaveConfig).Methods("POST")
 	admin.HandleFunc("/tools/agent/test", h.AgentToolSendTest).Methods("POST")
 	admin.HandleFunc("/copilot/chat", h.CopilotChat).Methods("POST")
@@ -421,6 +431,7 @@ func main() {
 	apiHandler.SetUserService(userService)
 	apiHandler.SetAgentSessionService(services.NewAgentSessionService(auditService, contentService))
 	apiHandler.SetMaintenanceService(maintenanceService)
+	apiHandler.SetIndexNowService(indexNowService)
 	apiAuthMiddleware := middleware.NewAPIAuth(func(ctx context.Context, rawKey string) (interface{}, error) {
 		apiKey, err := apiKeyService.ValidateAPIKey(ctx, rawKey)
 		if err != nil {
@@ -642,6 +653,9 @@ func main() {
 
 	// Maintenance scans (self-maintaining site routines)
 	apiv1.HandleFunc("/maintenance/report", apiHandler.APIMaintenanceReport).Methods("GET")
+	apiv1.HandleFunc("/indexnow", apiHandler.APIIndexNowStatus).Methods("GET")
+	apiv1.HandleFunc("/indexnow", apiHandler.APIIndexNowUpdate).Methods("PUT")
+	apiv1.HandleFunc("/indexnow/submit", apiHandler.APIIndexNowSubmit).Methods("POST")
 	apiv1.HandleFunc("/maintenance/scan", apiHandler.APIMaintenanceScan).Methods("POST")
 	apiv1.HandleFunc("/forks/{id}/merge", apiHandler.APIMergeFork).Methods("POST")
 	apiv1.HandleFunc("/forks/{id}/archive", apiHandler.APIArchiveFork).Methods("POST")
@@ -800,6 +814,9 @@ func main() {
 	r.HandleFunc("/llms-full.txt", h.ServeLlmsFullTxt).Methods("GET")
 
 	// Public content routes - must be last
+	// IndexNow key file (/{key}.txt); non-matching *.txt paths fall through to ServePage
+	r.HandleFunc("/{indexnowkey:[A-Za-z0-9-]{8,128}}.txt", h.ServeIndexNowKey).Methods("GET")
+
 	r.HandleFunc("/", h.ServePage).Methods("GET")
 	r.HandleFunc("/{slug:.*}", h.ServePage).Methods("GET")
 

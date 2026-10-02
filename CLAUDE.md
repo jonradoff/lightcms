@@ -91,7 +91,7 @@ Once connected, you can ask Claude to manage your content naturally:
 Binary: `bin/lightcms-mcp`
 Config: Uses same `config.dev.json` or environment variables as main server
 
-### Available MCP Tools (115 total):
+### Available MCP Tools (124 total):
 
 **Content (23 tools):** list_content, get_content, create_content, update_content, update_content_by_path, publish_content, publish_multiple, unpublish_content, delete_content, restore_content, preview_content, get_content_versions, get_content_version, revert_to_version, bulk_create_content, bulk_update_content, bulk_field_operation, export_content, get_backlinks
 
@@ -110,6 +110,8 @@ Config: Uses same `config.dev.json` or environment variables as main server
 **Comments (3 tools, v6.0+):** list_comments, create_comment, delete_comment
 
 **Agent Sandbox & Governance (8 tools, v7.0+):** start_agent_sandbox, get_agent_sandbox, end_agent_sandbox, get_fork_diff, get_agent_session_changes, rollback_agent_session, get_maintenance_report, run_maintenance_scan
+
+**IndexNow (3 tools, v7.2.3+):** get_indexnow_status, set_indexnow_enabled, submit_indexnow
 
 **Approvals (11 tools, v6.0+):** list_approval_workflows, get_approval_workflow, create_approval_workflow, update_approval_workflow, delete_approval_workflow, list_approval_requests, get_approval_request, submit_for_approval, approve_request, reject_request, cancel_approval_request
 
@@ -215,6 +217,11 @@ Hard-won rules from building v7. Violating these has bitten us before:
 - Tests asserting on collection contents should match by seeded paths/IDs, not exact counts — background goroutines (index regen, keyword rebuild) can insert content mid-test.
 - Coverage gate: Codecov ≥80% (target margin ~85%); codecov.yml excludes cmd/, testutil, internal/handlers, content_watcher.go. Codecov's line metric reads ~2 points BELOW `go tool cover` statement totals.
 - Transient Atlas DNS failures ("no such host", "server selection timeout") are environmental — rerun before investigating.
+
+### IndexNow (v7.2.3)
+- `services.IndexNowService` queues paths via `ContentService.notifyIndexNow`. Edits to published pages notify from static generation ONLY when the rendered HTML hash changed. Publish/unpublish/rename/delete/restore transitions notify explicitly in the service methods.
+- Site-wide re-renders MUST run under `services.WithoutIndexNow(ctx)` (RegenerateAllContent, template regen, regen queue already do). Any new bulk re-render path needs it too, or every page gets pinged to search engines.
+- Self-gating: inactive in dev or with a non-public BASE_URL; verifies its own `/{key}.txt` via BASE_URL before every submission window. Config lives in settings `type: indexnow_config`, not SiteConfig (SaveSiteConfig $sets the whole struct).
 
 ### Copilot architecture
 - The admin copilot (`/cm/copilot/chat`) is an Anthropic tool-use loop in `internal/handlers/copilot.go` executing directly against the service layer (NOT via the MCP client). To add a copilot tool: add its schema to `copilotToolDefs()` and its execution to `executeCopilotTool()` with an explicit `auth.HasPermission` check, and audit-log writes. Model: `LIGHTCMS_COPILOT_MODEL` env (default claude-sonnet-4-6); requires `ANTHROPIC_API_KEY`.

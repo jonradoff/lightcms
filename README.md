@@ -5,7 +5,14 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/jonradoff/lightcms)](https://goreportcard.com/report/github.com/jonradoff/lightcms)
 [![lightcms MCP server](https://glama.ai/mcp/servers/jonradoff/lightcms/badges/score.svg)](https://glama.ai/mcp/servers/jonradoff/lightcms)
 
-LightCMS is a Go-powered content management system built for the AI era. It's simultaneously **AI-native** (semantic search, built-in Claude-powered chat widget, MCP server for agent control), **agentically controllable** (Claude Code and any MCP client can read, write, publish, and bulk-import content via 106 MCP tools), and **agentically updatable** (the codebase is clean, well-structured Go — coding agents can safely extend it). For teams that want a CMS that works with AI rather than around it.
+LightCMS is a Go-powered content management system built for the AI era. It's simultaneously **AI-native** (semantic search, built-in Claude-powered chat widget, MCP server for agent control), **agentically controllable** (Claude Code and any MCP client can read, write, publish, and bulk-import content via 124 MCP tools), and **agentically updatable** (the codebase is clean, well-structured Go — coding agents can safely extend it). For teams that want a CMS that works with AI rather than around it.
+
+## What's New in v7.2
+
+| Feature | Summary |
+|---------|---------|
+| **IndexNow** | Published, edited, moved and deleted pages are pushed to Bing, Yandex and other IndexNow engines right away. Zero-config: each install generates its own key, verifies it owns its `BASE_URL` before submitting, and submits the whole site once on first activation. Status and history at Tools → IndexNow. |
+| **CMS Agent** | Configurable email digests (via Resend) covering site health, traffic, review queue, agent activity and broken links, with optional AI commentary. |
 
 ## What's New in v7.1
 
