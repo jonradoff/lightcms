@@ -29,8 +29,8 @@ func TestServeIndexNowKey(t *testing.T) {
 	// A different *.txt path falls through to page serving (404 here), never leaks the key.
 	rr = httptest.NewRecorder()
 	h.ServeIndexNowKey(rr, sessionReq("GET", "/notthekey123.txt", nil, map[string]string{"indexnowkey": "notthekey123"}))
-	if rr.Code == 200 && strings.Contains(rr.Body.String(), key) {
-		t.Error("non-matching path served the key")
+	if rr.Code != 404 || strings.Contains(rr.Body.String(), key) {
+		t.Errorf("non-matching path: status=%d (want 404, not the homepage)", rr.Code)
 	}
 }
 

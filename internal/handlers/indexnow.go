@@ -33,7 +33,8 @@ func (h *Handler) ServeIndexNowKey(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	h.ServePage(w, r)
+	// ServePage resolves the page from the "slug" route var.
+	h.ServePage(w, mux.SetURLVars(r, map[string]string{"slug": strings.TrimPrefix(r.URL.Path, "/")}))
 }
 
 // IndexNowToolPage renders the IndexNow status/config screen (admin only).

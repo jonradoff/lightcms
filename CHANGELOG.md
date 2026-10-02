@@ -4,6 +4,14 @@ All notable changes to LightCMS are documented here, organized by version.
 
 ---
 
+## [7.2.4] - 2026-10-01
+
+### Fixed
+- Requests for `/<anything>.txt` that aren't the IndexNow key file now 404 (or serve a real page at that path) instead of returning the homepage with a 200 (regression in 7.2.3).
+- IndexNow status (`GET /api/v1/indexnow`, `get_indexnow_status`) reports the key; it was shadowed by an empty field.
+
+---
+
 ## [7.2.3] - 2026-10-01
 
 ### Added — IndexNow

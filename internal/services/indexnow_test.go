@@ -179,7 +179,7 @@ func TestIndexNowConfigKeyStable(t *testing.T) {
 	if st.Enabled || st.Active {
 		t.Error("expected disabled status")
 	}
-	if st.KeyURL != h.site.URL+"/"+newKey+".txt" {
+	if st.Key != newKey || st.KeyURL != h.site.URL+"/"+newKey+".txt" {
 		t.Errorf("KeyURL = %s", st.KeyURL)
 	}
 }

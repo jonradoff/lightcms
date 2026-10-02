@@ -92,7 +92,6 @@ type IndexNowStatus struct {
 	Enabled      bool   `json:"enabled"`
 	Active       bool   `json:"active"`               // enabled AND eligible: changes are being submitted
 	Ineligible   string `json:"ineligible,omitempty"` // why this install cannot submit
-	Key          string `json:"key"`
 	KeyURL       string `json:"key_url"`
 	Verified     bool   `json:"verified"` // key file last confirmed reachable via BASE_URL
 	VerifyError  string `json:"verify_error,omitempty"`
