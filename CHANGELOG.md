@@ -4,6 +4,13 @@ All notable changes to LightCMS are documented here, organized by version.
 
 ---
 
+## [7.2.5] - 2026-10-01
+
+### Fixed
+- IndexNow: a brand-new key is verified asynchronously by the search engine, and until then submissions return 403 `SiteVerificationNotCompleted`. These responses are now treated as "not yet" rather than fatal. Queued changes retry every 10 minutes for up to ~3 hours, and the one-time catch-up retries every 10 minutes instead of hourly. Before this fix, edits made during the first minutes after IndexNow activated were dropped.
+
+---
+
 ## [7.2.4] - 2026-10-01
 
 ### Fixed

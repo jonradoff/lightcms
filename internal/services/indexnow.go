@@ -56,9 +56,13 @@ const (
 	indexNowCatchUpCheck = time.Hour
 	indexNowFullMinGap   = time.Hour // minimum gap between full-site submissions
 	indexNowMaxAttempts  = 4
-	indexNowHistorySize  = 20
-	indexNowSampleSize   = 5
-	indexNowConfigType   = "indexnow_config"
+	// A brand-new key is verified asynchronously by the engine; until then
+	// submissions get 403 SiteVerificationNotCompleted. Retry patiently.
+	indexNowVerifyPendingRetry       = 10 * time.Minute
+	indexNowVerifyPendingMaxAttempts = 18 // ~3 hours
+	indexNowHistorySize              = 20
+	indexNowSampleSize               = 5
+	indexNowConfigType               = "indexnow_config"
 )
 
 // IndexNowSubmission is one recorded POST to the IndexNow endpoint.
@@ -99,6 +103,10 @@ type IndexNowStatus struct {
 	Endpoint     string `json:"endpoint"`
 	IndexNowConfig
 }
+
+// errIndexNowVerificationPending marks a 403 SiteVerificationNotCompleted:
+// the engine hasn't finished checking the key file yet. Not a real failure.
+var errIndexNowVerificationPending = errors.New("IndexNow site verification still in progress")
 
 type indexNowPending struct {
 	queuedAt  time.Time
@@ -386,12 +394,16 @@ func (s *IndexNowService) Start(ctx context.Context) {
 		case <-ticker.C:
 			s.flush(ctx, time.Now())
 		case <-catchUp.C:
+			next := indexNowCatchUpCheck
 			if n, err := s.CatchUp(ctx); err != nil {
 				log.Printf("IndexNow: catch-up not done: %v", err)
+				if errors.Is(err, errIndexNowVerificationPending) {
+					next = indexNowVerifyPendingRetry
+				}
 			} else if n > 0 {
 				log.Printf("IndexNow: catch-up submitted %d URLs", n)
 			}
-			catchUp.Reset(indexNowCatchUpCheck)
+			catchUp.Reset(next)
 		}
 	}
 }
@@ -434,6 +446,11 @@ func (s *IndexNowService) flush(ctx context.Context, now time.Time) {
 		for _, p := range batch {
 			st := s.pending[p]
 			if st == nil {
+				continue
+			}
+			if errors.Is(err, errIndexNowVerificationPending) && st.attempts+1 < indexNowVerifyPendingMaxAttempts {
+				st.attempts++
+				st.notBefore = now.Add(indexNowVerifyPendingRetry)
 				continue
 			}
 			if err != nil && indexNowRetryable(status) && st.attempts+1 < indexNowMaxAttempts {
@@ -607,7 +624,12 @@ func (s *IndexNowService) submit(ctx context.Context, key string, paths []string
 	var subErr error
 	// 200 = accepted; 202 = accepted, key validation pending.
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
-		subErr = fmt.Errorf("indexnow: %s", indexNowStatusText(resp.StatusCode, strings.TrimSpace(string(respBody))))
+		body := strings.TrimSpace(string(respBody))
+		if resp.StatusCode == http.StatusForbidden && strings.Contains(body, "SiteVerificationNotCompleted") {
+			subErr = fmt.Errorf("indexnow: %w — the search engine is still checking the key file; will retry", errIndexNowVerificationPending)
+		} else {
+			subErr = fmt.Errorf("indexnow: %s", indexNowStatusText(resp.StatusCode, body))
+		}
 		sub.Error = subErr.Error()
 	}
 	s.record(ctx, sub)

@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -81,6 +82,7 @@ func TestIndexNowPageURL(t *testing.T) {
 
 // indexNowHarness is a fake site (serving the key file) plus a fake IndexNow endpoint.
 type indexNowHarness struct {
+	body     string // engine response body
 	svc      *IndexNowService
 	site     *httptest.Server
 	engine   *httptest.Server
@@ -112,9 +114,10 @@ func newIndexNowHarness(t *testing.T) (*indexNowHarness, func()) {
 		json.NewDecoder(r.Body).Decode(&body)
 		h.mu.Lock()
 		h.requests = append(h.requests, body)
-		status := h.status
+		status, respBody := h.status, h.body
 		h.mu.Unlock()
 		w.WriteHeader(status)
+		w.Write([]byte(respBody))
 	}))
 	h.svc = NewIndexNowService(db, h.site.URL, false)
 	h.svc.allowPrivateHosts = true
@@ -459,5 +462,37 @@ func TestContentLifecycleNotifiesIndexNow(t *testing.T) {
 	svc.notifyIndexNow(WithoutIndexNow(ctx), "/x")
 	if p := pending(); len(p) != 0 {
 		t.Errorf("suppressed ctx queued %v", p)
+	}
+}
+
+func TestIndexNowVerificationPendingIsRetried(t *testing.T) {
+	h, cleanup := newIndexNowHarness(t)
+	defer cleanup()
+	ctx := context.Background()
+	h.status = http.StatusForbidden
+	h.body = `{"errorCode":"SiteVerificationNotCompleted","message":"Site Verification is not completed."}`
+
+	h.svc.Notify("/a")
+	now := time.Now().Add(time.Minute)
+	h.svc.flush(ctx, now)
+	p := h.svc.pending["/a"]
+	if p == nil || p.notBefore.Sub(now) != indexNowVerifyPendingRetry {
+		t.Fatalf("verification-pending 403 should be retried in %s, got %+v", indexNowVerifyPendingRetry, p)
+	}
+
+	// Catch-up surfaces the sentinel so Start() can retry sooner, and releases its claim.
+	seedIndexNowContent(t, h)
+	if _, err := h.svc.CatchUp(ctx); !errors.Is(err, errIndexNowVerificationPending) {
+		t.Errorf("CatchUp err = %v, want verification-pending", err)
+	}
+	if cfg, _ := h.svc.GetConfig(ctx); cfg.InitialSubmitAt != nil {
+		t.Error("claim not released")
+	}
+
+	// Once verified, the queued path goes through.
+	h.status, h.body = http.StatusOK, ""
+	h.svc.flush(ctx, now.Add(indexNowVerifyPendingRetry+time.Second))
+	if len(h.svc.pending) != 0 {
+		t.Error("path not submitted after verification completed")
 	}
 }
