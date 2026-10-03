@@ -51,6 +51,16 @@ and <code>inline_code</code>.</p>
 	}
 }
 
+func TestHTMLToMarkdownInlineSiblings(t *testing.T) {
+	md := HTMLToMarkdown(`<div>
+<a href="/a">One</a>
+<a href="/b">Two</a>
+</div>`, "https://x.y")
+	if !strings.Contains(md, "[One](https://x.y/a) [Two](https://x.y/b)") {
+		t.Errorf("adjacent links ran together: %q", md)
+	}
+}
+
 func TestHTMLToMarkdownFragmentAndEscaping(t *testing.T) {
 	md := HTMLToMarkdown(`<div><p>Price is 5 * 3 [approx]</p><a href="javascript:x()">js</a><a href="#top">top</a></div>`, "https://example.net/")
 	if !strings.Contains(md, `Price is 5 \* 3 \[approx\]`) {

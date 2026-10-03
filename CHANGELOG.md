@@ -4,6 +4,13 @@ All notable changes to LightCMS are documented here, organized by version.
 
 ---
 
+## [7.3.1] - 2026-10-02
+
+### Fixed
+- Markdown copies: whitespace between inline siblings (e.g. two adjacent links) is kept, so links no longer run together.
+
+---
+
 ## [7.3.0] - 2026-10-02
 
 ### Added — SEO & AI (generative engine optimization)

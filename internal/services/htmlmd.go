@@ -44,7 +44,16 @@ func findElement(n *html.Node, a atom.Atom) *html.Node {
 
 type mdConverter struct {
 	sb   strings.Builder
+	last byte // last byte written (avoids re-reading the buffer)
 	base *url.URL
+}
+
+func (c *mdConverter) write(s string) {
+	if s == "" {
+		return
+	}
+	c.sb.WriteString(s)
+	c.last = s[len(s)-1]
 }
 
 // skipped elements contribute nothing.
@@ -94,15 +103,22 @@ func (c *mdConverter) block(n *html.Node) {
 func (c *mdConverter) para(s string) {
 	s = strings.TrimSpace(s)
 	if s != "" {
-		c.sb.WriteString("\n\n" + s + "\n\n")
+		c.write("\n\n" + s + "\n\n")
 	}
 }
 
 func (c *mdConverter) node(n *html.Node) {
 	switch n.Type {
 	case html.TextNode:
-		if t := collapseSpace(n.Data); strings.TrimSpace(t) != "" {
-			c.sb.WriteString(escapeMDText(t))
+		t := collapseSpace(n.Data)
+		if strings.TrimSpace(t) != "" {
+			c.write(escapeMDText(t))
+		} else if t != "" {
+			// Whitespace between inline siblings (e.g. two links) must survive
+			// as a single space, or they run together.
+			if c.last != 0 && c.last != ' ' && c.last != '\n' {
+				c.write(" ")
+			}
 		}
 		return
 	case html.ElementNode:
@@ -119,7 +135,7 @@ func (c *mdConverter) node(n *html.Node) {
 	case atom.P:
 		c.para(c.inline(n))
 	case atom.Br:
-		c.sb.WriteString("  \n")
+		c.write("  \n")
 	case atom.Hr:
 		c.para("---")
 	case atom.Pre:
@@ -158,13 +174,13 @@ func (c *mdConverter) node(n *html.Node) {
 	default:
 		if isInlineAtom(n.DataAtom) {
 			// Inline content directly inside a block container: treat as a paragraph run.
-			c.sb.WriteString(c.inlineNode(n))
+			c.write(c.inlineNode(n))
 			return
 		}
 		// div, section, article, main, header, footer, span-as-block, etc.
-		c.sb.WriteString("\n\n")
+		c.write("\n\n")
 		c.block(n)
-		c.sb.WriteString("\n\n")
+		c.write("\n\n")
 	}
 }
 
@@ -278,7 +294,7 @@ func (c *mdConverter) pre(n *html.Node) {
 	for strings.Contains(body, fence) {
 		fence += "`"
 	}
-	c.sb.WriteString("\n\n" + fence + lang + "\n" + body + "\n" + fence + "\n\n")
+	c.write("\n\n" + fence + lang + "\n" + body + "\n" + fence + "\n\n")
 }
 
 func (c *mdConverter) list(n *html.Node, depth int) string {
