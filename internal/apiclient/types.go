@@ -17,6 +17,9 @@ type Content struct {
 	Tags            []string               `json:"tags,omitempty"`
 	MetaDescription string                 `json:"meta_description"`
 	OGImage         string                 `json:"og_image"`
+	NoIndex         bool                   `json:"noindex,omitempty"`
+	AuthorName      string                 `json:"author_name,omitempty"`
+	AuthorURL       string                 `json:"author_url,omitempty"`
 	Data            map[string]interface{} `json:"data"`
 	Published       bool                   `json:"published"`
 	PublishedAt     *time.Time             `json:"published_at,omitempty"`
@@ -71,6 +74,9 @@ type ContentVersion struct {
 	Category        string                 `json:"category"`
 	MetaDescription string                 `json:"meta_description"`
 	OGImage         string                 `json:"og_image"`
+	NoIndex         bool                   `json:"noindex,omitempty"`
+	AuthorName      string                 `json:"author_name,omitempty"`
+	AuthorURL       string                 `json:"author_url,omitempty"`
 	Data            map[string]interface{} `json:"data"`
 	Published       bool                   `json:"published"`
 	PublishedAt     *time.Time             `json:"published_at,omitempty"`
@@ -90,6 +96,9 @@ type CreateContentRequest struct {
 	Tags            []string               `json:"tags,omitempty"`
 	MetaDescription string                 `json:"meta_description,omitempty"`
 	OGImage         string                 `json:"og_image,omitempty"`
+	NoIndex         bool                   `json:"noindex,omitempty"`
+	AuthorName      string                 `json:"author_name,omitempty"`
+	AuthorURL       string                 `json:"author_url,omitempty"`
 	Data            map[string]interface{} `json:"data"`
 	Published       bool                   `json:"published,omitempty"`
 	UseHeader       bool                   `json:"use_header,omitempty"`

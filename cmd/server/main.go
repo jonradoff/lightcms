@@ -162,6 +162,7 @@ func main() {
 	// in development or without a public BASE_URL, and verifies its own key
 	// file through BASE_URL before submitting anything.
 	indexNowService := services.NewIndexNowService(db, cfg.BaseURL, cfg.IsDev())
+	seoService := services.NewSEOService(db)
 	contentService.SetIndexNowService(indexNowService)
 	templateService.SetRegenQueue(regenQueue)
 
@@ -178,6 +179,7 @@ func main() {
 	h.SetImportService(importService)
 	h.SetCloudflareService(cfService)
 	h.SetIndexNowService(indexNowService)
+	h.SetSEOService(seoService)
 
 	// Initialize search service (always available; semantic search requires Voyage API key)
 	searchService := services.NewSearchService(db, cfg.VoyageAPIKey)
@@ -386,6 +388,9 @@ func main() {
 	admin.HandleFunc("/copilot", h.CopilotPage).Methods("GET")
 	admin.HandleFunc("/tools/agent", h.AgentToolPage).Methods("GET")
 	admin.HandleFunc("/tools/indexnow", h.IndexNowToolPage).Methods("GET")
+	admin.HandleFunc("/tools/seo", h.SEOToolPage).Methods("GET")
+	admin.HandleFunc("/tools/seo", h.SEOToolSave).Methods("POST")
+	admin.HandleFunc("/analytics/ai", h.AnalyticsAIPage).Methods("GET")
 	admin.HandleFunc("/tools/indexnow", h.IndexNowToolAction).Methods("POST")
 	admin.HandleFunc("/tools/agent/config", h.AgentToolSaveConfig).Methods("POST")
 	admin.HandleFunc("/tools/agent/test", h.AgentToolSendTest).Methods("POST")
@@ -432,6 +437,9 @@ func main() {
 	apiHandler.SetAgentSessionService(services.NewAgentSessionService(auditService, contentService))
 	apiHandler.SetMaintenanceService(maintenanceService)
 	apiHandler.SetIndexNowService(indexNowService)
+	apiHandler.SetSEOService(seoService)
+	apiHandler.SetAnalyticsService(analyticsService)
+	apiHandler.SetBaseURL(cfg.BaseURL)
 	apiAuthMiddleware := middleware.NewAPIAuth(func(ctx context.Context, rawKey string) (interface{}, error) {
 		apiKey, err := apiKeyService.ValidateAPIKey(ctx, rawKey)
 		if err != nil {
@@ -654,6 +662,9 @@ func main() {
 	// Maintenance scans (self-maintaining site routines)
 	apiv1.HandleFunc("/maintenance/report", apiHandler.APIMaintenanceReport).Methods("GET")
 	apiv1.HandleFunc("/indexnow", apiHandler.APIIndexNowStatus).Methods("GET")
+	apiv1.HandleFunc("/seo", apiHandler.APIGetSEO).Methods("GET")
+	apiv1.HandleFunc("/seo", apiHandler.APIUpdateSEO).Methods("PUT")
+	apiv1.HandleFunc("/analytics/ai", apiHandler.APIAITraffic).Methods("GET")
 	apiv1.HandleFunc("/indexnow", apiHandler.APIIndexNowUpdate).Methods("PUT")
 	apiv1.HandleFunc("/indexnow/submit", apiHandler.APIIndexNowSubmit).Methods("POST")
 	apiv1.HandleFunc("/maintenance/scan", apiHandler.APIMaintenanceScan).Methods("POST")
@@ -814,6 +825,11 @@ func main() {
 	r.HandleFunc("/llms-full.txt", h.ServeLlmsFullTxt).Methods("GET")
 
 	// Public content routes - must be last
+	// Feeds (RSS / Atom); unknown collections fall through to page serving
+	r.HandleFunc("/feed.xml", h.ServeRSSFeed).Methods("GET")
+	r.HandleFunc("/atom.xml", h.ServeAtomFeed).Methods("GET")
+	r.HandleFunc("/{collection}/feed.xml", h.ServeRSSFeed).Methods("GET")
+
 	// IndexNow key file (/{key}.txt); non-matching *.txt paths fall through to ServePage
 	r.HandleFunc("/{indexnowkey:[A-Za-z0-9-]{8,128}}.txt", h.ServeIndexNowKey).Methods("GET")
 

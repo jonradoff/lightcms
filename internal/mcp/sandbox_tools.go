@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 
@@ -380,6 +381,82 @@ func (s *Server) registerIndexNowTools() {
 			return errorResult(fmt.Errorf("provide all=true or a list of paths")), nil, nil
 		}
 		res, err := s.client.SubmitIndexNow(ctx, args.All, args.Paths)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		return jsonResult(res), nil, nil
+	})
+}
+
+// UpdateSEOSettingsInput is a partial update: omitted fields are unchanged.
+type UpdateSEOSettingsInput struct {
+	TrainingPolicy   *string           `json:"training_policy,omitempty" jsonschema:"AI training crawlers (GPTBot, ClaudeBot, Google-Extended…): allow or disallow"`
+	AISearchPolicy   *string           `json:"ai_search_policy,omitempty" jsonschema:"AI search crawlers (OAI-SearchBot, PerplexityBot…): allow or disallow"`
+	UserFetchPolicy  *string           `json:"user_fetch_policy,omitempty" jsonschema:"User-initiated AI fetchers (ChatGPT-User, Claude-User…): allow or disallow"`
+	CrawlerOverrides map[string]string `json:"crawler_overrides,omitempty" jsonschema:"Per-crawler overrides by robots token, e.g. {\"GPTBot\":\"disallow\"}; replaces the whole map"`
+	ContentSignals   *bool             `json:"content_signals,omitempty" jsonschema:"Emit a Content-Signal line in robots.txt"`
+	RobotsExtra      *string           `json:"robots_extra,omitempty" jsonschema:"Extra robots.txt lines appended verbatim"`
+	MarkdownDisabled *bool             `json:"markdown_disabled,omitempty" jsonschema:"true turns off Markdown copies at /<page>.md"`
+	AuthorType       *string           `json:"author_type,omitempty" jsonschema:"Default author type: Person or Organization"`
+	AuthorName       *string           `json:"author_name,omitempty" jsonschema:"Default author name for structured data and feeds"`
+	AuthorURL        *string           `json:"author_url,omitempty" jsonschema:"Default author profile URL"`
+	AuthorSameAs     []string          `json:"author_same_as,omitempty" jsonschema:"Author profile URLs (schema.org sameAs)"`
+	PublisherSameAs  []string          `json:"publisher_same_as,omitempty" jsonschema:"Site/organization profile URLs (schema.org sameAs)"`
+	FeedDisabled     *bool             `json:"feed_disabled,omitempty" jsonschema:"true turns off /feed.xml and /atom.xml"`
+	FeedAllPages     *bool             `json:"feed_all_pages,omitempty" jsonschema:"Include every page in the site feed"`
+	FeedTemplates    []string          `json:"feed_templates,omitempty" jsonschema:"Template names included in the site feed"`
+	FeedCategories   []string          `json:"feed_categories,omitempty" jsonschema:"Categories included in the site feed"`
+	FeedLimit        *int              `json:"feed_limit,omitempty" jsonschema:"Items per feed (1-500)"`
+}
+
+type AITrafficInput struct {
+	Days int `json:"days,omitempty" jsonschema:"Days to cover (default 30, max 90)"`
+}
+
+// registerSEOTools adds the SEO & AI settings and AI traffic tools.
+func (s *Server) registerSEOTools() {
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "get_seo_settings",
+		Title:       "Get SEO & AI Settings",
+		Description: "The site's search & AI settings: AI crawler policy (training / AI search / user fetch, per-crawler overrides) with the resulting robots.txt, Markdown copies, default author/publisher for structured data, and feed settings.",
+		Annotations: &mcp.ToolAnnotations{Title: "Get SEO & AI Settings", ReadOnlyHint: true},
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args struct{}) (*mcp.CallToolResult, any, error) {
+		res, err := s.client.GetSEOSettings(ctx)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		return jsonResult(res), nil, nil
+	})
+
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "update_seo_settings",
+		Title:       "Update SEO & AI Settings",
+		Description: "Change search & AI settings. Only the fields you pass change. Blocking AI training crawlers does not affect Google/Bing search.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:        "Update SEO & AI Settings",
+			ReadOnlyHint: false, DestructiveHint: boolPtr(false), IdempotentHint: true, OpenWorldHint: boolPtr(false),
+		},
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args UpdateSEOSettingsInput) (*mcp.CallToolResult, any, error) {
+		b, _ := json.Marshal(args)
+		var updates map[string]interface{}
+		json.Unmarshal(b, &updates) //nolint:errcheck
+		if len(updates) == 0 {
+			return errorResult(fmt.Errorf("no settings provided")), nil, nil
+		}
+		res, err := s.client.UpdateSEOSettings(ctx, updates)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		return jsonResult(res), nil, nil
+	})
+
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "get_ai_traffic",
+		Title:       "Get AI Traffic",
+		Description: "AI visibility report: requests from AI crawlers by purpose (training, AI search, user-initiated fetch) and by crawler, the pages AI reads most, visits referred by AI assistants (ChatGPT, Perplexity, Claude, Gemini…), and where they land.",
+		Annotations: &mcp.ToolAnnotations{Title: "Get AI Traffic", ReadOnlyHint: true},
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args AITrafficInput) (*mcp.CallToolResult, any, error) {
+		res, err := s.client.GetAITraffic(ctx, args.Days)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}

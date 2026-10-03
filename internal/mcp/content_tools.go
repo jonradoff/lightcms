@@ -35,6 +35,9 @@ type CreateContentInput struct {
 	Tags            []string               `json:"tags,omitempty" jsonschema:"Tags for lc:query index pages (e.g. ['AI & Machine Intelligence', 'Generative AI'])"`
 	MetaDescription string                 `json:"meta_description,omitempty" jsonschema:"SEO meta description"`
 	OGImage         string                 `json:"og_image,omitempty" jsonschema:"Open Graph image URL"`
+	NoIndex         bool                   `json:"noindex,omitempty" jsonschema:"Hide this page from search engines and AI (noindex; excluded from sitemap, llms.txt, feeds, IndexNow)"`
+	AuthorName      string                 `json:"author_name,omitempty" jsonschema:"Author name for structured data and feeds (defaults to the site author)"`
+	AuthorURL       string                 `json:"author_url,omitempty" jsonschema:"Author profile URL"`
 	Data            map[string]interface{} `json:"data" jsonschema:"Template field values,required"`
 	UseHeader       bool                   `json:"use_header,omitempty" jsonschema:"Include site header"`
 	UseFooter       bool                   `json:"use_footer,omitempty" jsonschema:"Include site footer"`
@@ -55,6 +58,9 @@ type UpdateContentInput struct {
 	Tags            []string               `json:"tags,omitempty" jsonschema:"Tags for lc:query index pages"`
 	MetaDescription string                 `json:"meta_description,omitempty" jsonschema:"SEO meta description"`
 	OGImage         string                 `json:"og_image,omitempty" jsonschema:"Open Graph image URL"`
+	NoIndex         *bool                  `json:"noindex,omitempty" jsonschema:"true hides the page from search engines and AI; false makes it visible again"`
+	AuthorName      *string                `json:"author_name,omitempty" jsonschema:"Author name for structured data and feeds; empty string reverts to the site default"`
+	AuthorURL       *string                `json:"author_url,omitempty" jsonschema:"Author profile URL; empty string clears it"`
 	Data            map[string]interface{} `json:"data,omitempty" jsonschema:"Template field values"`
 	UseHeader       bool                   `json:"use_header,omitempty" jsonschema:"Include site header"`
 	UseFooter       bool                   `json:"use_footer,omitempty" jsonschema:"Include site footer"`
@@ -130,6 +136,9 @@ type UpdateContentByPathInput struct {
 	Tags            []string               `json:"tags,omitempty" jsonschema:"Tags for lc:query index pages"`
 	MetaDescription string                 `json:"meta_description,omitempty" jsonschema:"SEO meta description"`
 	OGImage         string                 `json:"og_image,omitempty" jsonschema:"Open Graph image URL"`
+	NoIndex         *bool                  `json:"noindex,omitempty" jsonschema:"true hides the page from search engines and AI; false makes it visible again"`
+	AuthorName      *string                `json:"author_name,omitempty" jsonschema:"Author name for structured data and feeds; empty string reverts to the site default"`
+	AuthorURL       *string                `json:"author_url,omitempty" jsonschema:"Author profile URL; empty string clears it"`
 	Published       *bool                  `json:"published,omitempty" jsonschema:"Publish state"`
 	VersionComment  string                 `json:"version_comment,omitempty" jsonschema:"Version comment"`
 }
@@ -358,6 +367,9 @@ Templates can use {{.lc_toc}} in their HTML layout to inject an auto-generated t
 			Tags:            args.Tags,
 			MetaDescription: args.MetaDescription,
 			OGImage:         args.OGImage,
+			NoIndex:         args.NoIndex,
+			AuthorName:      args.AuthorName,
+			AuthorURL:       args.AuthorURL,
 			Data:            args.Data,
 			Published:       args.Published,
 			UseHeader:       args.UseHeader,
@@ -449,6 +461,15 @@ Templates can use {{.lc_toc}} in their HTML layout to inject an auto-generated t
 		}
 		if args.OGImage != "" {
 			updates["og_image"] = args.OGImage
+		}
+		if args.NoIndex != nil {
+			updates["noindex"] = *args.NoIndex
+		}
+		if args.AuthorName != nil {
+			updates["author_name"] = *args.AuthorName
+		}
+		if args.AuthorURL != nil {
+			updates["author_url"] = *args.AuthorURL
 		}
 		if args.UseHeader || args.SetUseHeader {
 			updates["use_header"] = args.UseHeader
@@ -816,6 +837,15 @@ Only the fields you provide are changed. Always include a version_comment descri
 		}
 		if args.OGImage != "" {
 			updates["og_image"] = args.OGImage
+		}
+		if args.NoIndex != nil {
+			updates["noindex"] = *args.NoIndex
+		}
+		if args.AuthorName != nil {
+			updates["author_name"] = *args.AuthorName
+		}
+		if args.AuthorURL != nil {
+			updates["author_url"] = *args.AuthorURL
 		}
 		if args.Published != nil {
 			updates["published"] = *args.Published

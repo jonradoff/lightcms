@@ -71,8 +71,9 @@ func TestServeLlmsTxt(t *testing.T) {
 	}
 	body := rr.Body.String()
 	for _, want := range []string{
-		"- [Alpha Page](http://localhost:8082/alpha): About alpha.",
-		"- [Beta Page](http://localhost:8082/beta)",
+		// Entries link the Markdown copies (llmstxt.org convention).
+		"- [Alpha Page](http://localhost:8082/alpha.md): About alpha.",
+		"- [Beta Page](http://localhost:8082/beta.md)",
 		"llms-full.txt",
 		"sitemap.xml",
 	} {

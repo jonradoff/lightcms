@@ -91,7 +91,7 @@ Once connected, you can ask Claude to manage your content naturally:
 Binary: `bin/lightcms-mcp`
 Config: Uses same `config.dev.json` or environment variables as main server
 
-### Available MCP Tools (124 total):
+### Available MCP Tools (127 total):
 
 **Content (23 tools):** list_content, get_content, create_content, update_content, update_content_by_path, publish_content, publish_multiple, unpublish_content, delete_content, restore_content, preview_content, get_content_versions, get_content_version, revert_to_version, bulk_create_content, bulk_update_content, bulk_field_operation, export_content, get_backlinks
 
@@ -112,6 +112,8 @@ Config: Uses same `config.dev.json` or environment variables as main server
 **Agent Sandbox & Governance (8 tools, v7.0+):** start_agent_sandbox, get_agent_sandbox, end_agent_sandbox, get_fork_diff, get_agent_session_changes, rollback_agent_session, get_maintenance_report, run_maintenance_scan
 
 **IndexNow (3 tools, v7.2.3+):** get_indexnow_status, set_indexnow_enabled, submit_indexnow
+
+**SEO & AI (3 tools, v7.3+):** get_seo_settings, update_seo_settings, get_ai_traffic
 
 **Approvals (11 tools, v6.0+):** list_approval_workflows, get_approval_workflow, create_approval_workflow, update_approval_workflow, delete_approval_workflow, list_approval_requests, get_approval_request, submit_for_approval, approve_request, reject_request, cancel_approval_request
 
@@ -222,6 +224,15 @@ Hard-won rules from building v7. Violating these has bitten us before:
 - `services.IndexNowService` queues paths via `ContentService.notifyIndexNow`. Edits to published pages notify from static generation ONLY when the rendered HTML hash changed. Publish/unpublish/rename/delete/restore transitions notify explicitly in the service methods.
 - Site-wide re-renders MUST run under `services.WithoutIndexNow(ctx)` (RegenerateAllContent, template regen, regen queue already do). Any new bulk re-render path needs it too, or every page gets pinged to search engines.
 - Self-gating: inactive in dev or with a non-public BASE_URL; verifies its own `/{key}.txt` via BASE_URL before every submission window. Config lives in settings `type: indexnow_config`, not SiteConfig (SaveSiteConfig $sets the whole struct).
+
+### SEO & AI (v7.3)
+- One crawler registry, `services.KnownCrawlers` (aicrawlers.go), drives robots.txt, analytics classification, and the admin UI. To support a new crawler, add it there (put more specific UA substrings first). AI-assistant referrer hosts live in the same file.
+- Settings live in settings `type: seo_config` (`services.SEOService`, 30s in-memory cache), not SiteConfig. Zero values must mean "pre-7.3 behavior" (allow all crawlers, default feed selection).
+- `content_modified_at` is stamped in `GenerateStaticPage` only when the HTML hash changes and the ctx is NOT `WithoutIndexNow` (site-wide re-renders don't count). Read dates via `Content.ModifiedAt()`, which falls back to `updated_at`.
+- `noindex` pages must be excluded from every discovery surface: sitemap, llms.txt, feeds, Markdown copies, and IndexNow full submissions. Any new listing endpoint needs the `"noindex": {"$ne": true}` filter.
+- Markdown copies are resolved in ServePage only AFTER exact, legacy and case-insensitive page lookups fail, so a real page whose path ends in `.md` wins. They are generated per request from the static HTML (no stored copies, nothing to invalidate).
+- Dedicated public routes that fall back to page serving (feeds, IndexNow key) must use `servePagePath` / set the `slug` route var — `ServePage` with no slug serves the homepage (this bit us in 7.2.4).
+- The admin editor's update/delete handlers write to MongoDB directly; they call `ContentService.NotifyLiveChange` for URL transitions. Content edits reach IndexNow via the change-stream regen.
 
 ### Copilot architecture
 - The admin copilot (`/cm/copilot/chat`) is an Anthropic tool-use loop in `internal/handlers/copilot.go` executing directly against the service layer (NOT via the MCP client). To add a copilot tool: add its schema to `copilotToolDefs()` and its execution to `executeCopilotTool()` with an explicit `auth.HasPermission` check, and audit-log writes. Model: `LIGHTCMS_COPILOT_MODEL` env (default claude-sonnet-4-6); requires `ANTHROPIC_API_KEY`.

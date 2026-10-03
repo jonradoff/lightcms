@@ -1389,3 +1389,34 @@ func (c *Client) SubmitIndexNow(ctx context.Context, all bool, paths []string) (
 	}
 	return result, nil
 }
+
+// GetSEOSettings returns the SEO & AI settings, crawler registry, and robots.txt preview.
+func (c *Client) GetSEOSettings(ctx context.Context) (map[string]interface{}, error) {
+	var result map[string]interface{}
+	if err := c.do(ctx, "GET", "/seo", nil, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// UpdateSEOSettings applies a partial update (only the keys present change).
+func (c *Client) UpdateSEOSettings(ctx context.Context, updates map[string]interface{}) (map[string]interface{}, error) {
+	var result map[string]interface{}
+	if err := c.do(ctx, "PUT", "/seo", updates, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// GetAITraffic returns the AI traffic report for the last N days.
+func (c *Client) GetAITraffic(ctx context.Context, days int) (map[string]interface{}, error) {
+	path := "/analytics/ai"
+	if days > 0 {
+		path += fmt.Sprintf("?days=%d", days)
+	}
+	var result map[string]interface{}
+	if err := c.do(ctx, "GET", path, nil, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}

@@ -61,6 +61,11 @@ type Content struct {
 	Deleted         bool                   `bson:"deleted" json:"deleted"`                                   // Soft delete flag
 	DeletedAt       *time.Time             `bson:"deleted_at,omitempty" json:"deleted_at,omitempty"`
 	SourceURL       string                 `bson:"source_url,omitempty" json:"source_url,omitempty"` // Original URL for imported content (RSS dedup key)
+	// SEO (v7.3): per-page search/AI visibility and authorship
+	NoIndex           bool       `bson:"noindex,omitempty" json:"noindex,omitempty"`                         // Hide from search engines & AI: noindex meta, excluded from sitemap/llms.txt/feeds/IndexNow
+	AuthorName        string     `bson:"author_name,omitempty" json:"author_name,omitempty"`                 // Overrides the site default author in structured data and feeds
+	AuthorURL         string     `bson:"author_url,omitempty" json:"author_url,omitempty"`                   // Author profile URL
+	ContentModifiedAt *time.Time `bson:"content_modified_at,omitempty" json:"content_modified_at,omitempty"` // Last time the rendered page actually changed (falls back to UpdatedAt)
 	// Fork fields — set when this content item belongs to a fork workspace
 	ForkID        *primitive.ObjectID `bson:"fork_id,omitempty" json:"fork_id,omitempty"`                 // nil for live content
 	BaseUpdatedAt *time.Time          `bson:"base_updated_at,omitempty" json:"base_updated_at,omitempty"` // updated_at of the live page at fork time (for conflict detection)
@@ -68,6 +73,16 @@ type Content struct {
 	PendingApproval bool      `bson:"pending_approval,omitempty" json:"pending_approval,omitempty"`
 	CreatedAt       time.Time `bson:"created_at" json:"created_at"`
 	UpdatedAt       time.Time `bson:"updated_at" json:"updated_at"`
+}
+
+// ModifiedAt returns when the page's rendered content last actually changed:
+// content_modified_at when known (set only when the generated HTML changes),
+// otherwise updated_at.
+func (c *Content) ModifiedAt() time.Time {
+	if c.ContentModifiedAt != nil && !c.ContentModifiedAt.IsZero() {
+		return *c.ContentModifiedAt
+	}
+	return c.UpdatedAt
 }
 
 // ContentFork represents a named workspace for staging site changes before merging to live

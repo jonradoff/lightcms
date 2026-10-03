@@ -36,6 +36,7 @@ func (h *Handler) listLLMContent(ctx context.Context, includeText bool) ([]model
 		"published": true,
 		"deleted":   bson.M{"$ne": true},
 		"fork_id":   bson.M{"$exists": false},
+		"noindex":   bson.M{"$ne": true},
 	}
 	projection := bson.M{
 		"title": 1, "slug": 1, "full_path": 1, "meta_description": 1, "published_at": 1,
@@ -65,6 +66,8 @@ func (h *Handler) listLLMContent(ctx context.Context, includeText bool) ([]model
 func (h *Handler) ServeLlmsTxt(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	baseURL := h.resolveBaseURL(r)
+	h.recordCrawler(r, "/llms.txt")
+	seo := h.seoConfig(ctx)
 
 	theme, err := h.db.GetThemeSettings(ctx)
 	if err != nil {
@@ -88,7 +91,12 @@ func (h *Handler) ServeLlmsTxt(w http.ResponseWriter, r *http.Request) {
 		if path == "" {
 			path = "/" + c.Slug
 		}
-		line := fmt.Sprintf("- [%s](%s%s)", c.Title, baseURL, path)
+		// Per llmstxt.org, link the Markdown copy when available.
+		link := path
+		if !seo.MarkdownDisabled {
+			link = markdownPath(path)
+		}
+		line := fmt.Sprintf("- [%s](%s%s)", c.Title, baseURL, link)
 		if c.MetaDescription != "" {
 			line += ": " + c.MetaDescription
 		}
@@ -97,6 +105,9 @@ func (h *Handler) ServeLlmsTxt(w http.ResponseWriter, r *http.Request) {
 	sb.WriteString("\n## Optional\n\n")
 	sb.WriteString(fmt.Sprintf("- [Full content](%s/llms-full.txt): complete text of every page\n", baseURL))
 	sb.WriteString(fmt.Sprintf("- [Sitemap](%s/sitemap.xml)\n", baseURL))
+	if !seo.FeedDisabled {
+		sb.WriteString(fmt.Sprintf("- [Feed](%s/feed.xml): newest posts (RSS)\n", baseURL))
+	}
 	sb.WriteString(fmt.Sprintf("- MCP endpoint (read-only, no auth): %s/mcp-public — tools: search_site, get_page, list_pages, get_site_info\n", baseURL))
 
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -109,6 +120,7 @@ func (h *Handler) ServeLlmsTxt(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ServeLlmsFullTxt(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	baseURL := h.resolveBaseURL(r)
+	h.recordCrawler(r, "/llms-full.txt")
 
 	theme, err := h.db.GetThemeSettings(ctx)
 	if err != nil {
@@ -150,61 +162,13 @@ func (h *Handler) ServeLlmsFullTxt(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(sb.String()))
 }
 
-// buildJSONLD returns a schema.org JSON-LD document for a content page, or
-// "" if it cannot be built. The schema type is inferred from the template:
-// blog posts become BlogPosting, press releases NewsArticle, all else WebPage.
+// buildJSONLD returns the basic schema.org JSON-LD for a content page (no
+// author, breadcrumbs, or FAQ — see buildPageJSONLD), or "" for nil content.
 func buildJSONLD(content *models.Content, tmpl *models.Template, siteName, baseURL, ogImage string) string {
 	if content == nil {
 		return ""
 	}
-	path := content.FullPath
-	if path == "" {
-		path = "/" + content.Slug
-	}
-
-	schemaType := "WebPage"
-	if tmpl != nil {
-		name := strings.ToLower(tmpl.Name + " " + tmpl.Category)
-		switch {
-		case strings.Contains(name, "blog"):
-			schemaType = "BlogPosting"
-		case strings.Contains(name, "press"):
-			schemaType = "NewsArticle"
-		}
-	}
-
-	doc := map[string]interface{}{
-		"@context": "https://schema.org",
-		"@type":    schemaType,
-		"headline": content.Title,
-		"url":      strings.TrimRight(baseURL, "/") + path,
-	}
-	if content.MetaDescription != "" {
-		doc["description"] = content.MetaDescription
-	}
-	if ogImage != "" {
-		doc["image"] = ogImage
-	}
-	if content.PublishedAt != nil && !content.PublishedAt.IsZero() {
-		doc["datePublished"] = content.PublishedAt.UTC().Format("2006-01-02T15:04:05Z07:00")
-	}
-	if !content.UpdatedAt.IsZero() {
-		doc["dateModified"] = content.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z07:00")
-	}
-	if siteName != "" {
-		doc["publisher"] = map[string]interface{}{
-			"@type": "Organization",
-			"name":  siteName,
-		}
-	}
-
-	b, err := json.Marshal(doc)
-	if err != nil {
-		return ""
-	}
-	// </script> inside JSON strings would terminate the script element early.
-	safe := strings.ReplaceAll(string(b), "</", `<\/`)
-	return `<script type="application/ld+json">` + safe + `</script>`
+	return buildPageJSONLD(&pageLD{Content: content, Tmpl: tmpl, SiteName: siteName, BaseURL: baseURL, OGImage: ogImage})
 }
 
 // buildWebsiteJSONLD returns the schema.org WebSite document for the

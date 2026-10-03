@@ -4,6 +4,49 @@ All notable changes to LightCMS are documented here, organized by version.
 
 ---
 
+## [7.3.0] - 2026-10-02
+
+### Added — SEO & AI (generative engine optimization)
+Every feature works on any LightCMS install. Existing sites behave as before until they change a setting, except that Markdown copies (below) are on by default.
+
+- **AI traffic analytics** (Analytics → 🤖 AI traffic, `/cm/analytics/ai`):
+  - Known crawlers are identified by operator and purpose: AI training (GPTBot, ClaudeBot, CCBot, …), AI search (OAI-SearchBot, Claude-SearchBot, PerplexityBot, …), user-initiated fetches (ChatGPT-User, Claude-User, Perplexity-User, …) and classic search engines.
+  - Hits are counted per page, including `/llms.txt`, `/llms-full.txt`, `/robots.txt`, `/sitemap.xml`, the Markdown copies and the feeds.
+  - Visits referred by AI assistants (ChatGPT, Perplexity, Claude, Gemini, Copilot, …) are recognized from the referrer or from the `utm_source` tag assistants add when they strip the referrer (e.g. `?utm_source=chatgpt.com`).
+  - The report shows a daily chart by purpose, the pages AI reads most, and where AI referrals land.
+  - Also available as `GET /api/v1/analytics/ai` and the `get_ai_traffic` MCP tool, and as an "AI visibility" summary in CMS Agent digests.
+  - Crawlers such as Perplexity-User whose user agent doesn't say "bot" are now counted as bots.
+- **AI crawler policy** (Tools → 🧭 SEO & AI, `/cm/tools/seo`):
+  - Allow or block AI training, AI search and user-initiated fetches separately, with per-crawler overrides; the result is rendered into `/robots.txt`.
+  - Optional Content-Signal line (`search` / `ai-input` / `ai-train`), plus free-form extra robots.txt lines.
+  - Classic search engines are only affected by explicit overrides.
+- **Markdown copies of pages** at `/<page>.md` (homepage: `/index.md`):
+  - The page body converted to clean Markdown, with title, description, source URL and dates. The converter uses only `golang.org/x/net/html`, already a dependency.
+  - Advertised with `<link rel="alternate" type="text/markdown">` on every page and linked from llms.txt, per the llms.txt convention.
+  - Copies are served with `X-Robots-Tag: noindex` and a canonical `Link` header, so they never compete with the HTML page in search.
+  - A real page whose path ends in `.md` always takes precedence. Can be turned off.
+- **Richer structured data:**
+  - Default author (Person or Organization, with URL and `sameAs` profiles) and per-page author override. User account names are never published automatically.
+  - Publisher Organization with logo and `sameAs` links.
+  - BreadcrumbList for pages in folders.
+  - FAQPage, built only from explicit FAQ markup: `<details><summary>…?</summary>` pairs, or an "FAQ" / "Frequently Asked Questions" section whose question headings end in "?".
+  - WebSite + Organization on the homepage.
+  - Types a page already declares in its own JSON-LD are not duplicated. Raw-HTML pages now get structured data too.
+- **Accurate modified dates:** a new `content_modified_at` is stamped only when a page's rendered HTML actually changes. Site-wide re-renders (theme, template, snippet changes) don't count. It drives JSON-LD `dateModified`, sitemap `lastmod`, feeds and Markdown copies; older pages fall back to `updated_at`.
+- **RSS and Atom feeds** at `/feed.xml` and `/atom.xml`, plus `/<collection>/feed.xml` for each collection:
+  - Full content with absolute links.
+  - Default selection is Blog Post and Press Release templates plus the "blog" category; configurable, or every page.
+  - Discoverable from every page's `<head>`, robots.txt and llms.txt.
+- **Per-page "Hide from search engines & AI":** adds `noindex` (meta tag and `X-Robots-Tag`) and leaves the page out of the sitemap, llms.txt, feeds, Markdown copies and IndexNow. Available in the editor, REST API (`noindex`, `author_name`, `author_url`) and MCP content tools.
+- **SEO & AI settings API and MCP:** `GET/PUT /api/v1/seo` (partial updates); `get_seo_settings`, `update_seo_settings`, `get_ai_traffic` (127 MCP tools total).
+
+### Fixed
+- Unpublishing, moving or deleting a page in the admin editor now notifies IndexNow. The editor writes to the database directly and previously skipped the transition notifications that API and MCP edits send.
+- Page canonical links are absolute URLs.
+- Fork diffs show changes to the new noindex and author fields.
+
+---
+
 ## [7.2.5] - 2026-10-01
 
 ### Fixed

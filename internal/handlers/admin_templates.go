@@ -1665,6 +1665,19 @@ var adminTemplates = map[string]string{
                     <input type="file" id="og_image" name="og_image" accept="image/*">
                     <p class="help-text">Recommended: 1200x630 pixels for best display on social media</p>
                 </div>
+                <div class="form-group">
+                    <label for="author_name">Author</label>
+                    <input type="text" id="author_name" name="author_name" value="{{if .Content}}{{.Content.AuthorName}}{{end}}" placeholder="Leave blank to use the site default (Tools → SEO &amp; AI)">
+                    <input type="url" id="author_url" name="author_url" value="{{if .Content}}{{.Content.AuthorURL}}{{end}}" placeholder="Author profile URL (optional)" style="margin-top: 0.5rem;">
+                    <p class="help-text">Shown to search engines and AI systems in structured data and feeds</p>
+                </div>
+                <div class="form-group checkbox-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" name="noindex" {{if .Content}}{{if .Content.NoIndex}}checked{{end}}{{end}}>
+                        Hide from search engines &amp; AI
+                    </label>
+                    <p class="help-text">Adds noindex and leaves the page out of the sitemap, llms.txt, feeds and IndexNow. The page stays visible to visitors.</p>
+                </div>
             </div>
 
             <div class="form-section">
@@ -6689,7 +6702,7 @@ async function doSearch(q) {
         </style>
 
         <div class="content-section">
-            <h1>Site Analytics</h1>
+            <h1>Site Analytics <a href="/cm/analytics/ai?range={{.Range}}" class="btn btn-secondary" style="padding: 0.3rem 0.7rem; font-size: 0.8rem; vertical-align: middle; margin-left: 0.5rem;">🤖 AI traffic</a></h1>
             <div style="display: flex; gap: 0.5rem; margin-bottom: 1.5rem;">
                 <a href="/cm/analytics?range=24h" class="btn {{if eq .Range "24h"}}btn-primary{{else}}btn-secondary{{end}}" style="padding: 0.375rem 0.75rem; font-size: 0.875rem;">24 Hours</a>
                 <a href="/cm/analytics?range=7d" class="btn {{if eq .Range "7d"}}btn-primary{{else}}btn-secondary{{end}}" style="padding: 0.375rem 0.75rem; font-size: 0.875rem;">7 Days</a>
@@ -9374,6 +9387,7 @@ const adminLayoutStart = `<!DOCTYPE html>
                     <div class="nav-section-title">Tools</div>
                     <a href="#" onclick="if(window.cpOpen){cpOpen();return false;}" class="nav-link">🤖 Copilot</a>
                     <a href="/cm/tools/agent" class="nav-link">🤵 CMS Agent</a>
+                    <a href="/cm/tools/seo" class="nav-link">🧭 SEO &amp; AI</a>
                     <a href="/cm/tools/indexnow" class="nav-link">📡 IndexNow</a>
                     <a href="/cm/tools/search" class="nav-link">🔍 End User Search</a>
                     <a href="/cm/tools/chat" class="nav-link">💬 Chat Widget</a>

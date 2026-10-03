@@ -34,7 +34,13 @@ type APIHandler struct {
 	agentSessionService *services.AgentSessionService
 	maintenanceService  *services.MaintenanceService
 	indexNowService     *services.IndexNowService
+	seoService          *services.SEOService
+	analyticsService    *services.AnalyticsService
+	baseURL             string
 }
+
+// SetBaseURL sets the public site URL (used for previews such as robots.txt).
+func (a *APIHandler) SetBaseURL(u string) { a.baseURL = u }
 
 // SetCommentService wires in the comment service.
 func (a *APIHandler) SetCommentService(cs *services.CommentService) { a.commentService = cs }

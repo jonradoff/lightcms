@@ -555,7 +555,7 @@ func (s *IndexNowService) submitAll(ctx context.Context, key, trigger string) (i
 // publishedPaths lists live public pages: published, not deleted, not fork copies.
 func (s *IndexNowService) publishedPaths(ctx context.Context) ([]string, error) {
 	cursor, err := s.db.Collection("content").Find(ctx,
-		bson.M{"published": true, "deleted": bson.M{"$ne": true}, "fork_id": nil},
+		bson.M{"published": true, "deleted": bson.M{"$ne": true}, "fork_id": nil, "noindex": bson.M{"$ne": true}},
 		options.Find().SetProjection(bson.M{"full_path": 1}))
 	if err != nil {
 		return nil, fmt.Errorf("indexnow: list content: %w", err)

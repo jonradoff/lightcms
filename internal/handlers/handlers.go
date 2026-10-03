@@ -95,6 +95,7 @@ type Handler struct {
 	maintenanceService   *services.MaintenanceService
 	agentService         *services.AgentService
 	indexNowService      *services.IndexNowService
+	seoService           *services.SEOService
 }
 
 // SetMaintenanceService wires the maintenance scan service (used by the copilot).
@@ -1019,6 +1020,9 @@ func (h *Handler) CreateContent(w http.ResponseWriter, r *http.Request) {
 
 	// Handle SEO fields
 	metaDescription := r.FormValue("meta_description")
+	noIndex := r.FormValue("noindex") == "on"
+	authorName := strings.TrimSpace(r.FormValue("author_name"))
+	authorURL := strings.TrimSpace(r.FormValue("author_url"))
 	ogImage := ""
 	// Handle OG image upload
 	ogFile, ogHeader, err := r.FormFile("og_image")
@@ -1056,6 +1060,9 @@ func (h *Handler) CreateContent(w http.ResponseWriter, r *http.Request) {
 		Tags:            contentTags,
 		MetaDescription: metaDescription,
 		OGImage:         ogImage,
+		NoIndex:         noIndex,
+		AuthorName:      authorName,
+		AuthorURL:       authorURL,
 		Data:            data,
 		Published:       published,
 		PublishedAt:     publishedAt,
@@ -1443,6 +1450,9 @@ func (h *Handler) UpdateContent(w http.ResponseWriter, r *http.Request) {
 
 	// Handle SEO fields
 	metaDescription := r.FormValue("meta_description")
+	noIndex := r.FormValue("noindex") == "on"
+	authorName := strings.TrimSpace(r.FormValue("author_name"))
+	authorURL := strings.TrimSpace(r.FormValue("author_url"))
 	ogImage := existingContent.OGImage // Keep existing if not uploading new
 	// Handle OG image upload
 	ogFile, ogHeader, err := r.FormFile("og_image")
@@ -1472,6 +1482,9 @@ func (h *Handler) UpdateContent(w http.ResponseWriter, r *http.Request) {
 			"tags":             updatedTags,
 			"meta_description": metaDescription,
 			"og_image":         ogImage,
+			"noindex":          noIndex,
+			"author_name":      authorName,
+			"author_url":       authorURL,
 			"data":             data,
 			"published":        published,
 			"published_at":     publishedAt,
@@ -1541,6 +1554,9 @@ func (h *Handler) UpdateContent(w http.ResponseWriter, r *http.Request) {
 	existingContent.FullPath = fullPath
 	existingContent.MetaDescription = metaDescription
 	existingContent.OGImage = ogImage
+	existingContent.NoIndex = noIndex
+	existingContent.AuthorName = authorName
+	existingContent.AuthorURL = authorURL
 	existingContent.Data = data
 	existingContent.Published = published
 	existingContent.PublishedAt = publishedAt
@@ -1561,6 +1577,11 @@ func (h *Handler) UpdateContent(w http.ResponseWriter, r *http.Request) {
 		// Remove static file if unpublished
 		staticPath := filepath.Join("content/generated", slug+".html")
 		os.Remove(staticPath)
+	}
+	// This handler writes to the DB directly; tell IndexNow about URL
+	// transitions (content edits reach it via the change-stream regen).
+	if h.contentService != nil {
+		h.contentService.NotifyLiveChange(ctx, &originalContent, &existingContent)
 	}
 
 	// Regenerate sitemap after content update
@@ -1647,6 +1668,7 @@ func (h *Handler) DeleteContent(w http.ResponseWriter, r *http.Request) {
 	// Regenerate index pages — the deleted item may have appeared in lc:query results
 	if h.contentService != nil {
 		h.contentService.TriggerIndexRegen()
+		h.contentService.NotifyLiveChange(ctx, &content, nil)
 	}
 
 	http.Redirect(w, r, "/cm/content", http.StatusSeeOther)
@@ -3580,6 +3602,10 @@ func (h *Handler) ServePage(w http.ResponseWriter, r *http.Request) {
 				http.Redirect(w, r, content.FullPath, http.StatusMovedPermanently)
 				return
 			}
+			// /<page>.md → Markdown copy of <page> (real pages ending in .md won above)
+			if h.serveMarkdownAlternate(w, r, fullPath) {
+				return
+			}
 			h.serve404(w, r, theme)
 			return
 		}
@@ -3591,7 +3617,12 @@ func (h *Handler) ServePage(w http.ResponseWriter, r *http.Request) {
 		ipHash := services.HashIP(visitorIP)
 		pagePath := content.FullPath
 		referrer := r.Referer()
+		if referrer == "" {
+			// AI assistants often strip the referrer but tag links (?utm_source=chatgpt.com).
+			referrer = services.AIReferrerFromQuery(r.URL.RawQuery)
+		}
 		userAgent := r.UserAgent()
+		h.analyticsService.RecordCrawlerHit(pagePath, userAgent)
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
@@ -3617,14 +3648,15 @@ func (h *Handler) servePageContent(w http.ResponseWriter, r *http.Request, conte
 		if v, ok := content.Data["content"].(string); ok {
 			htmlContent = v
 		}
-		// Raw homepages bypass the themed layout, so inject the schema.org
-		// WebSite node into the authored <head> directly.
-		if content.FullPath == "/" && !strings.Contains(htmlContent, "application/ld+json") {
-			if ld := buildWebsiteJSONLD(theme.SiteName, theme.SiteTagline, h.resolveBaseURL(r)); ld != "" {
-				if idx := strings.Index(strings.ToLower(htmlContent), "</head>"); idx >= 0 {
-					htmlContent = htmlContent[:idx] + ld + htmlContent[idx:]
-				}
+		// Raw pages bypass the themed layout, so inject structured data, robots /
+		// Markdown tags, and feed links into the authored <head> directly
+		// (skipping any JSON-LD types the page already declares).
+		if activeFork == nil {
+			if content.NoIndex {
+				w.Header().Set("X-Robots-Tag", "noindex")
 			}
+			head := h.pageSEOHead(r, content, nil, content.OGImage, htmlContent) + h.feedLinks(r, h.seoConfig(ctx), theme.SiteName)
+			htmlContent = injectHead(htmlContent, head)
 		}
 		if activeFork != nil {
 			htmlContent = forkPreviewBar(activeFork) + htmlContent
@@ -3641,25 +3673,30 @@ func (h *Handler) servePageContent(w http.ResponseWriter, r *http.Request, conte
 	}
 
 	ogImage := inferOGImage(content, &tmpl)
-	jsonLD := buildJSONLD(content, &tmpl, theme.SiteName, h.resolveBaseURL(r), ogImage)
+	canonical := h.resolveBaseURL(r) + fullPath
+	if content.NoIndex {
+		w.Header().Set("X-Robots-Tag", "noindex")
+	}
 
 	// For live pages (no active fork), try static file first
 	if activeFork == nil {
 		staticPath := h.getStaticFilePath(fullPath)
 		if _, err := os.Stat(staticPath); err == nil {
 			staticContent, _ := os.ReadFile(staticPath)
+			head := h.pageSEOHead(r, content, &tmpl, ogImage, string(staticContent))
 			h.renderPublicWithSEO(w, r, theme, string(staticContent), content.UseHeader, content.UseFooter,
-				content.Title, content.MetaDescription, ogImage, fullPath, jsonLD)
+				content.Title, content.MetaDescription, ogImage, canonical, head)
 			return
 		}
 	}
 
 	rendered := h.renderContent(content, &tmpl)
+	head := h.pageSEOHead(r, content, &tmpl, ogImage, rendered)
 	if activeFork != nil {
 		rendered = forkPreviewBar(activeFork) + rendered
 	}
 	h.renderPublicWithSEO(w, r, theme, rendered, content.UseHeader, content.UseFooter,
-		content.Title, content.MetaDescription, ogImage, fullPath, jsonLD)
+		content.Title, content.MetaDescription, ogImage, canonical, head)
 }
 
 // forkPreviewBar returns the HTML for the floating preview bar injected during fork preview.
@@ -3907,8 +3944,13 @@ func (h *Handler) renderPublicWithSEO(w http.ResponseWriter, r *http.Request, th
 		"OGImage":         ogImage,
 		"CanonicalURL":    canonicalURL,
 	}
-	if len(structuredData) > 0 && structuredData[0] != "" {
-		data["StructuredData"] = template.HTML(structuredData[0])
+	head := ""
+	if len(structuredData) > 0 {
+		head = structuredData[0]
+	}
+	head += h.feedLinks(r, h.seoConfig(ctx), theme.SiteName)
+	if head != "" {
+		data["StructuredData"] = template.HTML(head)
 	}
 
 	// ETag and caching headers for public pages
@@ -5103,8 +5145,8 @@ func (h *Handler) GenerateSitemap(ctx context.Context, baseURL string) error {
 	// Get all published content
 	// Live pages only: soft-deleted pages and fork copies (which share their
 	// live page's path) don't belong in the sitemap.
-	cursor, err := h.db.FindMany(ctx, "content", bson.M{"published": true, "deleted": bson.M{"$ne": true}, "fork_id": nil},
-		options.Find().SetProjection(bson.M{"full_path": 1, "slug": 1, "category": 1, "updated_at": 1}))
+	cursor, err := h.db.FindMany(ctx, "content", bson.M{"published": true, "deleted": bson.M{"$ne": true}, "fork_id": nil, "noindex": bson.M{"$ne": true}},
+		options.Find().SetProjection(bson.M{"full_path": 1, "slug": 1, "category": 1, "updated_at": 1, "content_modified_at": 1}))
 	if err != nil {
 		return err
 	}
@@ -5159,7 +5201,7 @@ func (h *Handler) GenerateSitemap(ctx context.Context, baseURL string) error {
 			changefreq = "monthly"
 		}
 
-		lastmod := content.UpdatedAt.Format("2006-01-02")
+		lastmod := content.ModifiedAt().Format("2006-01-02")
 
 		sb.WriteString(fmt.Sprintf(`  <url>
     <loc>%s%s</loc>
@@ -5660,6 +5702,7 @@ func (h *Handler) FixBrokenLink(w http.ResponseWriter, r *http.Request) {
 
 // ServeSitemap serves the sitemap.xml file
 func (h *Handler) ServeSitemap(w http.ResponseWriter, r *http.Request) {
+	h.recordCrawler(r, "/sitemap.xml")
 	// Try to serve static file first
 	data, err := os.ReadFile("static/sitemap.xml")
 	if err != nil {
@@ -5681,26 +5724,6 @@ func (h *Handler) ServeSitemap(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
 	w.Header().Set("Cache-Control", "public, max-age=3600") // Cache for 1 hour
 	w.Write(data)
-}
-
-// ServeRobotsTxt serves robots.txt with sitemap reference
-func (h *Handler) ServeRobotsTxt(w http.ResponseWriter, r *http.Request) {
-	baseURL := h.baseURL
-	if baseURL == "" {
-		baseURL = "https://" + r.Host
-		if r.TLS == nil {
-			baseURL = "http://" + r.Host
-		}
-	}
-
-	robotsTxt := fmt.Sprintf(`User-agent: *
-Allow: /
-
-Sitemap: %s/sitemap.xml
-`, baseURL)
-
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.Write([]byte(robotsTxt))
 }
 
 // RegenerateSitemap is called after content changes to update sitemap

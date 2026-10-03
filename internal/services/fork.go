@@ -264,6 +264,9 @@ func (s *ForkService) Merge(ctx context.Context, forkID primitive.ObjectID, merg
 				"use_footer":       forkPage.UseFooter,
 				"use_theme":        forkPage.UseTheme,
 				"raw_mode":         forkPage.RawMode,
+				"noindex":          forkPage.NoIndex,
+				"author_name":      forkPage.AuthorName,
+				"author_url":       forkPage.AuthorURL,
 				"template_id":      forkPage.TemplateID,
 				"template_name":    forkPage.TemplateName,
 				"updated_at":       now,
@@ -400,6 +403,12 @@ func (s *ForkService) Diff(ctx context.Context, forkID primitive.ObjectID) ([]Fo
 		}
 		if live.OGImage != fp.OGImage {
 			d.Fields = append(d.Fields, FieldDiff{Name: "og_image", Live: live.OGImage, Fork: fp.OGImage})
+		}
+		if live.NoIndex != fp.NoIndex {
+			d.Fields = append(d.Fields, FieldDiff{Name: "noindex", Live: fmt.Sprint(live.NoIndex), Fork: fmt.Sprint(fp.NoIndex)})
+		}
+		if live.AuthorName != fp.AuthorName {
+			d.Fields = append(d.Fields, FieldDiff{Name: "author_name", Live: live.AuthorName, Fork: fp.AuthorName})
 		}
 
 		// Union of data field names from both sides, in sorted order.

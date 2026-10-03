@@ -5,7 +5,18 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/jonradoff/lightcms)](https://goreportcard.com/report/github.com/jonradoff/lightcms)
 [![lightcms MCP server](https://glama.ai/mcp/servers/jonradoff/lightcms/badges/score.svg)](https://glama.ai/mcp/servers/jonradoff/lightcms)
 
-LightCMS is a Go-powered content management system built for the AI era. It's simultaneously **AI-native** (semantic search, built-in Claude-powered chat widget, MCP server for agent control), **agentically controllable** (Claude Code and any MCP client can read, write, publish, and bulk-import content via 124 MCP tools), and **agentically updatable** (the codebase is clean, well-structured Go — coding agents can safely extend it). For teams that want a CMS that works with AI rather than around it.
+LightCMS is a Go-powered content management system built for the AI era. It's simultaneously **AI-native** (semantic search, built-in Claude-powered chat widget, MCP server for agent control), **agentically controllable** (Claude Code and any MCP client can read, write, publish, and bulk-import content via 127 MCP tools), and **agentically updatable** (the codebase is clean, well-structured Go — coding agents can safely extend it). For teams that want a CMS that works with AI rather than around it.
+
+## What's New in v7.3 — SEO & AI
+
+| Feature | Summary |
+|---------|---------|
+| **AI Traffic** | See which AI crawlers read your site (training vs. AI search vs. user-initiated fetches), what they read most, and how many visits ChatGPT, Perplexity, Claude, Gemini and Copilot send you. |
+| **AI Crawler Policy** | Allow or block AI training, AI search and user fetches separately, with per-crawler overrides and an optional Content-Signal line, rendered into robots.txt. |
+| **Markdown Copies** | Every page is also available as clean Markdown at `/<page>.md`, linked from the page and from llms.txt, so agents can read it without the HTML. |
+| **Richer Structured Data** | Authors, publisher with logo, breadcrumbs, FAQ markup, and modified dates that only move when the page content actually changes. |
+| **RSS & Atom Feeds** | `/feed.xml`, `/atom.xml` and per-collection feeds with full content. |
+| **Hide from Search & AI** | Per-page noindex that also removes the page from the sitemap, llms.txt, feeds and IndexNow. |
 
 ## What's New in v7.2
 

@@ -224,6 +224,7 @@ type trafficSummary struct {
 	DAU, MAU      int64
 	TopPages      []PageStat
 	TopReferrers  []ReferrerStat
+	AI            *AITrafficReport // AI crawlers and AI-assistant referrals
 }
 
 type pendingSummary struct {
@@ -285,6 +286,7 @@ func (s *AgentService) BuildDigest(ctx context.Context, cfg AgentConfig) (*Diges
 		t.MAU = s.analytics.GetMAU(ctx)
 		t.TopPages, _ = s.analytics.GetTopPages(ctx, since, until, 5, BotFilterHuman)
 		t.TopReferrers, _ = s.analytics.GetTopReferrers(ctx, since, until, 5, BotFilterHuman)
+		t.AI, _ = s.analytics.GetAITraffic(ctx, since, until, 3)
 		d.Traffic = t
 	}
 
@@ -492,6 +494,20 @@ func renderDigest(d *DigestData) (htmlBody, textBody string) {
 		}
 		for _, r := range d.Traffic.TopReferrers {
 			line("• %d hits from %s", r.Hits, esc(r.Domain))
+		}
+		if ai := d.Traffic.AI; ai != nil && (ai.AICrawlerHits > 0 || ai.ReferralTotal > 0) {
+			byP := map[string]int{}
+			for _, p := range ai.ByPurpose {
+				byP[p.Purpose] = p.Hits
+			}
+			line("AI visibility: %d AI crawler requests (training %d, AI search %d, user fetch %d) — %d visits from AI assistants",
+				ai.AICrawlerHits, byP[CrawlerPurposeTraining], byP[CrawlerPurposeAISearch], byP[CrawlerPurposeUserFetch], ai.ReferralTotal)
+			for _, r := range ai.Referrals {
+				line("• %d visits from %s", r.Hits, esc(r.Assistant))
+			}
+			for _, p := range ai.TopCrawledPages {
+				line(`• Read by AI %d times — <a href="%s%s">%s</a>`, p.Hits, d.BaseURL, esc(p.Path), esc(p.Path))
+			}
 		}
 	}
 

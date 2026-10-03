@@ -142,6 +142,32 @@ func (s *ContentService) notifyIndexNow(ctx context.Context, paths ...string) {
 	s.indexNow.Notify(paths...)
 }
 
+// NotifyLiveChange tells IndexNow which public URLs a change affected:
+// a page going live, going away (after == nil means deleted), moving, or
+// being hidden from / returned to search. Content edits themselves are
+// notified from static generation when the rendered HTML changes. Exported
+// for handlers that write to the database directly (the admin editor).
+func (s *ContentService) NotifyLiveChange(ctx context.Context, before, after *models.Content) {
+	if before == nil || before.ForkID != nil {
+		return
+	}
+	wasLive := before.Published && !before.Deleted
+	isLive := after != nil && after.Published && !after.Deleted
+	switch {
+	case isLive && !wasLive:
+		s.notifyIndexNow(ctx, after.FullPath)
+	case wasLive && !isLive:
+		s.notifyIndexNow(ctx, before.FullPath)
+	case wasLive && isLive:
+		if before.FullPath != after.FullPath {
+			s.notifyIndexNow(ctx, before.FullPath, after.FullPath)
+		}
+		if before.NoIndex != after.NoIndex {
+			s.notifyIndexNow(ctx, after.FullPath)
+		}
+	}
+}
+
 // PurgeCloudflareURLs purges specific paths from the Cloudflare cache.
 // No-op if Cloudflare is not configured.
 func (s *ContentService) PurgeCloudflareURLs(paths []string) {
@@ -321,6 +347,9 @@ func (s *ContentService) UpsertContent(ctx context.Context, content *models.Cont
 		existing.UseFooter = content.UseFooter
 		existing.UseTheme = content.UseTheme
 		existing.RawMode = content.RawMode
+		existing.NoIndex = content.NoIndex
+		existing.AuthorName = content.AuthorName
+		existing.AuthorURL = content.AuthorURL
 		if content.Published {
 			existing.Published = true
 		}
@@ -518,6 +547,9 @@ func (s *ContentService) UpdateContent(ctx context.Context, content *models.Cont
 			"use_footer":       content.UseFooter,
 			"use_theme":        content.UseTheme,
 			"raw_mode":         content.RawMode,
+			"noindex":          content.NoIndex,
+			"author_name":      content.AuthorName,
+			"author_url":       content.AuthorURL,
 			"internal_links":   content.InternalLinks,
 			"updated_at":       content.UpdatedAt,
 		},
@@ -558,16 +590,7 @@ func (s *ContentService) UpdateContent(ctx context.Context, content *models.Cont
 
 	// Tell search engines about live-URL transitions. Edits to published
 	// pages are notified from static generation, only when the HTML changed.
-	if content.ForkID == nil {
-		if content.Published && !original.Published {
-			s.notifyIndexNow(ctx, content.FullPath) // newly live
-		} else if !content.Published && original.Published {
-			s.notifyIndexNow(ctx, original.FullPath) // gone
-		}
-		if original.Published && original.FullPath != content.FullPath {
-			s.notifyIndexNow(ctx, original.FullPath, content.FullPath) // moved
-		}
-	}
+	s.NotifyLiveChange(ctx, &original, content)
 
 	// Rebuild search keyword cache when content changes
 	s.triggerKeywordRebuild()
@@ -677,9 +700,7 @@ func (s *ContentService) DeleteContent(ctx context.Context, id primitive.ObjectI
 
 	// Remove static page
 	s.removeStaticPage(content.FullPath)
-	if content.Published && content.ForkID == nil {
-		s.notifyIndexNow(ctx, content.FullPath)
-	}
+	s.NotifyLiveChange(ctx, &content, nil)
 
 	// Rebuild search keyword cache
 	s.triggerKeywordRebuild()
@@ -1273,8 +1294,18 @@ func (s *ContentService) generateStaticPageWithWikilinkIndex(ctx context.Context
 	}
 
 	// Update content hash in DB
+	// content_modified_at records when the rendered page actually changed —
+	// accurate dateModified / lastmod / feed dates, unlike updated_at, which
+	// moves on no-op saves. A site-wide re-render (WithoutIndexNow) changes
+	// layout, not content, so it doesn't count.
 	content.ContentHash = hash
-	s.db.UpdateOne(ctx, "content", bson.M{"_id": content.ID}, bson.M{"$set": bson.M{"content_hash": hash}})
+	set := bson.M{"content_hash": hash}
+	if suppressed, _ := ctx.Value(indexNowSuppressKey{}).(bool); !suppressed {
+		now := time.Now()
+		content.ContentModifiedAt = &now
+		set["content_modified_at"] = now
+	}
+	s.db.UpdateOne(ctx, "content", bson.M{"_id": content.ID}, bson.M{"$set": set})
 
 	// The rendered page actually changed — tell search engines.
 	s.notifyIndexNow(ctx, content.FullPath)

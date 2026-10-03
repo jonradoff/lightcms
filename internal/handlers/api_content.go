@@ -254,6 +254,9 @@ func (a *APIHandler) APICreateContent(w http.ResponseWriter, r *http.Request) {
 		Tags            []string               `json:"tags"`
 		MetaDescription string                 `json:"meta_description"`
 		OGImage         string                 `json:"og_image"`
+		NoIndex         bool                   `json:"noindex"`
+		AuthorName      string                 `json:"author_name"`
+		AuthorURL       string                 `json:"author_url"`
 		Data            map[string]interface{} `json:"data"`
 		Published       bool                   `json:"published"`
 		UseHeader       bool                   `json:"use_header"`
@@ -342,6 +345,9 @@ func (a *APIHandler) APICreateContent(w http.ResponseWriter, r *http.Request) {
 		Tags:            req.Tags,
 		MetaDescription: req.MetaDescription,
 		OGImage:         req.OGImage,
+		NoIndex:         req.NoIndex,
+		AuthorName:      req.AuthorName,
+		AuthorURL:       req.AuthorURL,
 		Data:            req.Data,
 		Published:       req.Published,
 		UseHeader:       req.UseHeader,
@@ -463,6 +469,15 @@ func (a *APIHandler) APIUpdateContent(w http.ResponseWriter, r *http.Request) {
 	}
 	if v, ok := raw["og_image"]; ok {
 		json.Unmarshal(v, &content.OGImage)
+	}
+	if v, ok := raw["noindex"]; ok {
+		json.Unmarshal(v, &content.NoIndex)
+	}
+	if v, ok := raw["author_name"]; ok {
+		json.Unmarshal(v, &content.AuthorName)
+	}
+	if v, ok := raw["author_url"]; ok {
+		json.Unmarshal(v, &content.AuthorURL)
 	}
 	if v, ok := raw["data"]; ok {
 		json.Unmarshal(v, &content.Data)
@@ -1346,6 +1361,15 @@ func (a *APIHandler) APIUpdateContentByPath(w http.ResponseWriter, r *http.Reque
 	if v, ok := raw["og_image"]; ok {
 		json.Unmarshal(v, &content.OGImage)
 	}
+	if v, ok := raw["noindex"]; ok {
+		json.Unmarshal(v, &content.NoIndex)
+	}
+	if v, ok := raw["author_name"]; ok {
+		json.Unmarshal(v, &content.AuthorName)
+	}
+	if v, ok := raw["author_url"]; ok {
+		json.Unmarshal(v, &content.AuthorURL)
+	}
 	if v, ok := raw["published"]; ok {
 		json.Unmarshal(v, &content.Published)
 	}
@@ -1748,6 +1772,9 @@ func (a *APIHandler) APIBulkCreateContent(w http.ResponseWriter, r *http.Request
 			Tags            []string               `json:"tags"`
 			MetaDescription string                 `json:"meta_description"`
 			OGImage         string                 `json:"og_image"`
+			NoIndex         bool                   `json:"noindex"`
+			AuthorName      string                 `json:"author_name"`
+			AuthorURL       string                 `json:"author_url"`
 			Data            map[string]interface{} `json:"data"`
 			Published       bool                   `json:"published"`
 			UseHeader       bool                   `json:"use_header"`
@@ -1814,6 +1841,9 @@ func (a *APIHandler) APIBulkCreateContent(w http.ResponseWriter, r *http.Request
 			Tags:            item.Tags,
 			MetaDescription: item.MetaDescription,
 			OGImage:         item.OGImage,
+			NoIndex:         item.NoIndex,
+			AuthorName:      item.AuthorName,
+			AuthorURL:       item.AuthorURL,
 			Data:            item.Data,
 			Published:       item.Published,
 			UseHeader:       item.UseHeader,
@@ -2170,6 +2200,7 @@ func (a *APIHandler) APIBulkFieldOperation(w http.ResponseWriter, r *http.Reques
 		"fork_id": true, "category": true, "tags": true, "meta_description": true,
 		"og_image": true, "content_hash": true, "use_header": true, "use_footer": true,
 		"use_theme": true, "raw_mode": true, "locked_by": true, "locked_at": true,
+		"noindex": true, "author_name": true, "author_url": true, "content_modified_at": true,
 	}
 	if blockedFields[req.Field] {
 		a.jsonError(w, http.StatusBadRequest, "cannot modify system field via bulk field operation")

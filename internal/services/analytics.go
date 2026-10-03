@@ -58,6 +58,8 @@ type AnalyticsService struct {
 	bufPageRefHuman   map[string]map[string]int // hourKey → "path||source" → count (non-bot)
 	bufPageRefBot     map[string]map[string]int // hourKey → "path||source" → count (bot)
 	bufUserAgents     map[string]map[string]int // hourKey → category → count
+	bufAIBots         map[string]map[string]int // hourKey → crawler token → hits
+	bufAIBotPages     map[string]map[string]int // hourKey → "path||token" → hits
 }
 
 // NewAnalyticsService creates a new AnalyticsService, ensures required indexes
@@ -83,6 +85,8 @@ func NewAnalyticsService(ctx context.Context, db *database.DB, baseURL string) *
 		bufPageRefHuman:   make(map[string]map[string]int),
 		bufPageRefBot:     make(map[string]map[string]int),
 		bufUserAgents:     make(map[string]map[string]int),
+		bufAIBots:         make(map[string]map[string]int),
+		bufAIBotPages:     make(map[string]map[string]int),
 	}
 
 	col := db.Collection(activityCollection)
@@ -207,6 +211,8 @@ func (s *AnalyticsService) flushBuffer() {
 	prH := s.bufPageRefHuman
 	prB := s.bufPageRefBot
 	ua := s.bufUserAgents
+	aib := s.bufAIBots
+	aibp := s.bufAIBotPages
 	s.bufPageViews = make(map[string]map[string]int)
 	s.bufPageViewsHuman = make(map[string]map[string]int)
 	s.bufPageViewsBot = make(map[string]map[string]int)
@@ -215,11 +221,13 @@ func (s *AnalyticsService) flushBuffer() {
 	s.bufPageRefHuman = make(map[string]map[string]int)
 	s.bufPageRefBot = make(map[string]map[string]int)
 	s.bufUserAgents = make(map[string]map[string]int)
+	s.bufAIBots = make(map[string]map[string]int)
+	s.bufAIBotPages = make(map[string]map[string]int)
 	s.bufMu.Unlock()
 
 	// Collect all hour keys across all maps.
 	hourKeys := make(map[string]struct{})
-	for _, m := range []map[string]map[string]int{pv, pvH, pvB, refH, refB, prH, prB, ua} {
+	for _, m := range []map[string]map[string]int{pv, pvH, pvB, refH, refB, prH, prB, ua, aib, aibp} {
 		for hk := range m {
 			hourKeys[hk] = struct{}{}
 		}
@@ -287,6 +295,18 @@ func (s *AnalyticsService) flushBuffer() {
 		if m, ok := ua[hk]; ok {
 			for cat, count := range m {
 				inc["user_agents."+escapeMongoKey(cat)] = count
+			}
+		}
+
+		// Known crawlers: ai_bots.{token}, ai_bot_pages.{path||token}
+		if m, ok := aib[hk]; ok {
+			for token, count := range m {
+				inc["ai_bots."+escapeMongoKey(token)] = count
+			}
+		}
+		if m, ok := aibp[hk]; ok {
+			for key, count := range m {
+				inc["ai_bot_pages."+escapeMongoKey(key)] = count
 			}
 		}
 
@@ -448,7 +468,11 @@ func classifyUserAgent(ua string) string {
 		return "Unknown"
 	}
 	lower := strings.ToLower(ua)
-	// Bots first
+	// Bots first. Known crawlers count even when their UA lacks a generic
+	// marker (e.g. Perplexity-User).
+	if IdentifyCrawler(ua) != nil {
+		return "Bot"
+	}
 	for _, bot := range []string{"bot", "crawler", "spider", "slurp", "wget", "curl", "python", "go-http", "headless"} {
 		if strings.Contains(lower, bot) {
 			return "Bot"
