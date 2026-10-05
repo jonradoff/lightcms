@@ -1,18 +1,18 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.jonradoff/lightcms",
-  "description": "AI-native CMS with 41 MCP tools for managing websites through natural language.",
+  "description": "AI-native, open-source CMS (Go) with 128 MCP tools: content, agent sandbox, SEO & AI.",
   "repository": {
     "url": "https://github.com/jonradoff/lightcms",
     "source": "github"
   },
-  "version": "1.1.0",
+  "version": "7.3.4",
   "packages": [
     {
       "registryType": "mcpb",
-      "identifier": "https://github.com/jonradoff/lightcms/releases/download/v1.1.0/lightcms-darwin-arm64.mcpb",
-      "version": "1.1.0",
-      "fileSha256": "5777bf754d6bdaef9e00361dfb821f88ae8190ed4420c15d571de06afd66564e",
+      "identifier": "https://github.com/jonradoff/lightcms/releases/download/v7.3.4/lightcms-darwin-arm64.mcpb",
+      "version": "7.3.4",
+      "fileSha256": "0032ebc4415ab686661f6a3e467884b2ffc18f4a95c59e14c788769c5a6e933d",
       "transport": {
         "type": "stdio"
       },
@@ -26,7 +26,82 @@
         },
         {
           "name": "LIGHTCMS_API_KEY",
-          "description": "API key for authentication. Create one in the admin panel at /cm → Settings → API Keys.",
+          "description": "API key for authentication. Create one in the admin panel at /cm \u2192 Settings \u2192 API Keys.",
+          "isRequired": true,
+          "isSecret": true,
+          "format": "string"
+        }
+      ]
+    },
+    {
+      "registryType": "mcpb",
+      "identifier": "https://github.com/jonradoff/lightcms/releases/download/v7.3.4/lightcms-darwin-amd64.mcpb",
+      "version": "7.3.4",
+      "fileSha256": "4414e3fedd056a97a1598427b267f34d273164e6f82543a748b497eda472c1b2",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "LIGHTCMS_URL",
+          "description": "URL of your LightCMS instance (e.g., https://example.com or http://localhost:8082)",
+          "isRequired": true,
+          "isSecret": false,
+          "format": "string"
+        },
+        {
+          "name": "LIGHTCMS_API_KEY",
+          "description": "API key for authentication. Create one in the admin panel at /cm \u2192 Settings \u2192 API Keys.",
+          "isRequired": true,
+          "isSecret": true,
+          "format": "string"
+        }
+      ]
+    },
+    {
+      "registryType": "mcpb",
+      "identifier": "https://github.com/jonradoff/lightcms/releases/download/v7.3.4/lightcms-linux-amd64.mcpb",
+      "version": "7.3.4",
+      "fileSha256": "afbfa42fc9ed3f7554a2f9c906a322b6a05399742022d36e3800656c48285269",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "LIGHTCMS_URL",
+          "description": "URL of your LightCMS instance (e.g., https://example.com or http://localhost:8082)",
+          "isRequired": true,
+          "isSecret": false,
+          "format": "string"
+        },
+        {
+          "name": "LIGHTCMS_API_KEY",
+          "description": "API key for authentication. Create one in the admin panel at /cm \u2192 Settings \u2192 API Keys.",
+          "isRequired": true,
+          "isSecret": true,
+          "format": "string"
+        }
+      ]
+    },
+    {
+      "registryType": "mcpb",
+      "identifier": "https://github.com/jonradoff/lightcms/releases/download/v7.3.4/lightcms-linux-arm64.mcpb",
+      "version": "7.3.4",
+      "fileSha256": "904b9018f421f24d82a7d2dba04c44f253d91fed5a140d63f5203e281abf961d",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "LIGHTCMS_URL",
+          "description": "URL of your LightCMS instance (e.g., https://example.com or http://localhost:8082)",
+          "isRequired": true,
+          "isSecret": false,
+          "format": "string"
+        },
+        {
+          "name": "LIGHTCMS_API_KEY",
+          "description": "API key for authentication. Create one in the admin panel at /cm \u2192 Settings \u2192 API Keys.",
           "isRequired": true,
           "isSecret": true,
           "format": "string"

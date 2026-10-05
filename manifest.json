@@ -2,9 +2,9 @@
   "manifest_version": "0.3",
   "name": "lightcms",
   "display_name": "LightCMS",
-  "version": "3.3.1",
-  "description": "AI-native content management system with 41 MCP tools for creating, managing, and publishing website content through natural language.",
-  "long_description": "LightCMS is a lightweight, AI-native CMS built with Go and MongoDB Atlas. The MCP server provides complete website management: create and publish pages, manage templates, upload assets, customize themes, set up redirects, organize content with folders and collections, search and replace across your site, and track content versions with rollback capability. Connects via REST API with API key authentication \u2014 no direct database access needed.",
+  "version": "7.3.4",
+  "description": "AI-native content management system with 128 MCP tools for creating, managing, and publishing website content through natural language.",
+  "long_description": "LightCMS is a lightweight, AI-native, open-source CMS built with Go and MongoDB. The MCP server provides complete website management: create, edit and publish pages; templates, snippets, assets and themes; redirects, folders and collections; multi-pair search and replace; version history with rollback; agent sandbox sessions (fork-based, human-reviewed merges) and session rollback; content approvals and comments; imports, scheduling and webhooks; maintenance reports; IndexNow and SEO & AI settings (AI crawler policy, feeds, Markdown copies); and AI traffic analytics. Connects via REST API with API key authentication — no direct database access needed.",
   "author": {
     "name": "Jon Radoff",
     "url": "https://metavert.io"
@@ -14,7 +14,7 @@
     "url": "https://github.com/jonradoff/lightcms.git"
   },
   "homepage": "https://metavert.io",
-  "documentation": "https://github.com/jonradoff/lightcms/blob/master/README.md",
+  "documentation": "https://github.com/jonradoff/lightcms/blob/main/README.md",
   "support": "https://github.com/jonradoff/lightcms/issues",
   "server": {
     "type": "binary",
@@ -30,20 +30,112 @@
   },
   "tools": [
     {
+      "name": "list_approval_workflows",
+      "description": "List all configured approval workflows"
+    },
+    {
+      "name": "get_approval_workflow",
+      "description": "Get a single approval workflow by ID"
+    },
+    {
+      "name": "create_approval_workflow",
+      "description": "Create a new approval workflow"
+    },
+    {
+      "name": "update_approval_workflow",
+      "description": "Update an existing approval workflow"
+    },
+    {
+      "name": "delete_approval_workflow",
+      "description": "Delete an approval workflow"
+    },
+    {
+      "name": "list_approval_requests",
+      "description": "List pending approval requests"
+    },
+    {
+      "name": "get_approval_request",
+      "description": "Get details of a single approval request including decisions so far"
+    },
+    {
+      "name": "submit_for_approval",
+      "description": "Explicitly submit a content item for editorial approval"
+    },
+    {
+      "name": "approve_request",
+      "description": "Approve an approval request"
+    },
+    {
+      "name": "reject_request",
+      "description": "Reject an approval request"
+    },
+    {
+      "name": "cancel_approval_request",
+      "description": "Cancel a pending approval request"
+    },
+    {
+      "name": "list_assets",
+      "description": "List all assets in the asset library"
+    },
+    {
+      "name": "list_asset_folders",
+      "description": "List all unique folder paths in the asset library"
+    },
+    {
+      "name": "get_asset",
+      "description": "Get asset metadata by ID or path"
+    },
+    {
+      "name": "upload_asset",
+      "description": "Upload or replace an asset in the asset library"
+    },
+    {
+      "name": "upload_asset_from_url",
+      "description": "Fetch a public URL and store it as a LightCMS asset"
+    },
+    {
+      "name": "delete_asset",
+      "description": "Delete an asset from the library"
+    },
+    {
+      "name": "list_audit_logs",
+      "description": "List recent audit log entries"
+    },
+    {
+      "name": "list_comments",
+      "description": "List all discussion comments on a content item"
+    },
+    {
+      "name": "create_comment",
+      "description": "Post a discussion comment on a content item"
+    },
+    {
+      "name": "delete_comment",
+      "description": "Delete a discussion comment"
+    },
+    {
       "name": "list_content",
       "description": "List all content items with optional filters"
     },
     {
       "name": "get_content",
-      "description": "Get a content item by ID or path"
+      "description": "Get a single content item by ID or path"
     },
     {
       "name": "create_content",
-      "description": "Create a new content item from a template"
+      "description": "Create a new content item"
     },
     {
       "name": "update_content",
-      "description": "Update an existing content item"
+      "description": "Update an existing content item by ID"
+    },
+    {
+      "name": "publish_content",
+      "description": "Publish a content item, making it visible on the public site"
+    },
+    {
+      "name": "unpublish_content",
+      "description": "Unpublish a content item, removing it from the public site"
     },
     {
       "name": "delete_content",
@@ -51,39 +143,351 @@
     },
     {
       "name": "restore_content",
-      "description": "Restore a deleted content item"
-    },
-    {
-      "name": "publish_content",
-      "description": "Publish a content item to the live site"
-    },
-    {
-      "name": "unpublish_content",
-      "description": "Remove a content item from the live site"
+      "description": "Restore a soft-deleted content item"
     },
     {
       "name": "get_content_versions",
-      "description": "Get version history for a content item"
+      "description": "Get the version history for a content item"
     },
     {
       "name": "get_content_version",
-      "description": "Get a specific version of a content item"
+      "description": "Get a specific version of a content item with full field data"
     },
     {
       "name": "revert_to_version",
       "description": "Revert content to a previous version"
     },
     {
+      "name": "publish_multiple",
+      "description": "Publish multiple content items in a single call"
+    },
+    {
+      "name": "preview_content",
+      "description": "Render a content item's HTML without saving or publishing"
+    },
+    {
+      "name": "update_content_by_path",
+      "description": "Update content identified by its URL path instead of its ID"
+    },
+    {
+      "name": "scoped_search_replace_preview",
+      "description": "Preview a search-and-replace limited to a subset of pages"
+    },
+    {
+      "name": "get_backlinks",
+      "description": "Find all published pages that link to the given URL path"
+    },
+    {
+      "name": "scoped_search_replace_execute",
+      "description": "Execute a search-and-replace limited to a subset of pages"
+    },
+    {
+      "name": "bulk_create_content",
+      "description": "Create up to 100 content items in a single call using efficient batch insert"
+    },
+    {
+      "name": "bulk_update_content",
+      "description": "Update up to 100 content items in a single call"
+    },
+    {
+      "name": "bulk_field_operation",
+      "description": "Apply a single field operation to all matching content pages in one call"
+    },
+    {
+      "name": "export_content",
+      "description": "Export content items with their full field data as a structured JSON array"
+    },
+    {
+      "name": "list_forks",
+      "description": "List all content fork workspaces"
+    },
+    {
+      "name": "create_fork",
+      "description": "Create a new named fork workspace for staging content changes"
+    },
+    {
+      "name": "get_fork",
+      "description": "Get details of a fork workspace including its status and list of pages"
+    },
+    {
+      "name": "fork_page",
+      "description": "Copy a live page into a fork workspace so you can edit it without affecting the public site"
+    },
+    {
+      "name": "remove_fork_page",
+      "description": "Remove a page from a fork workspace (discards the fork copy, does not affect the live page)"
+    },
+    {
+      "name": "merge_fork",
+      "description": "Merge all pages in a fork workspace into live content"
+    },
+    {
+      "name": "archive_fork",
+      "description": "Archive a fork without merging it"
+    },
+    {
+      "name": "delete_fork",
+      "description": "Permanently delete a fork and all its pages"
+    },
+    {
+      "name": "list_import_sources",
+      "description": "List all configured RSS/Atom import sources"
+    },
+    {
+      "name": "create_import_source",
+      "description": "Create a new RSS/Atom import source that automatically pulls content from a feed"
+    },
+    {
+      "name": "update_import_source",
+      "description": "Update an RSS import source configuration"
+    },
+    {
+      "name": "delete_import_source",
+      "description": "Delete an RSS import source"
+    },
+    {
+      "name": "trigger_import_source",
+      "description": "Manually trigger an RSS import source to run immediately"
+    },
+    {
+      "name": "import_markdown",
+      "description": "Import one or more Markdown pages into LightCMS"
+    },
+    {
+      "name": "import_csv",
+      "description": "Import content from CSV data"
+    },
+    {
+      "name": "list_import_jobs",
+      "description": "List recent import jobs with their status and results"
+    },
+    {
+      "name": "get_import_job",
+      "description": "Get the status, results, and log of a specific import job"
+    },
+    {
+      "name": "cancel_import_job",
+      "description": "Cancel a running import job"
+    },
+    {
+      "name": "start_link_check",
+      "description": "Start an asynchronous broken-link check across all published content"
+    },
+    {
+      "name": "get_link_check_results",
+      "description": "Get the status and results of a link check job"
+    },
+    {
+      "name": "get_content_lock",
+      "description": "Get the current advisory lock status for a content item"
+    },
+    {
+      "name": "acquire_content_lock",
+      "description": "Acquire an advisory lock on a content item for the current API user"
+    },
+    {
+      "name": "release_content_lock",
+      "description": "Release the advisory lock on a content item held by the current API user"
+    },
+    {
+      "name": "force_unlock_content",
+      "description": "Admin only: force-release any lock on a content item regardless of who holds it"
+    },
+    {
+      "name": "start_agent_sandbox",
+      "description": "Start a sandboxed editing session backed by a content fork (\"pull request for content\")"
+    },
+    {
+      "name": "get_agent_sandbox",
+      "description": "Show whether an agent sandbox is active, and if so its fork ID, name, and the pages changed so far (with per-field diffs against live)"
+    },
+    {
+      "name": "end_agent_sandbox",
+      "description": "End the sandbox session"
+    },
+    {
+      "name": "get_fork_diff",
+      "description": "Per-field differences between each page in a fork and its live counterpart — the review surface for merging a fork"
+    },
+    {
+      "name": "get_agent_session_changes",
+      "description": "The audit ledger for an agent session: every content item it changed, with actions and timestamps"
+    },
+    {
+      "name": "rollback_agent_session",
+      "description": "Undo every content change made by an agent session as a unit: content the session created is soft-deleted, deleted content is restored, and updated content reve"
+    },
+    {
+      "name": "get_maintenance_report",
+      "description": "The latest site-health scan: stale pages (no update in ~6 months), published pages missing meta descriptions, and lingering drafts"
+    },
+    {
+      "name": "backfill_published_dates",
+      "description": "Give published pages that have no published date (created before v7.3.2) a published date equal to their creation date, for structured data and feeds"
+    },
+    {
+      "name": "run_maintenance_scan",
+      "description": "Run a site-health scan now and return the fresh report"
+    },
+    {
+      "name": "get_indexnow_status",
+      "description": "IndexNow notifies Bing, Yandex and other engines when pages change"
+    },
+    {
+      "name": "set_indexnow_enabled",
+      "description": "Turn automatic IndexNow submission on or off for this site (on by default)"
+    },
+    {
+      "name": "submit_indexnow",
+      "description": "Submit pages to IndexNow now"
+    },
+    {
+      "name": "get_seo_settings",
+      "description": "The site's search & AI settings: AI crawler policy (training / AI search / user fetch, per-crawler overrides) with the resulting robots.txt, Markdown copies, de"
+    },
+    {
+      "name": "update_seo_settings",
+      "description": "Change search & AI settings"
+    },
+    {
+      "name": "get_ai_traffic",
+      "description": "AI visibility report: requests from AI crawlers by purpose (training, AI search, user-initiated fetch) and by crawler, the pages AI reads most, visits referred "
+    },
+    {
+      "name": "schedule_content_publish",
+      "description": "Set a future publish date/time for a content item"
+    },
+    {
+      "name": "cancel_scheduled_publish",
+      "description": "Clear the scheduled publish time for a content item"
+    },
+    {
+      "name": "list_scheduled_content",
+      "description": "List all unpublished content items that have a scheduled publish time set"
+    },
+    {
+      "name": "search_content",
+      "description": "Search across all content items by title or full text"
+    },
+    {
+      "name": "search_replace_preview",
+      "description": "Preview a site-wide search-and-replace without making any changes"
+    },
+    {
+      "name": "search_replace_execute",
+      "description": "Execute a site-wide search-and-replace across all content"
+    },
+    {
+      "name": "end_user_search",
+      "description": "Search published content using full-text exact match, semantic (AI) similarity, or hybrid mode"
+    },
+    {
+      "name": "reindex_embeddings",
+      "description": "Regenerate vector embeddings for all published content"
+    },
+    {
+      "name": "get_theme",
+      "description": "Get current theme settings including colors, fonts, and custom HTML for header/footer"
+    },
+    {
+      "name": "update_theme",
+      "description": "Update theme settings"
+    },
+    {
+      "name": "get_theme_versions",
+      "description": "Get the version history for theme settings"
+    },
+    {
+      "name": "get_theme_version",
+      "description": "Get a specific version of theme settings with full data"
+    },
+    {
+      "name": "revert_theme_to_version",
+      "description": "Revert theme to a previous version"
+    },
+    {
+      "name": "pin_theme_version",
+      "description": "Lock a theme version so it is protected from automatic pruning or accidental overwrite"
+    },
+    {
+      "name": "unpin_theme_version",
+      "description": "Remove the lock from a previously pinned theme version"
+    },
+    {
+      "name": "get_site_config",
+      "description": "Get site configuration including title templates"
+    },
+    {
+      "name": "update_site_config",
+      "description": "Update site configuration"
+    },
+    {
+      "name": "list_redirects",
+      "description": "List all URL redirects configured for the site"
+    },
+    {
+      "name": "create_redirect",
+      "description": "Create a new URL redirect"
+    },
+    {
+      "name": "update_redirect",
+      "description": "Update an existing redirect"
+    },
+    {
+      "name": "delete_redirect",
+      "description": "Delete a redirect"
+    },
+    {
+      "name": "list_folders",
+      "description": "List all content folders"
+    },
+    {
+      "name": "create_folder",
+      "description": "Create a new content folder"
+    },
+    {
+      "name": "get_folder",
+      "description": "Get a folder by ID"
+    },
+    {
+      "name": "delete_folder",
+      "description": "Delete an empty folder"
+    },
+    {
+      "name": "list_collections",
+      "description": "List all content collections"
+    },
+    {
+      "name": "create_collection",
+      "description": "Create a new content collection"
+    },
+    {
+      "name": "get_collection",
+      "description": "Get a collection by ID"
+    },
+    {
+      "name": "update_collection",
+      "description": "Update a collection's settings"
+    },
+    {
+      "name": "delete_collection",
+      "description": "Delete a collection"
+    },
+    {
+      "name": "regenerate_all_content",
+      "description": "Regenerate all published static HTML pages"
+    },
+    {
       "name": "list_templates",
-      "description": "List all available content templates"
+      "description": "List all available templates"
     },
     {
       "name": "get_template",
-      "description": "Get template details by ID or slug"
+      "description": "Get a single template by ID or slug"
     },
     {
       "name": "create_template",
-      "description": "Create a new content template"
+      "description": "Create a new template"
     },
     {
       "name": "update_template",
@@ -94,108 +498,48 @@
       "description": "Delete a template"
     },
     {
-      "name": "list_assets",
-      "description": "List all assets in the library"
+      "name": "list_webhooks",
+      "description": "List all registered webhooks"
     },
     {
-      "name": "get_asset",
-      "description": "Get asset metadata by ID or path"
+      "name": "create_webhook",
+      "description": "Create a new webhook"
     },
     {
-      "name": "upload_asset",
-      "description": "Upload a file to the asset library"
+      "name": "update_webhook",
+      "description": "Update an existing webhook (name, URL, events, active)"
     },
     {
-      "name": "delete_asset",
-      "description": "Delete an asset"
+      "name": "delete_webhook",
+      "description": "Permanently delete a webhook"
     },
     {
-      "name": "list_asset_folders",
-      "description": "List all asset folder paths"
+      "name": "regenerate_webhook_secret",
+      "description": "Generate a new HMAC-SHA256 signing secret for a webhook"
     },
     {
-      "name": "get_theme",
-      "description": "Get current theme settings"
+      "name": "list_webhook_deliveries",
+      "description": "List recent delivery attempts for a webhook"
     },
     {
-      "name": "update_theme",
-      "description": "Update theme colors, fonts, and HTML"
+      "name": "list_snippets",
+      "description": "List all snippets (reusable HTML fragments used in lc:query index pages)"
     },
     {
-      "name": "get_site_config",
-      "description": "Get site configuration"
+      "name": "get_snippet",
+      "description": "Get a snippet by ID"
     },
     {
-      "name": "update_site_config",
-      "description": "Update site configuration"
+      "name": "create_snippet",
+      "description": "Create a new snippet that renders one content item in an lc:query index page"
     },
     {
-      "name": "list_redirects",
-      "description": "List all URL redirects"
+      "name": "update_snippet",
+      "description": "Update an existing snippet's name and/or HTML template"
     },
     {
-      "name": "create_redirect",
-      "description": "Create a URL redirect"
-    },
-    {
-      "name": "update_redirect",
-      "description": "Update a redirect"
-    },
-    {
-      "name": "delete_redirect",
-      "description": "Delete a redirect"
-    },
-    {
-      "name": "list_folders",
-      "description": "List content folders"
-    },
-    {
-      "name": "get_folder",
-      "description": "Get folder details"
-    },
-    {
-      "name": "create_folder",
-      "description": "Create a content folder"
-    },
-    {
-      "name": "delete_folder",
-      "description": "Delete an empty folder"
-    },
-    {
-      "name": "list_collections",
-      "description": "List content collections"
-    },
-    {
-      "name": "get_collection",
-      "description": "Get collection details"
-    },
-    {
-      "name": "create_collection",
-      "description": "Create a content collection"
-    },
-    {
-      "name": "update_collection",
-      "description": "Update a collection"
-    },
-    {
-      "name": "delete_collection",
-      "description": "Delete a collection"
-    },
-    {
-      "name": "search_content",
-      "description": "Full-text search across all content"
-    },
-    {
-      "name": "search_replace_preview",
-      "description": "Preview search and replace results"
-    },
-    {
-      "name": "search_replace_execute",
-      "description": "Execute search and replace across content"
-    },
-    {
-      "name": "regenerate_all_content",
-      "description": "Regenerate all published static pages"
+      "name": "delete_snippet",
+      "description": "Delete a snippet by ID"
     }
   ],
   "keywords": [
@@ -227,7 +571,7 @@
     "api_key": {
       "type": "string",
       "title": "API Key",
-      "description": "Your LightCMS API key. Create one in the admin panel at /cm \u2192 Settings \u2192 API Keys.",
+      "description": "Your LightCMS API key. Create one in the admin panel at /cm → Settings → API Keys.",
       "sensitive": true,
       "required": true
     }
