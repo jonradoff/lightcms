@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -399,5 +400,20 @@ func TestPublishedAtStampAndBackfill(t *testing.T) {
 	}
 	if n, _ := svc.BackfillPublishedDates(ctx, true); n != 0 {
 		t.Errorf("not idempotent: %d left", n)
+	}
+}
+
+func TestRemoveStaticPageEmptyPathKeepsHomepage(t *testing.T) {
+	svc, cleanup := newTestContentService(t)
+	defer cleanup()
+	os.MkdirAll("content/generated", 0755)
+	home := "content/generated/index.html"
+	if _, err := os.Stat(home); err != nil {
+		os.WriteFile(home, []byte("home"), 0644)
+		defer os.Remove(home)
+	}
+	svc.removeStaticPage("")
+	if _, err := os.Stat(home); err != nil {
+		t.Fatal("empty full_path removed the homepage static file")
 	}
 }

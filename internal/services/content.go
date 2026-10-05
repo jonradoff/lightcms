@@ -1352,7 +1352,12 @@ func (s *ContentService) generateStaticPageWithWikilinkIndex(ctx context.Context
 
 // removeStaticPage removes the static HTML file for content
 func (s *ContentService) removeStaticPage(fullPath string) {
-	if fullPath == "" || fullPath == "/" {
+	if fullPath == "" {
+		// Legacy rows can have an empty full_path. Mapping that to /index
+		// would delete the homepage's static file.
+		return
+	}
+	if fullPath == "/" {
 		fullPath = "/index"
 	}
 	filePath := "content/generated" + fullPath + ".html"

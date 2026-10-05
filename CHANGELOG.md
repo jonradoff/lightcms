@@ -4,6 +4,13 @@ All notable changes to LightCMS are documented here, organized by version.
 
 ---
 
+## [7.3.4] - 2026-10-05
+
+### Fixed
+- Deleting or unpublishing a legacy page with an empty `full_path` no longer deletes the homepage's static file. The empty path was being treated as `/`.
+
+---
+
 ## [7.3.3] - 2026-10-05
 
 ### Fixed
