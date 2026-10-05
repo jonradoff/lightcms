@@ -347,3 +347,57 @@ func TestContentModifiedAtAndNoIndexNotify(t *testing.T) {
 		t.Errorf("draft edit notified: %v", p)
 	}
 }
+
+func TestPublishedAtStampAndBackfill(t *testing.T) {
+	svc, cleanup := newTestContentService(t)
+	defer cleanup()
+	ctx := context.Background()
+	tmplID := createTestTemplate(t, svc)
+
+	// Created already-published: gets a published date.
+	c := &models.Content{TemplateID: tmplID, Title: "Pub", Slug: "pub-stamp", Published: true, Data: map[string]interface{}{"content": "x"}}
+	if err := svc.CreateContent(ctx, c); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := svc.GetContent(ctx, c.ID)
+	if got.PublishedAt == nil {
+		t.Fatal("published_at not stamped on create")
+	}
+	// Drafts don't.
+	d := &models.Content{TemplateID: tmplID, Title: "Draft", Slug: "draft-stamp", Data: map[string]interface{}{"content": "x"}}
+	svc.CreateContent(ctx, d)
+	if got, _ := svc.GetContent(ctx, d.ID); got.PublishedAt != nil {
+		t.Error("draft got a published_at")
+	}
+
+	// Legacy rows without published_at.
+	created := time.Date(2026, 3, 1, 9, 0, 0, 0, time.UTC)
+	legacy := []interface{}{
+		bson.M{"title": "Old1", "full_path": "/old1", "published": true, "created_at": created},
+		bson.M{"title": "Old2", "full_path": "/old2", "published": true, "created_at": created, "published_at": nil},
+		bson.M{"title": "OldDraft", "full_path": "/old-draft", "published": false, "created_at": created},
+		bson.M{"title": "OldDeleted", "full_path": "/old-del", "published": true, "deleted": true, "created_at": created},
+	}
+	svc.db.Collection("content").InsertMany(ctx, legacy)
+
+	n, err := svc.BackfillPublishedDates(ctx, true)
+	if err != nil || n != 2 {
+		t.Fatalf("dry run = %d, %v; want 2", n, err)
+	}
+	if n, _ := svc.BackfillPublishedDates(ctx, false); n != 2 {
+		t.Fatalf("backfill updated %d, want 2", n)
+	}
+	var old models.Content
+	svc.db.FindOne(ctx, "content", bson.M{"full_path": "/old1"}, &old)
+	if old.PublishedAt == nil || !old.PublishedAt.Equal(created) {
+		t.Errorf("published_at = %v, want created_at %v", old.PublishedAt, created)
+	}
+	var draft models.Content
+	svc.db.FindOne(ctx, "content", bson.M{"full_path": "/old-draft"}, &draft)
+	if draft.PublishedAt != nil {
+		t.Error("draft backfilled")
+	}
+	if n, _ := svc.BackfillPublishedDates(ctx, true); n != 0 {
+		t.Errorf("not idempotent: %d left", n)
+	}
+}

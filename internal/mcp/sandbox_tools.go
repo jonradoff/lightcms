@@ -292,6 +292,10 @@ func (s *Server) registerGovernanceTools() {
 	})
 }
 
+type BackfillPublishedDatesInput struct {
+	DryRun bool `json:"dry_run,omitempty" jsonschema:"Only count the pages that would change"`
+}
+
 type MaintenanceScanInput struct {
 	LinkCheck bool `json:"link_check,omitempty" jsonschema:"Also start an async broken-link check job"`
 }
@@ -309,6 +313,22 @@ func (s *Server) registerMaintenanceTools() {
 			return errorResult(err), nil, nil
 		}
 		return jsonResult(report), nil, nil
+	})
+
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "backfill_published_dates",
+		Title:       "Backfill Published Dates",
+		Description: "Give published pages that have no published date (created before v7.3.2) a published date equal to their creation date, for structured data and feeds. Metadata only: pages don't re-render. Use dry_run first to see the count.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:        "Backfill Published Dates",
+			ReadOnlyHint: false, DestructiveHint: boolPtr(false), IdempotentHint: true, OpenWorldHint: boolPtr(false),
+		},
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args BackfillPublishedDatesInput) (*mcp.CallToolResult, any, error) {
+		res, err := s.client.BackfillPublishedDates(ctx, args.DryRun)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		return jsonResult(res), nil, nil
 	})
 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{

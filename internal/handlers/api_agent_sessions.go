@@ -86,3 +86,21 @@ func (a *APIHandler) APIMaintenanceScan(w http.ResponseWriter, r *http.Request) 
 	})
 	a.jsonResponse(w, http.StatusOK, report)
 }
+
+// APIBackfillPublishedDates sets published_at = created_at on published pages
+// missing a published date. ?dry_run=true only counts.
+func (a *APIHandler) APIBackfillPublishedDates(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermContentEdit) || !a.requirePermission(w, r, auth.PermSettingsEdit) {
+		return
+	}
+	dryRun := r.URL.Query().Get("dry_run") == "true"
+	n, err := a.contentService.BackfillPublishedDates(r.Context(), dryRun)
+	if err != nil {
+		a.jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if !dryRun {
+		a.auditLog(r, "maintenance.backfill_published_dates", "content", "", map[string]interface{}{"updated": n})
+	}
+	a.jsonResponse(w, http.StatusOK, map[string]interface{}{"dry_run": dryRun, "pages": n})
+}

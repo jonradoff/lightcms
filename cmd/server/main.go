@@ -668,6 +668,7 @@ func main() {
 	apiv1.HandleFunc("/indexnow", apiHandler.APIIndexNowUpdate).Methods("PUT")
 	apiv1.HandleFunc("/indexnow/submit", apiHandler.APIIndexNowSubmit).Methods("POST")
 	apiv1.HandleFunc("/maintenance/scan", apiHandler.APIMaintenanceScan).Methods("POST")
+	apiv1.HandleFunc("/maintenance/backfill-published-dates", apiHandler.APIBackfillPublishedDates).Methods("POST")
 	apiv1.HandleFunc("/forks/{id}/merge", apiHandler.APIMergeFork).Methods("POST")
 	apiv1.HandleFunc("/forks/{id}/archive", apiHandler.APIArchiveFork).Methods("POST")
 

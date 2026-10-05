@@ -4,6 +4,16 @@ All notable changes to LightCMS are documented here, organized by version.
 
 ---
 
+## [7.3.2] - 2026-10-05
+
+### Fixed
+- Pages created already-published (through the API, MCP, bulk create or import) now get a `published_at` date. Before this, only the explicit publish action set it, so such pages had no `datePublished` in structured data and sorted last in feeds. Unpublished drafts are unaffected.
+
+### Added
+- One-time backfill for pages affected by the bug above: `POST /api/v1/maintenance/backfill-published-dates` (with `?dry_run=true` to preview), or the `backfill_published_dates` MCP tool. It sets each affected page's `published_at` to its `created_at`. It changes metadata only (no re-render, no new versions) and records an audit-log entry. 128 MCP tools total.
+
+---
+
 ## [7.3.1] - 2026-10-02
 
 ### Fixed

@@ -1420,3 +1420,16 @@ func (c *Client) GetAITraffic(ctx context.Context, days int) (map[string]interfa
 	}
 	return result, nil
 }
+
+// BackfillPublishedDates sets published_at = created_at on published pages missing it.
+func (c *Client) BackfillPublishedDates(ctx context.Context, dryRun bool) (map[string]interface{}, error) {
+	path := "/maintenance/backfill-published-dates"
+	if dryRun {
+		path += "?dry_run=true"
+	}
+	var result map[string]interface{}
+	if err := c.do(ctx, "POST", path, nil, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}

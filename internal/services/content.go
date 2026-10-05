@@ -168,6 +168,40 @@ func (s *ContentService) NotifyLiveChange(ctx context.Context, before, after *mo
 	}
 }
 
+// stampPublishedAt records the publish time on content that is published
+// without one. Before 7.3.2 only PublishContent set it, so pages created
+// already-published (API, MCP, bulk, import) had no published date.
+func stampPublishedAt(c *models.Content) {
+	if c.Published && (c.PublishedAt == nil || c.PublishedAt.IsZero()) {
+		now := time.Now()
+		c.PublishedAt = &now
+	}
+}
+
+// BackfillPublishedDates sets published_at = created_at on live published
+// pages that have no published date (created before 7.3.2). Metadata only:
+// rendered pages don't change, so no versions, regeneration, or IndexNow.
+// With dryRun it only counts.
+func (s *ContentService) BackfillPublishedDates(ctx context.Context, dryRun bool) (int64, error) {
+	filter := bson.M{
+		"published": true,
+		"deleted":   bson.M{"$ne": true},
+		"fork_id":   bson.M{"$exists": false},
+		"$or":       bson.A{bson.M{"published_at": bson.M{"$exists": false}}, bson.M{"published_at": nil}},
+	}
+	col := s.db.Collection("content")
+	if dryRun {
+		return col.CountDocuments(ctx, filter)
+	}
+	res, err := col.UpdateMany(ctx, filter, mongo.Pipeline{
+		{{Key: "$set", Value: bson.D{{Key: "published_at", Value: "$created_at"}}}},
+	})
+	if err != nil {
+		return 0, fmt.Errorf("backfill published dates: %w", err)
+	}
+	return res.ModifiedCount, nil
+}
+
 // PurgeCloudflareURLs purges specific paths from the Cloudflare cache.
 // No-op if Cloudflare is not configured.
 func (s *ContentService) PurgeCloudflareURLs(paths []string) {
@@ -261,6 +295,7 @@ func (s *ContentService) CreateContent(ctx context.Context, content *models.Cont
 	now := time.Now()
 	content.CreatedAt = now
 	content.UpdatedAt = now
+	stampPublishedAt(content)
 
 	// Build full path
 	if content.FolderPath != "" && content.FolderPath != "/" {
@@ -389,6 +424,7 @@ func (s *ContentService) BulkCreateContent(ctx context.Context, items []*models.
 	for i, c := range items {
 		c.CreatedAt = now
 		c.UpdatedAt = now
+		stampPublishedAt(c)
 		c.ID = primitive.NewObjectID()
 
 		if c.FolderPath != "" && c.FolderPath != "/" {
@@ -502,6 +538,7 @@ func (s *ContentService) UpdateContent(ctx context.Context, content *models.Cont
 	}
 
 	content.UpdatedAt = time.Now()
+	stampPublishedAt(content)
 
 	// Build full path
 	if content.FolderPath != "" && content.FolderPath != "/" {

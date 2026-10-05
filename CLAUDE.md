@@ -91,7 +91,7 @@ Once connected, you can ask Claude to manage your content naturally:
 Binary: `bin/lightcms-mcp`
 Config: Uses same `config.dev.json` or environment variables as main server
 
-### Available MCP Tools (127 total):
+### Available MCP Tools (128 total):
 
 **Content (23 tools):** list_content, get_content, create_content, update_content, update_content_by_path, publish_content, publish_multiple, unpublish_content, delete_content, restore_content, preview_content, get_content_versions, get_content_version, revert_to_version, bulk_create_content, bulk_update_content, bulk_field_operation, export_content, get_backlinks
 
@@ -109,7 +109,7 @@ Config: Uses same `config.dev.json` or environment variables as main server
 
 **Comments (3 tools, v6.0+):** list_comments, create_comment, delete_comment
 
-**Agent Sandbox & Governance (8 tools, v7.0+):** start_agent_sandbox, get_agent_sandbox, end_agent_sandbox, get_fork_diff, get_agent_session_changes, rollback_agent_session, get_maintenance_report, run_maintenance_scan
+**Agent Sandbox & Governance (8 tools, v7.0+):** start_agent_sandbox, get_agent_sandbox, end_agent_sandbox, get_fork_diff, get_agent_session_changes, rollback_agent_session, get_maintenance_report, run_maintenance_scan, backfill_published_dates
 
 **IndexNow (3 tools, v7.2.3+):** get_indexnow_status, set_indexnow_enabled, submit_indexnow
 
