@@ -4,6 +4,13 @@ All notable changes to LightCMS are documented here, organized by version.
 
 ---
 
+## [7.3.3] - 2026-10-05
+
+### Fixed
+- sitemap.xml now regenerates when it is more than 10 minutes old. Previously only admin-UI edits refreshed it, so pages created, changed or hidden through the API or MCP could be missing from it or listed after removal.
+
+---
+
 ## [7.3.2] - 2026-10-05
 
 ### Fixed

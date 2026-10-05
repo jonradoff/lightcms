@@ -5701,10 +5701,18 @@ func (h *Handler) FixBrokenLink(w http.ResponseWriter, r *http.Request) {
 }
 
 // ServeSitemap serves the sitemap.xml file
+// sitemapMaxAge bounds how stale the generated sitemap.xml may get.
+const sitemapMaxAge = 10 * time.Minute
+
 func (h *Handler) ServeSitemap(w http.ResponseWriter, r *http.Request) {
 	h.recordCrawler(r, "/sitemap.xml")
-	// Try to serve static file first
+	// Serve the generated file, regenerating it when missing or stale. Only
+	// admin-UI edits trigger RegenerateSitemap, so API/MCP-driven changes
+	// would otherwise never reach the sitemap.
 	data, err := os.ReadFile("static/sitemap.xml")
+	if info, statErr := os.Stat("static/sitemap.xml"); statErr == nil && time.Since(info.ModTime()) > sitemapMaxAge {
+		err = os.ErrNotExist
+	}
 	if err != nil {
 		// Generate on the fly if file doesn't exist
 		baseURL := h.baseURL

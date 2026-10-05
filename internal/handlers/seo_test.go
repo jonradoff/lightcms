@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -345,5 +347,23 @@ func TestAPISEOSettingsAndAITraffic(t *testing.T) {
 	ah.APIAITraffic(rr, authReq(http.MethodGet, "/api/v1/analytics/ai?days=7", nil))
 	if rr.Code != 200 || !strings.Contains(rr.Body.String(), "by_purpose") {
 		t.Errorf("ai traffic: %d %s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestServeSitemapRegeneratesWhenStale(t *testing.T) {
+	h, _, cleanup := newSEOHandler(t)
+	defer cleanup()
+	tmplID := seedTemplate(t, h.db, "Standard Page", "standard-page")
+	seedSEOPage(t, h, tmplID, "Standard Page", "Fresh Page", "/fresh-page", `<p>x</p>`, nil)
+	// A stale file that predates the page.
+	os.WriteFile("static/sitemap.xml", []byte("<urlset></urlset>"), 0644)
+	old := time.Now().Add(-time.Hour)
+	os.Chtimes("static/sitemap.xml", old, old)
+	defer exec.Command("git", "checkout", "static/sitemap.xml").Run()
+
+	rr := httptest.NewRecorder()
+	h.ServeSitemap(rr, httptest.NewRequest("GET", "/sitemap.xml", nil))
+	if !strings.Contains(rr.Body.String(), "/fresh-page") {
+		t.Errorf("stale sitemap not regenerated:\n%s", rr.Body.String())
 	}
 }
