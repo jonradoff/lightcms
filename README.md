@@ -92,7 +92,7 @@ LightCMS is a Go-powered content management system built for the AI era. It's si
 **Lightweight**: A clean, focused codebase that's easy to understand, modify, and extend. No bloated frameworks or complex abstractions.
 
 **AI-Native**: Built from the ground up for the AI era:
-- **MCP Integration**: Full Model Context Protocol server with 106 tools and 3 prompt resources for website management. Supports both local stdio and HTTP streamable transports — connect from Claude Code, Claude Desktop, or any MCP-compatible client.
+- **MCP Integration**: Full Model Context Protocol server with 128 tools and 3 prompt resources for website management. Supports both local stdio and HTTP streamable transports — connect from Claude Code, Claude Desktop, or any MCP-compatible client.
 - **OAuth 2.1 for Remote Agents**: Sandboxed desktop apps like Claude's Cowork can securely connect over HTTP using OAuth 2.1 with PKCE. No embedded passwords — just authorize once and the agent manages your site.
 - **Fork-Friendly**: Designed to be forked and customized by Claude Code. Ask Claude to add new content types, modify templates, or build custom features — the codebase is structured for AI-assisted development.
 - **Natural Language Website Management**: Skip the admin UI entirely. Create pages, manage assets, customize themes, and publish content through conversation.
@@ -174,7 +174,7 @@ Recommended agent pattern for large updates: `list_content` → transform in par
 
 ### Developer & Integration
 - **REST API**: Full `/api/v1/` JSON API with API key and OAuth token authentication, RBAC-enforced
-- **MCP Server**: 106 tools + 3 prompt resources for agentic website management (stdio + HTTP streamable)
+- **MCP Server**: 128 tools + 3 prompt resources for agentic website management (stdio + HTTP streamable)
 - **OAuth 2.1**: Authorization code flow with PKCE for remote MCP clients — no embedded passwords
 - **CLI Tool**: Command-line interface for all content management operations
 - **URL Redirects**: 301/302 redirect rules managed from the admin panel
