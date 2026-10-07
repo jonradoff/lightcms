@@ -973,7 +973,7 @@ var adminTemplates = map[string]string{
                 var replaceQuery = document.getElementById('replace-query').value;
 
                 if (!searchQuery) {
-                    alert('Please enter a search query for replace.');
+                    showAlert('Please enter a search query for replace.', 'Search and Replace');
                     return;
                 }
 
@@ -7780,7 +7780,7 @@ async function doSearch(q) {
                 {{if eq .Fork.Status "active"}}
                 <a href="/cm/forks/{{.Fork.ID.Hex}}/preview" class="btn btn-secondary">👁 Start Preview</a>
                 {{if .CanMerge}}
-                <form method="POST" action="/cm/forks/{{.Fork.ID.Hex}}/merge" style="display:flex;gap:0.75rem;align-items:center;margin:0" onsubmit="return confirm('Merge this fork into the live site? This will update all matching pages and cannot be undone.')">
+                <form method="POST" action="/cm/forks/{{.Fork.ID.Hex}}/merge" style="display:flex;gap:0.75rem;align-items:center;margin:0" data-confirm="Merge this fork into the live site? This will update all matching pages and cannot be undone." data-confirm-title="Merge fork">
                     {{.CSRFField}}
                     <label class="checkbox-label" style="margin:0;font-size:0.85rem;white-space:nowrap" title="New pages are created as drafts unless this is checked. Pages on hold always stay drafts.">
                         <input type="checkbox" name="publish_new">
@@ -7788,9 +7788,9 @@ async function doSearch(q) {
                     </label>
                     <button type="submit" class="btn btn-primary">Merge into Live →</button>
                 </form>
-                <form method="POST" action="/cm/forks/{{.Fork.ID.Hex}}/archive" style="margin:0">
+                <form method="POST" action="/cm/forks/{{.Fork.ID.Hex}}/archive" style="margin:0" data-confirm="Archive this fork without merging?" data-confirm-title="Archive fork">
                     {{.CSRFField}}
-                    <button type="submit" class="btn btn-outline" onclick="return confirm('Archive this fork without merging?')">Archive</button>
+                    <button type="submit" class="btn btn-outline">Archive</button>
                 </form>
                 {{end}}
                 {{end}}
@@ -7861,9 +7861,9 @@ async function doSearch(q) {
                     {{if eq $.Fork.Status "active"}}
                     <td>
                         <a href="/cm/content/{{.ID.Hex}}?fork={{$.Fork.ID.Hex}}" class="btn btn-sm btn-outline">Edit</a>
-                        <form method="POST" action="/cm/forks/{{$.Fork.ID.Hex}}/pages/{{.ID.Hex}}/remove" style="display:inline">
+                        <form method="POST" action="/cm/forks/{{$.Fork.ID.Hex}}/pages/{{.ID.Hex}}/remove" style="display:inline" data-confirm="Remove this page from the fork?" data-confirm-title="Remove page">
                             {{$.CSRFField}}
-                            <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Remove this page from the fork?')">Remove</button>
+                            <button type="submit" class="btn btn-sm btn-danger">Remove</button>
                         </form>
                     </td>
                     {{end}}
@@ -9392,6 +9392,22 @@ const adminLayoutStart = `<!DOCTYPE html>
             cancelBtn.addEventListener('click', onCancel);
         });
     }
+
+    // Forms with a data-confirm attribute ask through the styled confirm modal
+    // before submitting (replacement for onsubmit="return confirm(...)").
+    // data-confirm-title sets the modal title. The message is shown as text.
+    document.addEventListener('submit', function(e) {
+        var form = e.target;
+        if (!form || !form.getAttribute) return;
+        var message = form.getAttribute('data-confirm');
+        if (!message) return;
+        e.preventDefault();
+        var escaped = document.createElement('div');
+        escaped.textContent = message;
+        showConfirm(escaped.innerHTML, form.getAttribute('data-confirm-title') || 'Confirm').then(function(confirmed) {
+            if (confirmed) form.submit(); // form.submit() does not re-fire this handler
+        });
+    });
     </script>
 </head>
 <body>

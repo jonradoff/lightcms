@@ -4,6 +4,20 @@ All notable changes to LightCMS are documented here, organized by version.
 
 ---
 
+## [7.4.1] - 2026-10-07
+
+### Fixed — fork copies, follow-ups to 7.4.0
+- **Search-and-replace no longer rewrites fork copies.** Global and scoped search-and-replace (preview and execute, API and MCP) now work on live pages only. They used to match and rewrite the working copies inside forks as well.
+- **A path never resolves to a fork copy.** `GET` and `PUT /api/v1/content/by-path` (`get_content` by path, `update_content_by_path`), the copilot's get-by-path and upsert-by-path used to fall through to a fork copy when no live page existed at the path, so an update could land on a copy. They now resolve live pages only and return 404 for a path that exists only inside a fork. To reach a fork's copy by path, name the fork: `?path=/x&fork_id=<fork id>`. Agent sandbox sessions are unchanged: `update_content_by_path` inside a sandbox still writes to the sandbox copy, including pages created in the sandbox. Fork preview is unchanged.
+- **Scoped operations report fork copies instead of silently skipping them.** `bulk_field_operation`, `export_content` and scoped search-and-replace return a `skipped` array of `{id, reason}` for fork copies named in `content_ids`.
+- `reindex_embeddings` and the embedding statistics no longer count fork copies.
+- Admin: merging or archiving a fork and removing a page from a fork now ask through the styled confirm dialog instead of a browser `confirm()`, and the empty-query warning in search-and-replace is a styled message instead of a browser `alert()`.
+
+### Changed
+- README tool counts corrected (129 tools, with the full category breakdown).
+
+---
+
 ## [7.4.0] - 2026-10-07
 
 ### Added — draft safety

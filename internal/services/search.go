@@ -596,11 +596,13 @@ func (s *SearchService) BatchGenerateEmbeddings(ctx context.Context) (processed,
 		return 0, 0, fmt.Errorf("no embedding provider configured (set VOYAGE_API_KEY or LIGHTCMS_EMBEDDINGS_PROVIDER=ollama)")
 	}
 
-	// Find all published, non-deleted content
+	// Find all published, non-deleted live content. Fork copies must never
+	// touch the embedding index.
 	filter := bson.M{
 		"published": true,
 		"deleted":   bson.M{"$ne": true},
 	}
+	liveOnly(filter)
 
 	var contents []models.Content
 	if err := s.db.FindAll(ctx, "content", filter, &contents); err != nil {
@@ -648,7 +650,9 @@ func (s *SearchService) BatchGenerateEmbeddings(ctx context.Context) (processed,
 
 // EmbeddingStats returns counts of content with and without embeddings
 func (s *SearchService) EmbeddingStats(ctx context.Context) (total, withEmbedding int64, err error) {
+	// Live pages only: fork copies are not part of the embedding index.
 	publishedFilter := bson.M{"published": true, "deleted": bson.M{"$ne": true}}
+	liveOnly(publishedFilter)
 	total, err = s.db.Count(ctx, "content", publishedFilter)
 	if err != nil {
 		return
@@ -659,6 +663,7 @@ func (s *SearchService) EmbeddingStats(ctx context.Context) (total, withEmbeddin
 		"deleted":      bson.M{"$ne": true},
 		"embedding_at": bson.M{"$exists": true},
 	}
+	liveOnly(embeddedFilter)
 	withEmbedding, err = s.db.Count(ctx, "content", embeddedFilter)
 	return
 }

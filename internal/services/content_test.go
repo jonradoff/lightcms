@@ -1198,13 +1198,25 @@ func TestRemoveStaticPage_EmptyPath(t *testing.T) {
 		os.RemoveAll(tmpDir)
 	}()
 
-	os.WriteFile(tmpDir+"/content/generated/index.html", []byte("test"), 0644)
+	indexPath := tmpDir + "/content/generated/index.html"
+	os.WriteFile(indexPath, []byte("test"), 0644)
 
-	// Empty string should be treated as root ("/index")
+	// An empty full_path (legacy rows) is a no-op since v7.3.4: mapping it to
+	// "/index" deleted the homepage's static file.
 	svc.removeStaticPage("")
 
-	if _, err := os.Stat(tmpDir + "/content/generated/index.html"); err == nil {
-		t.Error("expected index.html to be removed for empty path")
+	data, err := os.ReadFile(indexPath)
+	if err != nil {
+		t.Fatalf("index.html was removed for an empty path: %v", err)
+	}
+	if string(data) != "test" {
+		t.Errorf("index.html content changed: %q", data)
+	}
+
+	// The root path still maps to index.html.
+	svc.removeStaticPage("/")
+	if _, err := os.Stat(indexPath); err == nil {
+		t.Error("expected index.html to be removed for the root path")
 	}
 }
 

@@ -73,7 +73,7 @@ func (s *Server) registerSearchTools() {
 		Title: "Search Replace Preview",
 		Description: `Preview a site-wide search-and-replace without making any changes. ALWAYS run this before search_replace_execute.
 
-Returns: affected page count, total match count, and per-page field breakdown.
+Returns: affected page count, total match count, and per-page field breakdown. Only live pages are searched; fork copies are never matched or rewritten.
 For targeted replacements (a folder, template, or category), use scoped_search_replace_preview instead.`,
 		Annotations: &mcp.ToolAnnotations{
 			Title:         "Search Replace Preview",
