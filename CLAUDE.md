@@ -204,7 +204,7 @@ Hard-won rules from building v7. Violating these has bitten us before:
 
 ### Fork-content safety invariant
 - Content with `ForkID != nil` shares its `full_path` with the live page. It must NEVER generate or remove static files, or touch the embedding index. `GenerateStaticPage` and `UpdateContent` guard this — preserve those guards in any new content-mutation path.
-- Fork copies are never published directly (`PublishContent` returns `ErrPublishForkCopy`) and are hidden from `ListContent`, `ListContentPaginated`, `ListContentScoped` and search unless include-forks is passed (v7.4). Any new listing must filter `"fork_id": nil` unless it is fork-specific. `ForkService.Merge` deletes a fork's copies after a successful merge; `StreamContent`/`StreamContentScoped` (search-and-replace) still see copies.
+- Fork copies are never published directly (`PublishContent` returns `ErrPublishForkCopy`) and are hidden from `ListContent`, `ListContentPaginated`, `ListContentScoped` and search unless include-forks is passed (v7.4). Any new listing must filter `"fork_id": nil` unless it is fork-specific. `ForkService.Merge` deletes a fork's copies after a successful merge. `StreamContent`/`StreamContentScoped` (search-and-replace) and `GetContentByPath` are live-only too (v7.4.1); a path reaches a fork copy only through `ForkService.GetForkPageByPath` (by-path API with `fork_id`, the fork-page endpoint the agent sandbox uses, fork preview). Scoped bulk operations report fork copies named in `content_ids` as `skipped` (`ContentService.ForkCopyIDs`).
 - `Hold` (v7.4): a held draft cannot become published. `PublishContent`, `CreateContent` and `UpdateContent` return `ErrContentHeld`; batch publish, the scheduler, approvals and fork merges skip held pages. Paths that write `published` straight to MongoDB (the admin editor, approvals) must check hold themselves.
 
 ### Provenance & agent sessions
@@ -250,7 +250,7 @@ Hard-won rules from building v7. Violating these has bitten us before:
 - `/mcp-public` — read-only MCP server for visitors' agents (search_site, get_page, list_pages, get_site_info); drafts/forks structurally excluded
 
 ### Deploy quirks
-- `fly deploy` uploads a ~185MB build context (content/ + static/) with no visible progress — deploys take ~8 minutes and are NOT hung.
+- The `fly deploy --detach` step inside `./deploy.sh` (never run `fly deploy` yourself) uploads a ~185MB build context (content/ + static/) with no visible progress — deploys take ~8 minutes and are NOT hung.
 - `fly secrets set` does NOT restart the legacy machine (it is outside Fly release management, same reason deploy.sh exists). Secrets stay staged until `fly machines update d890122a371528 -a metavert-cms --yes` or the next `./deploy.sh` — a plain `fly machines restart` reuses the old machine config and does NOT inject new secrets (verify with `fly ssh console -C 'sh -c env'`).
 
 ## Script Policy
@@ -396,7 +396,10 @@ go run cmd/resetpw/main.go [email]  # Reset specific user, or first admin if no 
 
 ## Security Notes
 
-- CSRF protection on all `/cm` routes (Gorilla CSRF)
+- CSRF protection on all `/cm` routes (Gorilla CSRF, built in `middleware.CSRFProtect`). gorilla/csrf assumes HTTPS for its Origin/Referer check; requests are marked plaintext only when `secure_cookies` is false AND the connection has no TLS. Never key this on a request header.
+- Admin CSP (`middleware.SecurityHeaders`) is `script-src 'self' 'unsafe-inline'`: a script or stylesheet from another origin is silently blocked. Vendor third-party admin assets under `static/admin/` with a README recording version, source URL and SHA-256 (see `static/admin/quill/`); `TestAdminTemplates_ExternalAssetsAllowedByCSP` enforces it.
+- No native browser dialogs anywhere (`alert`/`confirm`/`prompt`): use `data-confirm` (+ `data-confirm-title`) on a form, or `showConfirm()` / `showAlert()` from `adminLayoutStart`. Both take HTML — wrap anything that is not a fixed string in `dialogText()`. `TestServedTemplatesAndJS_NoNativeDialogs` scans every served template and JS file.
+- HTML forms cannot nest: the parser drops the inner `<form>` and its `</form>` closes the outer one. Put the second form outside and point the button at it with `form="id"` (see the webhook edit page).
 - Session cookies: SameSite=Strict, 24-hour expiry, Secure in production
 - File uploads: Extension whitelist + MIME validation
 - Path traversal protection on all file operations
@@ -409,11 +412,12 @@ go run cmd/resetpw/main.go [email]  # Reset specific user, or first admin if no 
 
 **Environment Variables (Production):**
 - `MONGO_URI` - MongoDB connection string
+- `DATABASE_NAME` - MongoDB database name (default: `lightcms`; also `database_name` in the JSON config, env wins). Read by the server and every `cmd/` tool through `config.ResolveDatabaseName`; logged at startup
 - `SESSION_SECRET` - 32+ char secret
 - `BASE_URL` - Public URL (e.g., https://example.com)
 - `PORT` - Server port (default: 80)
 - `ENV` - "production" or "development"
-- `SECURE_COOKIES` - "true" for HTTPS
+- `SECURE_COOKIES` - "true" for HTTPS (default in env mode; set "false" only for plain-HTTP local runs)
 
 **JSON Config (Development):**
 `config.dev.json`:
@@ -494,6 +498,8 @@ LightCMS supports large-scale content operations (2,000+ pages) via optimized bu
 ## Deployment
 
 Deployed to Fly.io (`metavert-cms` app, machine `d890122a371528`). Uses environment variables for configuration. Health check at `/health`.
+
+> **⚠️ NEVER run plain `fly deploy` — it creates orphan machines and does not update the live one. The only deploy command is `./deploy.sh`.**
 
 **Deploy procedure — always use the deploy script:**
 ```bash

@@ -24,7 +24,6 @@ import (
 	"github.com/jonradoff/lightcms/v7/internal/oauth"
 	"github.com/jonradoff/lightcms/v7/internal/services"
 
-	"github.com/gorilla/csrf"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/sessions"
 	"go.mongodb.org/mongo-driver/bson"
@@ -65,13 +64,13 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	db, err := database.Connect(ctx, cfg.MongoURI, "lightcms")
+	db, err := database.Connect(ctx, cfg.MongoURI, cfg.DatabaseName)
 	if err != nil {
 		log.Fatalf("Failed to connect to MongoDB: %v", err)
 	}
 	defer db.Disconnect(context.Background())
 
-	log.Println("Connected to MongoDB successfully")
+	log.Printf("Connected to MongoDB successfully (database %q)", cfg.DatabaseName)
 
 	// Initialize session store with secure settings
 	sessionStore := sessions.NewCookieStore([]byte(cfg.SessionSecret))
@@ -237,16 +236,7 @@ func main() {
 	csrfHash := sha256.Sum256([]byte(cfg.SessionSecret))
 	csrfKey := csrfHash[:]
 
-	csrfMiddleware := csrf.Protect(
-		csrfKey,
-		csrf.Secure(cfg.SecureCookies),
-		csrf.Path("/cm"),
-		csrf.SameSite(csrf.SameSiteStrictMode),
-		csrf.ErrorHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			log.Printf("CSRF validation failed for %s %s", r.Method, r.URL.Path)
-			http.Error(w, "Invalid or missing CSRF token", http.StatusForbidden)
-		})),
-	)
+	csrfMiddleware := middleware.CSRFProtect(csrfKey, cfg.SecureCookies)
 
 	// Admin routes (under /cm)
 	admin := r.PathPrefix("/cm").Subrouter()
@@ -380,7 +370,10 @@ func main() {
 	admin.HandleFunc("/snippets/{id}/delete", h.DeleteSnippet).Methods("POST")
 
 	// Tools routes
+	admin.HandleFunc("/replace/preview", h.ReplacePreview).Methods("GET")  // admin only (search_replace.execute)
+	admin.HandleFunc("/replace/execute", h.ReplaceExecute).Methods("POST") // admin only (search_replace.execute)
 	admin.HandleFunc("/tools/broken-links", h.BrokenLinkFinder).Methods("GET")
+	admin.HandleFunc("/tools/broken-links/fix", h.FixBrokenLink).Methods("POST") // content.edit
 	admin.HandleFunc("/tools/search", h.SearchToolPage).Methods("GET")
 	admin.HandleFunc("/tools/search/test", h.SearchToolTest).Methods("GET")
 	admin.HandleFunc("/tools/search/reindex", h.SearchToolReindex).Methods("POST")
@@ -739,6 +732,9 @@ func main() {
 	// API routes for AJAX (admin panel internal use)
 	// Note: Most API routes require authentication (checked in handlers)
 	// The /api/contact route is public for contact form submissions
+	// This subrouter has NO CSRF middleware: an admin-session route that
+	// changes state belongs under /cm (see the search-and-replace and
+	// broken-link fix routes there), never here.
 	api := r.PathPrefix("/api").Subrouter()
 	api.HandleFunc("/template/{id}/fields", h.GetTemplateFields).Methods("GET")            // Auth checked in handler
 	api.HandleFunc("/slugs", h.GetAllSlugs).Methods("GET")                                 // Auth checked in handler
@@ -746,10 +742,7 @@ func main() {
 	api.HandleFunc("/contact", h.ContactFormSubmitWithConfig(proxyConfig)).Methods("POST") // Public, uses trusted proxy config
 	api.HandleFunc("/content/search", h.SearchContent).Methods("GET")                      // Auth checked in handler
 	api.HandleFunc("/content/check-slug", h.CheckSlug).Methods("GET")                      // Auth checked in handler
-	api.HandleFunc("/content/replace-preview", h.ReplacePreview).Methods("GET")            // Auth checked in handler
-	api.HandleFunc("/content/replace-execute", h.ReplaceExecute).Methods("POST")           // Auth checked in handler
 	api.HandleFunc("/tools/broken-links/scan", h.BrokenLinkScan).Methods("GET")            // Auth checked in handler
-	api.HandleFunc("/tools/fix-link", h.FixBrokenLink).Methods("POST")                     // Auth checked in handler
 	api.HandleFunc("/search", h.EndUserSearch).Methods("GET")                              // Public end-user search
 	api.HandleFunc("/search/suggest", h.EndUserSearchSuggest).Methods("GET")               // Public typeahead suggestions
 	api.HandleFunc("/chat", h.ChatWidgetQuery).Methods("GET", "OPTIONS")                   // Public chat widget query

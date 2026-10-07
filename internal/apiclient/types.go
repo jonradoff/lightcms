@@ -338,6 +338,9 @@ type SearchReplaceResult struct {
 	PagesUpdated      int                  `json:"pages_updated,omitempty"`
 	Matches           []SearchReplaceMatch `json:"matches,omitempty"`
 	UpdatedPages      []SearchReplaceMatch `json:"updated_pages,omitempty"`
+	// Skipped lists content_ids left out of a scoped run as {id, reason}
+	// (fork copies: search-and-replace works on live pages only).
+	Skipped []map[string]string `json:"skipped,omitempty"`
 }
 
 // API Key

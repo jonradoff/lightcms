@@ -203,13 +203,21 @@ func (a *APIHandler) APIForkPage(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else if body.Path != "" {
-		// Resolve path to content ID
-		content, err := a.contentService.GetContentByPath(ctx, body.Path)
-		if err != nil {
-			a.jsonError(w, http.StatusNotFound, fmt.Sprintf("content not found at path: %s", body.Path))
-			return
+		// A page that already has a copy in this fork (including one created
+		// inside the fork, which has no live page) resolves to that copy;
+		// ForkPage then returns it unchanged. The agent sandbox relies on
+		// this to edit its own new pages by path.
+		if existing, ferr := a.forkService.GetForkPageByPath(ctx, forkID, body.Path); ferr == nil && existing != nil {
+			contentID = existing.ID
+		} else {
+			// Otherwise resolve the path to the live page (never a fork copy).
+			content, err := a.contentService.GetContentByPath(ctx, body.Path)
+			if err != nil {
+				a.jsonError(w, http.StatusNotFound, fmt.Sprintf("content not found at path: %s", body.Path))
+				return
+			}
+			contentID = content.ID
 		}
-		contentID = content.ID
 	} else {
 		a.jsonError(w, http.StatusBadRequest, "content_id or path is required")
 		return

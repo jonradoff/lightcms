@@ -29,7 +29,8 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	db, err := database.Connect(ctx, cfg.MongoURI, "lightcms")
+	log.Printf("Using database %q", cfg.DatabaseName)
+	db, err := database.Connect(ctx, cfg.MongoURI, cfg.DatabaseName)
 	if err != nil {
 		log.Fatalf("db connect: %v", err)
 	}

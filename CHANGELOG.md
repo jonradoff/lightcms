@@ -4,6 +4,46 @@ All notable changes to LightCMS are documented here, organized by version.
 
 ---
 
+## [7.4.1] - 2026-10-07
+
+### Fixed — fork copies, follow-ups to 7.4.0
+- **Search-and-replace no longer rewrites fork copies.** Global and scoped search-and-replace (preview and execute; API, MCP and the admin Search and Replace screen) now work on live pages only. They used to match and rewrite the working copies inside forks as well. The admin screen now runs through the same service path as the API: each rewritten page gets a version recording who ran it and what was replaced (the comment used to be a fixed "Updated via bulk link replacement"), and published pages stay published and are regenerated.
+- **A path never resolves to a fork copy.** `GET` and `PUT /api/v1/content/by-path` (`get_content` by path, `update_content_by_path`), the copilot's get-by-path and upsert-by-path used to fall through to a fork copy when no live page existed at the path, so an update could land on a copy. They now resolve live pages only and return 404 for a path that exists only inside a fork. To reach a fork's copy by path, name the fork: `?path=/x&fork_id=<fork id>`. Agent sandbox sessions are unchanged: `update_content_by_path` inside a sandbox still writes to the sandbox copy, including pages created in the sandbox. Fork preview is unchanged.
+- **Scoped operations report fork copies instead of silently skipping them.** `bulk_field_operation`, `export_content` and scoped search-and-replace return a `skipped` array of `{id, reason}` for fork copies named in `content_ids`.
+- `reindex_embeddings` and the embedding statistics no longer count fork copies.
+- **Working on a fork copy in the admin editor no longer touches the live page.** A fork copy shares its path with the live page, and the editor treated it as that page:
+  - Saving a copy with **Published** ticked marked the copy published and overwrote the live page's generated HTML with the fork draft, which was then served to visitors. Published is now disabled on a fork copy (it goes live by merging the fork) and ignored if sent.
+  - Saving a copy as a draft, or deleting it, removed the live page's generated HTML. The live page kept serving, rendered from the database on each request. Deleting also removed the redirects pointing at the live page.
+  - Changing a copy's slug removed the live page's generated HTML, rewrote links to it in other pages and could create a redirect away from it; changing its title rewrote wikilinks across the site. None of that happens for a copy now.
+  - **Delete Page** on a fork copy is now **Remove from Fork**: it removes the copy from its fork, exactly as Remove on the fork page does, and returns to the fork.
+  - The same guard covers Regenerate, Change Template and Revert Version on a copy, a copy deleted through the API or `delete_content`, and the database change watcher, which removed the live page's generated HTML whenever a copy was updated by any route (editor, API, MCP, agent sandbox).
+- Admin: merging or archiving a fork and removing a page from a fork now ask through the styled confirm dialog instead of a browser `confirm()`, and the empty-query warning in search-and-replace is a styled message instead of a browser `alert()`.
+
+### Fixed — admin UI
+- **The rich-text editor works again.** The admin Content-Security-Policy (`script-src 'self'`, added in v1.1) blocked the Quill editor, which was loaded from a CDN, so rich-text fields showed only the raw "Edit HTML" box. Quill 2.0.3 is now vendored in `static/admin/quill/` (byte-identical to upstream, with licence, source URLs and SHA-256 hashes in the README beside it) and served from the site itself. The policy is unchanged.
+- **Admin forms work over plain HTTP in local development.** With `secure_cookies: false`, every admin POST on `http://localhost` failed with "Invalid or missing CSRF token" because the CSRF library assumes HTTPS when it checks the request origin. Requests are now treated as plain HTTP when secure cookies are off and the connection has no TLS. Production (`secure_cookies: true`) keeps the strict HTTPS check. The log line for a rejected request now includes the reason.
+- **No more native browser dialogs in the admin.** Deleting a comment, reverting a theme version, deleting a webhook, regenerating a webhook secret, deleting an RSS source, approving a request and deleting an approval workflow now ask through the styled confirm dialog. Comment, approval and workflow errors, the "Comment required" and "Name is required" checks, and "URL copied" in the asset library are styled messages. Server error text in these messages is shown as text, never as HTML.
+- **Webhook edit page: "Regenerate Secret" and "Save Changes" do what they say.** The regenerate form was nested inside the edit form, which browsers do not allow: "Regenerate Secret" saved the webhook instead of regenerating, and the event checkboxes, the Active box and "Save Changes" were cut out of the form.
+- **"Delete Page" in the content editor deletes the page.** Its form was nested inside the edit form, which browsers do not allow, so the button submitted Update and the page was saved instead of deleted. The delete form now sits outside the edit form, with the button still beside Update and the same styled confirmation.
+- **A comment you just posted has its Delete button straight away** (admins). The role was double-quoted on its way into the page script, so the button appeared only after a reload.
+- **Search-and-replace messages show server text as text.** The "Replace Failed" and "Replace Complete" dialogs put the server's error message, the exception text and the page count into the dialog as HTML; they are now escaped like the other dialogs.
+
+### Security
+- **Admin Search and Replace is limited to administrators.** The two endpoints behind the content list's Search and Replace only checked that someone was signed in, so a viewer, contributor or editor could preview and run a site-wide replace. They now require the `search_replace.execute` permission the API endpoints require (admin only) and answer 403 otherwise; the screen shows the refusal as a styled message.
+- **Search and Replace and the broken-link "Fix" are behind CSRF protection.** Both wrote content from routes under `/api/`, outside the CSRF-protected `/cm` routes, relying on the session cookie's `SameSite=Strict` alone. They moved to `/cm/replace/preview`, `/cm/replace/execute` and `/cm/tools/broken-links/fix`, and the admin pages send the CSRF token. The old `/api/content/replace-preview`, `/api/content/replace-execute` and `/api/tools/fix-link` routes are gone. The broken-link fix now also requires `content.edit`.
+- **Deleting a page in the admin requires `content.delete`** (editor or admin). The handler only checked that someone was signed in, so a viewer or contributor could delete any page. Removing a copy from a fork requires `fork.create`, as it does on the fork page.
+- A test reads the server's route table and fails the build if an admin route that changes state is registered outside the CSRF-protected `/cm` routes.
+
+### Added
+- **`DATABASE_NAME`** environment variable (and `database_name` in the JSON config) selects the MongoDB database for the server and the `cmd/` tools (`resetpw`, `addchat`, `addchat-spa`, `migrate-hourly-bots`). Default `lightcms`, so existing installs are unaffected. The server logs the database in use at startup.
+
+### Changed
+- README tool counts corrected (129 tools, with the full category breakdown).
+- Tests fail the build if an admin template loads a script or stylesheet the admin CSP does not allow, if any served template or JS file calls `alert()`, `confirm()` or `prompt()`, or if the vendored Quill files differ from their recorded hashes.
+- Tests also fail the build if a form is nested inside another form in any served template, if a template pre-quotes a value with `printf "%q"`, or if a `showAlert`/`showConfirm` message is neither a fixed string nor wrapped in `dialogText()`.
+
+---
+
 ## [7.4.0] - 2026-10-07
 
 ### Added — draft safety

@@ -773,8 +773,11 @@ func (s *ContentService) DeleteContent(ctx context.Context, id primitive.ObjectI
 		return fmt.Errorf("failed to delete content: %w", err)
 	}
 
-	// Remove static page
-	s.removeStaticPage(content.FullPath)
+	// Remove static page. A fork copy shares its full_path with the live
+	// page, whose file must stay.
+	if content.ForkID == nil {
+		s.removeStaticPage(content.FullPath)
+	}
 	s.NotifyLiveChange(ctx, &content, nil)
 
 	// Rebuild search keyword cache
@@ -846,7 +849,13 @@ func (s *ContentService) GetContent(ctx context.Context, id primitive.ObjectID) 
 // GetContentByPath retrieves content by full path
 func (s *ContentService) GetContentByPath(ctx context.Context, path string) (*models.Content, error) {
 	var content models.Content
-	if err := s.db.FindOne(ctx, "content", bson.M{"full_path": path, "deleted": bson.M{"$ne": true}}, &content); err == nil {
+	// Live pages only: a fork copy shares its full_path with the live page
+	// (or, for a page created inside a fork, has no live page at all) and
+	// must never be what a path resolves to. Fork-aware callers use
+	// ForkService.GetForkPageByPath.
+	exact := bson.M{"full_path": path, "deleted": bson.M{"$ne": true}}
+	liveOnly(exact)
+	if err := s.db.FindOne(ctx, "content", exact, &content); err == nil {
 		return &content, nil
 	}
 	// Paths are case-insensitive: fall back to a case-insensitive exact
@@ -918,7 +927,7 @@ type ContentScope struct {
 	FolderPath     string // prefix match: full_path starts with FolderPath+"/"
 	ContentIDs     []primitive.ObjectID
 	IncludeDeleted bool
-	IncludeForks   bool // ListContentScoped only: also return fork copies
+	IncludeForks   bool // also return fork copies (left out by default)
 }
 
 // ListContentScoped fetches content with all filters pushed down to MongoDB,
@@ -960,21 +969,29 @@ func (s *ContentService) ListContentScoped(ctx context.Context, scope ContentSco
 // StreamContent returns a raw MongoDB cursor over all non-deleted content,
 // sorted by updated_at desc. The caller is responsible for closing the cursor.
 // Use this instead of ListContent when processing large result sets to avoid
-// loading the entire collection into memory.
-func (s *ContentService) StreamContent(ctx context.Context, includeDeleted bool) (*mongo.Cursor, error) {
+// loading the entire collection into memory. Fork copies are left out unless
+// includeForks is passed as true (search-and-replace must not rewrite them).
+func (s *ContentService) StreamContent(ctx context.Context, includeDeleted bool, includeForks ...bool) (*mongo.Cursor, error) {
 	filter := bson.M{}
 	if !includeDeleted {
 		filter["deleted"] = bson.M{"$ne": true}
+	}
+	if len(includeForks) == 0 || !includeForks[0] {
+		liveOnly(filter)
 	}
 	return s.db.FindMany(ctx, "content", filter, options.Find().SetSort(bson.D{{Key: "updated_at", Value: -1}}))
 }
 
 // StreamContentScoped returns a raw MongoDB cursor with scope filters pushed down
-// to MongoDB. The caller is responsible for closing the cursor.
+// to MongoDB. The caller is responsible for closing the cursor. Fork copies are
+// left out unless scope.IncludeForks is set.
 func (s *ContentService) StreamContentScoped(ctx context.Context, scope ContentScope) (*mongo.Cursor, error) {
 	filter := bson.M{}
 	if !scope.IncludeDeleted {
 		filter["deleted"] = bson.M{"$ne": true}
+	}
+	if !scope.IncludeForks {
+		liveOnly(filter)
 	}
 	if scope.TemplateName != "" {
 		filter["template_name"] = scope.TemplateName
@@ -989,6 +1006,39 @@ func (s *ContentService) StreamContentScoped(ctx context.Context, scope ContentS
 		filter["_id"] = bson.M{"$in": scope.ContentIDs}
 	}
 	return s.db.FindMany(ctx, "content", filter, options.Find().SetSort(bson.D{{Key: "updated_at", Value: -1}}))
+}
+
+// ForkCopyIDs returns which of the given IDs are fork copies, in the order
+// given. Scoped bulk operations work on live pages only; callers use this to
+// report explicitly requested fork copies as skipped instead of silently
+// matching nothing.
+func (s *ContentService) ForkCopyIDs(ctx context.Context, ids []primitive.ObjectID) ([]primitive.ObjectID, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	filter := bson.M{"_id": bson.M{"$in": ids}, "fork_id": bson.M{"$ne": nil}}
+	cursor, err := s.db.FindMany(ctx, "content", filter, options.Find().SetProjection(bson.M{"_id": 1}))
+	if err != nil {
+		return nil, fmt.Errorf("failed to check fork copies: %w", err)
+	}
+	var docs []struct {
+		ID primitive.ObjectID `bson:"_id"`
+	}
+	if err := cursor.All(ctx, &docs); err != nil {
+		return nil, fmt.Errorf("failed to decode fork copies: %w", err)
+	}
+	isFork := make(map[primitive.ObjectID]bool, len(docs))
+	for _, d := range docs {
+		isFork[d.ID] = true
+	}
+	var out []primitive.ObjectID
+	for _, id := range ids {
+		if isFork[id] {
+			out = append(out, id)
+			isFork[id] = false // report a repeated id once
+		}
+	}
+	return out, nil
 }
 
 // GetContentByIDs fetches multiple content items in a single query.

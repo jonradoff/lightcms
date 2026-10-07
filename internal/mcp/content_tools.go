@@ -797,6 +797,8 @@ Returns rendered_html and any warnings (missing required fields, unclosed tags, 
 
 Example: {"path": "/about", "title": "About Us", "data": {"body": "<p>Updated content</p>"}}
 
+The path always resolves to the live page, never to a fork copy (inside an agent sandbox the write goes to the sandbox copy as usual).
+
 Only the fields you provide are changed. Always include a version_comment describing what changed.`,
 		Annotations: &mcp.ToolAnnotations{
 			Title:           "Update Content by Path",
@@ -901,6 +903,8 @@ Scope options (all optional — leave blank to match all pages):
 - template_name: pages using "Concept Page", "Blog Post", etc.
 - category: pages with a matching category
 
+Only live pages are searched: fork copies named in content_ids come back in "skipped" as {id, reason}.
+
 Example: {"search": "old text", "replace": "new text", "folder_path": "/blog"}
 
 Always run preview before execute.`,
@@ -976,6 +980,8 @@ Scope options (all optional):
 - content_ids, folder_path, template_name, category
 
 Set auto_republish: true to immediately re-publish all previously-published pages after updating them, collapsing the execute + publish_multiple flow into one call.
+
+Only live pages are changed: fork copies named in content_ids come back in "skipped" as {id, reason}.
 
 Example: {"search": "old text", "replace": "new text", "folder_path": "/blog", "auto_republish": true, "version_comment": "Updated old references"}`,
 		Annotations: &mcp.ToolAnnotations{
@@ -1079,6 +1085,7 @@ Operations:
 
 Use scope filters to limit which pages are affected (content_ids, folder_path, template_name, category).
 Set dry_run: true to preview which pages would be changed without saving.
+Only live pages are changed: fork copies named in content_ids come back in "skipped" as {id, reason}.
 
 Example: {"operation": "prepend", "field": "disclaimer", "value": "<p>Note: </p>", "template_name": "Blog Post"}`,
 		Annotations: &mcp.ToolAnnotations{
@@ -1127,6 +1134,8 @@ Scope filters (all optional):
 - category, folder_path, content_ids: narrower scoping options
 
 Use fields: ["field1", "field2"] to include only specific data fields instead of all fields.
+
+Only live pages are exported: fork copies named in content_ids come back in "skipped" as {id, reason}.
 
 Returns: total count and array of items with id, title, slug, full_path, template_name, published, and data.`,
 		Annotations: &mcp.ToolAnnotations{

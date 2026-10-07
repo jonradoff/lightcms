@@ -76,3 +76,32 @@ func TestLoadURIFromConfig_EmptyURI(t *testing.T) {
 		t.Errorf("expected empty URI, got %q", uri)
 	}
 }
+
+func TestGetDatabaseName(t *testing.T) {
+	tmp := t.TempDir()
+	orig, _ := os.Getwd()
+	os.Chdir(tmp)
+	defer os.Chdir(orig)
+
+	// No config, no env → default
+	t.Setenv("DATABASE_NAME", "")
+	if got := GetDatabaseName(); got != "lightcms" {
+		t.Errorf("expected default lightcms, got %q", got)
+	}
+
+	// Name comes from the same config file GetMongoURI picks (prod first)
+	os.WriteFile(filepath.Join(tmp, "config.dev.json"), []byte(`{"mongo_uri":"mongodb://dev:27017","database_name":"devdb"}`), 0644)
+	if got := GetDatabaseName(); got != "devdb" {
+		t.Errorf("expected devdb, got %q", got)
+	}
+	os.WriteFile(filepath.Join(tmp, "config.prod.json"), []byte(`{"mongo_uri":"mongodb://prod:27017"}`), 0644)
+	if got := GetDatabaseName(); got != "lightcms" {
+		t.Errorf("expected lightcms for prod config without database_name, got %q", got)
+	}
+
+	// Env overrides the file
+	t.Setenv("DATABASE_NAME", "lightcms_test")
+	if got := GetDatabaseName(); got != "lightcms_test" {
+		t.Errorf("expected env override, got %q", got)
+	}
+}

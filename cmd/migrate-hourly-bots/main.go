@@ -34,7 +34,9 @@ func main() {
 	}
 	defer client.Disconnect(ctx)
 
-	db := client.Database("lightcms")
+	dbName := dbutil.GetDatabaseName()
+	log.Printf("Using database %q", dbName)
+	db := client.Database(dbName)
 	col := db.Collection("user_activity")
 
 	// Find all hourly documents that have page_views but no page_views_human

@@ -109,7 +109,7 @@ LightCMS is a Go-powered content management system built for the AI era. It's si
 - **`lc:query` Directives**: Embed live content queries directly in template layouts — at publish time they expand into rendered lists of matching pages
 - **Content Collections**: Auto-generated paginated listing pages filtered by category
 - **Folders & URL Organization**: Hierarchical content organization with clean URL paths
-- **Rich Text Editor**: TinyMCE integration for visual content editing
+- **Rich Text Editor**: Quill 2 for visual content editing (vendored in `static/admin/quill/`, served from the site itself)
 - **Regex Search & Replace**: Site-wide or scoped search-and-replace with RE2 regex support, capture groups, and mandatory preview step
 - **Bulk Operations**: Update or apply field operations across up to 100 pages in a single API call; export/transform/re-import pipelines
 - **Scheduled Publishing** (v4.5+): Set a future `publish_at` timestamp; a background scheduler auto-publishes at the right time
@@ -294,8 +294,17 @@ LightCMS uses JSON config files. Create either:
 |-------|-------------|
 | `port` | Server port (e.g., "8082" for dev, "80" for prod) |
 | `mongo_uri` | MongoDB Atlas connection string |
+| `database_name` | MongoDB database name. Optional, default `lightcms` |
 | `env` | Environment: "development" or "production" |
 | `session_secret` | Random string for session encryption |
+| `base_url` | Public URL of the site |
+| `secure_cookies` | `true` in production (HTTPS). `false` for local development over plain HTTP |
+
+When `MONGO_URI` is set, configuration comes from environment variables instead (`MONGO_URI`, `SESSION_SECRET`, `BASE_URL`, `PORT`, `ENV`, `SECURE_COOKIES`).
+
+**Database name.** The server and the `cmd/` tools use the database `lightcms` unless told otherwise. Set the `DATABASE_NAME` environment variable (it wins over `database_name` in the config file) to point an instance at another database on the same cluster, for example a staging or test copy. The server logs the database it connected to at startup.
+
+**Plain HTTP in development.** With `secure_cookies: false` the admin works over `http://localhost`: cookies are not marked Secure and the CSRF origin check compares against `http://`. With `secure_cookies: true` (the production default) the admin must be reached over HTTPS; the CSRF check rejects plain-HTTP origins.
 
 **Note:** Config files contain secrets and are excluded from git via `.gitignore`.
 
@@ -940,7 +949,7 @@ Run `lightcms --help` for full usage.
 
 [![lightcms MCP server](https://glama.ai/mcp/servers/jonradoff/lightcms/badges/card.svg)](https://glama.ai/mcp/servers/jonradoff/lightcms)
 
-LightCMS includes a full MCP (Model Context Protocol) server with 92 tools and 3 prompt resources for managing your entire website through AI agents. It supports two transport modes:
+LightCMS includes a full MCP (Model Context Protocol) server with 129 tools and 3 prompt resources for managing your entire website through AI agents. It supports two transport modes:
 
 - **Stdio** — for local tools like Claude Code
 - **HTTP Streamable** — for remote/sandboxed clients like Claude's Cowork, Claude Desktop, or any MCP-compatible app
@@ -999,9 +1008,9 @@ The MCP HTTP endpoint accepts both authentication methods:
 
 Both methods enforce RBAC based on the authenticated user's role.
 
-### Available Tools (106 total) + 3 Prompt Resources
+### Available Tools (129 total) + 3 Prompt Resources
 
-- **Content** (20): create, read, update, delete, publish, unpublish, restore, versioning, revert, preview, bulk update, bulk field operation, export, backlinks, update by path, publish multiple
+- **Content** (19): list, read, create, update, update by path, delete, restore, publish, unpublish, publish multiple, preview, versions (list + get), revert, bulk create, bulk update, bulk field operation, export, backlinks
 - **Templates** (5): create, read, update, delete, list
 - **Snippets** (5): create, read, update, delete, list
 - **Assets** (6): upload, upload from URL, read, delete, list files and folders
@@ -1009,12 +1018,15 @@ Both methods enforce RBAC based on the authenticated user's role.
 - **Settings** (23): theme CRUD + versioning + pinning, site config, redirects, folders, collections, regenerate all content
 - **Forks** (9): list, create, get, fork page, remove page, merge, archive, delete, purge copies
 - **Import** (10, v5.0+): list/create/update/delete/trigger import sources, import markdown, import CSV, list/get/cancel import jobs
-- **Webhooks** (6, v4.5+): list, create, get, update, delete webhooks; regenerate secret
+- **Webhooks** (6, v4.5+): list, create, update, delete webhooks; regenerate secret; list deliveries
 - **Content Locking** (4, v4.5+): get lock, acquire lock, release lock, force-unlock
 - **Scheduled Publishing** (3, v4.5+): schedule publish, list scheduled, cancel scheduled
-- **Audit & Link Check** (3, v4.5+): get audit log, check links, list broken links
+- **Audit & Link Check** (3, v4.5+): list audit logs, start link check, get link check results
 - **Comments** (3, v6.0+): list comments, post comment, delete comment
 - **Approvals** (11, v6.0+): list/get/create/update/delete approval workflows; list/get/submit/approve/reject/cancel approval requests
+- **Agent Sandbox & Governance** (9, v7.0+): start/get/end agent sandbox, fork diff, agent session changes, session rollback, maintenance report, run maintenance scan, backfill published dates
+- **IndexNow** (3, v7.2.3+): get status, enable/disable, submit
+- **SEO & AI** (3, v7.3+): get/update SEO settings, AI traffic
 - **Prompt Resources** (3, v4.5+): `lightcms://site/structure`, `lightcms://content/recent`, `lightcms://theme/config`
 
 For detailed API documentation, see [MCP.md](MCP.md).
@@ -1494,6 +1506,7 @@ For production:
 
 Security features built in:
 - CSRF protection on all `/cm` routes
+- Admin Content-Security-Policy: scripts and stylesheets load from the site itself only (the editor's Quill files are vendored, not fetched from a CDN)
 - RBAC permission checks on all admin handlers and REST API endpoints
 - Session cookies: SameSite=Strict, 24-hour expiry, Secure in production
 - File uploads: extension whitelist + MIME validation + configurable size cap

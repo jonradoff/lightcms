@@ -973,7 +973,7 @@ var adminTemplates = map[string]string{
                 var replaceQuery = document.getElementById('replace-query').value;
 
                 if (!searchQuery) {
-                    alert('Please enter a search query for replace.');
+                    showAlert('Please enter a search query for replace.', 'Search and Replace');
                     return;
                 }
 
@@ -983,9 +983,15 @@ var adminTemplates = map[string]string{
                 document.getElementById('replace-summary').innerHTML = '';
                 document.getElementById('execute-replace-btn').disabled = true;
 
-                fetch('/api/content/replace-preview?search=' + encodeURIComponent(searchQuery) + '&replace=' + encodeURIComponent(replaceQuery))
+                fetch('/cm/replace/preview?search=' + encodeURIComponent(searchQuery) + '&replace=' + encodeURIComponent(replaceQuery))
                     .then(function(response) { return response.json(); })
                     .then(function(data) {
+                        if (data.error) {
+                            // e.g. 403: search and replace is limited to administrators
+                            replacePreviewData = null;
+                            document.getElementById('replace-preview-list').innerHTML = '<div style="text-align: center; padding: 2rem; color: var(--danger);">' + escapeHtml(data.error) + '</div>';
+                            return;
+                        }
                         replacePreviewData = data;
                         displayReplacePreview(data, searchQuery, replaceQuery);
                     })
@@ -1049,31 +1055,37 @@ var adminTemplates = map[string]string{
                     executeBtn.disabled = true;
                     executeBtn.textContent = 'Replacing...';
 
-                    fetch('/api/content/replace-execute', {
+                    fetch('/cm/replace/execute', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
                         body: JSON.stringify({
                             search: searchQuery,
                             replace: replaceQuery
                         })
                     })
-                    .then(function(response) { return response.json(); })
+                    .then(function(response) {
+                        // A 403 that is not JSON (a rejected CSRF token) still gets a readable message
+                        return response.json().catch(function(err) {
+                            if (response.status === 403) return { error: 'The request was refused (403). Reload the page and try again.' };
+                            throw err;
+                        });
+                    })
                     .then(function(data) {
                         if (data.error) {
-                            showAlert('Error: ' + data.error, 'Replace Failed');
+                            showAlert(dialogText('Error: ' + data.error), 'Replace Failed');
                             executeBtn.disabled = false;
                             executeBtn.textContent = 'Accept Replacements';
                         } else {
                             closeReplacePreview();
                             closeSearchModal();
-                            showAlert('Successfully updated ' + data.updated_count + ' page(s).', 'Replace Complete', function() {
+                            showAlert(dialogText('Successfully updated ' + data.updated_count + ' page(s).'), 'Replace Complete', function() {
                                 // Reload the page to see changes
                                 window.location.reload();
                             });
                         }
                     })
                     .catch(function(err) {
-                        showAlert('Failed to execute replace: ' + err.message, 'Replace Failed');
+                        showAlert(dialogText('Failed to execute replace: ' + err.message), 'Replace Failed');
                         executeBtn.disabled = false;
                         executeBtn.textContent = 'Accept Replacements';
                     });
@@ -1686,9 +1698,10 @@ var adminTemplates = map[string]string{
                 <h3>Page Settings</h3>
                 <div class="form-group checkbox-group">
                     <label class="checkbox-label">
-                        <input type="checkbox" name="published" {{if .Content}}{{if .Content.Published}}checked{{end}}{{end}}>
+                        <input type="checkbox" name="published" {{if .Content}}{{if .Content.ForkID}}disabled{{else if .Content.Published}}checked{{end}}{{end}}>
                         Published
                     </label>
+                    {{if .Content}}{{if .Content.ForkID}}<p class="help-text">This is a copy inside a fork. It goes live when the fork is merged, not by publishing it here.</p>{{end}}{{end}}
                 </div>
                 <div class="form-group checkbox-group">
                     <label class="checkbox-label">
@@ -1731,13 +1744,16 @@ var adminTemplates = map[string]string{
                     <button type="submit" class="btn btn-primary">{{if .IsNew}}Create{{else}}Update{{end}}</button>
                 </div>
                 {{if not .IsNew}}
-                <form method="POST" action="/cm/content/{{.Content.ID.Hex}}/delete" onsubmit="return confirmDelete(this, 'Are you sure you want to delete this page? This cannot be undone.')">
-                    {{$.CSRFField}}
-                    <button type="submit" class="btn btn-danger">Delete Page</button>
-                </form>
+                <button type="submit" form="delete-page-form" class="btn btn-danger">{{if .Content.ForkID}}Remove from Fork{{else}}Delete Page{{end}}</button>
                 {{end}}
             </div>
         </form>
+        {{if not .IsNew}}
+        <!-- Separate form (a form cannot nest inside the edit form); the Delete Page button points here with form= -->
+        <form id="delete-page-form" method="POST" action="/cm/content/{{.Content.ID.Hex}}/delete" onsubmit="return confirmDelete(this, {{if .Content.ForkID}}'Remove this copy from the fork? The live page is not affected.'{{else}}'Are you sure you want to delete this page? This cannot be undone.'{{end}})">
+            {{$.CSRFField}}
+        </form>
+        {{end}}
 
         <!-- Redirect confirmation modal -->
         <div id="redirect-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.7); z-index: 10000; align-items: center; justify-content: center;">
@@ -2109,7 +2125,7 @@ var adminTemplates = map[string]string{
                 });
                 if (!resp.ok) {
                     const err = await resp.json().catch(() => ({error: 'Request failed'}));
-                    alert(err.error || 'Failed to post comment');
+                    showAlert(dialogText(err.error || 'Failed to post comment'), 'Comment Failed');
                     return;
                 }
                 const comment = await resp.json();
@@ -2137,7 +2153,7 @@ var adminTemplates = map[string]string{
                 if (countEl) countEl.textContent = count;
                 else tabBtn.innerHTML += ' <span style="background:var(--accent);color:white;border-radius:9999px;font-size:0.75rem;padding:0 0.4rem;margin-left:0.25rem;">' + count + '</span>';
             } catch(e) {
-                alert('Failed to post comment: ' + e.message);
+                showAlert(dialogText('Failed to post comment: ' + e.message), 'Comment Failed');
             } finally {
                 btn.disabled = false;
                 btn.textContent = 'Post Comment';
@@ -2145,11 +2161,11 @@ var adminTemplates = map[string]string{
         }
 
         async function deleteComment(contentId, commentId, btn) {
-            if (!confirm('Delete this comment?')) return;
+            if (!(await showConfirm('Delete this comment?', 'Delete Comment'))) return;
             btn.disabled = true;
             try {
                 const resp = await fetch('/api/v1/content/' + contentId + '/comments/' + commentId, {method: 'DELETE'});
-                if (!resp.ok) { alert('Failed to delete comment'); btn.disabled = false; return; }
+                if (!resp.ok) { showAlert('Failed to delete comment', 'Delete Failed'); btn.disabled = false; return; }
                 btn.closest('.comment-item').remove();
                 const count = document.querySelectorAll('.comment-item').length;
                 const tabBtn = document.querySelector('[data-tab="discussion"]');
@@ -2163,19 +2179,20 @@ var adminTemplates = map[string]string{
                     msg.textContent = 'No discussion yet. Be the first to comment.';
                     thread.parentNode.insertBefore(msg, thread.nextSibling);
                 } else if (countEl) { countEl.textContent = count; }
-            } catch(e) { alert('Error: ' + e.message); btn.disabled = false; }
+            } catch(e) { showAlert(dialogText('Error: ' + e.message), 'Delete Failed'); btn.disabled = false; }
         }
 
         function escHtml(s) {
             return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
         }
 
-        const currentUserRole = {{printf "%q" .CurrentUserRole}};
+        // html/template quotes and escapes the value in script context; do not pre-quote it
+        const currentUserRole = {{.CurrentUserRole}};
         </script>
         {{end}}
 
-        <link href="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.snow.css" rel="stylesheet">
-        <script src="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.js"></script>
+        <link href="/static/admin/quill/quill.snow.css?v=2.0.3" rel="stylesheet">
+        <script src="/static/admin/quill/quill.js?v=2.0.3"></script>
         <style>
             .quill-wrapper { margin-bottom: 1rem; }
             .quill-wrapper .ql-toolbar { background: rgba(15, 23, 42, 0.5); border-color: var(--border); border-radius: var(--radius) var(--radius) 0 0; }
@@ -3681,7 +3698,7 @@ var adminTemplates = map[string]string{
                                 <td>{{.CreatedAt.Format "Jan 2, 2006 3:04 PM"}}</td>
                                 <td class="actions">
                                     <a href="/cm/theme/versions/{{.Version}}" class="btn btn-sm btn-outline">View Diff</a>
-                                    <form method="POST" action="/cm/theme/versions/{{.Version}}/revert" style="display:inline" onsubmit="return confirm('Revert to version {{.Version}}? This will create a new version with the old settings.')">
+                                    <form method="POST" action="/cm/theme/versions/{{.Version}}/revert" style="display:inline" data-confirm="Revert to version {{.Version}}? This will create a new version with the old settings." data-confirm-title="Revert Theme">
                                         {{$.CSRFField}}
                                         <button type="submit" class="btn btn-sm btn-secondary">Revert</button>
                                     </form>
@@ -3695,8 +3712,8 @@ var adminTemplates = map[string]string{
         </div>
         {{end}}
 
-        <link href="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.snow.css" rel="stylesheet">
-        <script src="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.js"></script>
+        <link href="/static/admin/quill/quill.snow.css?v=2.0.3" rel="stylesheet">
+        <script src="/static/admin/quill/quill.js?v=2.0.3"></script>
         <style>
             .quill-wrapper { margin-bottom: 1rem; }
             .quill-wrapper .ql-toolbar { background: rgba(15, 23, 42, 0.5); border-color: var(--border); border-radius: var(--radius) var(--radius) 0 0; }
@@ -5052,7 +5069,7 @@ var adminTemplates = map[string]string{
         <script>
         function copyToClipboard(text) {
             navigator.clipboard.writeText(window.location.origin + text).then(function() {
-                alert('URL copied to clipboard!');
+                showAlert('URL copied to clipboard!', 'Copied');
             });
         }
         </script>
@@ -5220,9 +5237,9 @@ var adminTemplates = map[string]string{
                 saveBtn.disabled = true;
                 saveBtn.textContent = 'Saving...';
 
-                fetch('/api/tools/fix-link', {
+                fetch('/cm/tools/broken-links/fix', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': '{{.CSRFToken}}' },
                     body: JSON.stringify({
                         contentId: currentFix.contentId,
                         field: currentFix.field,
@@ -7780,7 +7797,7 @@ async function doSearch(q) {
                 {{if eq .Fork.Status "active"}}
                 <a href="/cm/forks/{{.Fork.ID.Hex}}/preview" class="btn btn-secondary">👁 Start Preview</a>
                 {{if .CanMerge}}
-                <form method="POST" action="/cm/forks/{{.Fork.ID.Hex}}/merge" style="display:flex;gap:0.75rem;align-items:center;margin:0" onsubmit="return confirm('Merge this fork into the live site? This will update all matching pages and cannot be undone.')">
+                <form method="POST" action="/cm/forks/{{.Fork.ID.Hex}}/merge" style="display:flex;gap:0.75rem;align-items:center;margin:0" data-confirm="Merge this fork into the live site? This will update all matching pages and cannot be undone." data-confirm-title="Merge fork">
                     {{.CSRFField}}
                     <label class="checkbox-label" style="margin:0;font-size:0.85rem;white-space:nowrap" title="New pages are created as drafts unless this is checked. Pages on hold always stay drafts.">
                         <input type="checkbox" name="publish_new">
@@ -7788,9 +7805,9 @@ async function doSearch(q) {
                     </label>
                     <button type="submit" class="btn btn-primary">Merge into Live →</button>
                 </form>
-                <form method="POST" action="/cm/forks/{{.Fork.ID.Hex}}/archive" style="margin:0">
+                <form method="POST" action="/cm/forks/{{.Fork.ID.Hex}}/archive" style="margin:0" data-confirm="Archive this fork without merging?" data-confirm-title="Archive fork">
                     {{.CSRFField}}
-                    <button type="submit" class="btn btn-outline" onclick="return confirm('Archive this fork without merging?')">Archive</button>
+                    <button type="submit" class="btn btn-outline">Archive</button>
                 </form>
                 {{end}}
                 {{end}}
@@ -7861,9 +7878,9 @@ async function doSearch(q) {
                     {{if eq $.Fork.Status "active"}}
                     <td>
                         <a href="/cm/content/{{.ID.Hex}}?fork={{$.Fork.ID.Hex}}" class="btn btn-sm btn-outline">Edit</a>
-                        <form method="POST" action="/cm/forks/{{$.Fork.ID.Hex}}/pages/{{.ID.Hex}}/remove" style="display:inline">
+                        <form method="POST" action="/cm/forks/{{$.Fork.ID.Hex}}/pages/{{.ID.Hex}}/remove" style="display:inline" data-confirm="Remove this page from the fork?" data-confirm-title="Remove page">
                             {{$.CSRFField}}
-                            <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Remove this page from the fork?')">Remove</button>
+                            <button type="submit" class="btn btn-sm btn-danger">Remove</button>
                         </form>
                     </td>
                     {{end}}
@@ -7984,9 +8001,9 @@ async function doSearch(q) {
                     <td class="actions">
                         <a href="/cm/webhooks/{{.ID.Hex}}/edit" class="btn btn-sm btn-secondary">Edit</a>
                         <a href="/cm/webhooks/{{.ID.Hex}}/deliveries" class="btn btn-sm btn-secondary">Deliveries</a>
-                        <form method="POST" action="/cm/webhooks/{{.ID.Hex}}/delete" style="display:inline;">
+                        <form method="POST" action="/cm/webhooks/{{.ID.Hex}}/delete" style="display:inline;" data-confirm="Delete this webhook?" data-confirm-title="Delete Webhook">
                             {{$.CSRFField}}
-                            <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Delete this webhook?')">Delete</button>
+                            <button type="submit" class="btn btn-sm btn-danger">Delete</button>
                         </form>
                     </td>
                 </tr>
@@ -8038,10 +8055,7 @@ async function doSearch(q) {
                 <label>Secret (HMAC-SHA256 signing key)</label>
                 <div style="display:flex;align-items:center;gap:0.75rem;">
                     <input type="text" value="••••••••" readonly style="flex:1;color:var(--text-muted);cursor:default;">
-                    <form method="POST" action="/cm/webhooks/{{.Webhook.ID.Hex}}/regenerate-secret" style="margin:0;">
-                        {{$.CSRFField}}
-                        <button type="submit" class="btn btn-secondary" onclick="return confirm('Regenerate secret? The old secret will stop working immediately.')">Regenerate Secret</button>
-                    </form>
+                    <button type="submit" form="regenerate-secret-form" class="btn btn-secondary">Regenerate Secret</button>
                 </div>
                 <p style="color:var(--text-muted);font-size:0.8rem;margin-top:0.25rem;">The secret is masked for security. Use the Regenerate button to create a new one.</p>
             </div>
@@ -8069,6 +8083,12 @@ async function doSearch(q) {
                 <a href="/cm/webhooks" class="btn btn-secondary">Cancel</a>
             </div>
         </form>
+        {{if .Webhook}}
+        <!-- Separate form (a form cannot nest inside the edit form); the Regenerate button points here with form= -->
+        <form id="regenerate-secret-form" method="POST" action="/cm/webhooks/{{.Webhook.ID.Hex}}/regenerate-secret" data-confirm="Regenerate secret? The old secret will stop working immediately." data-confirm-title="Regenerate Secret">
+            {{.CSRFField}}
+        </form>
+        {{end}}
     ` + adminLayoutEnd,
 
 	"webhook_deliveries": adminLayoutStart + `
@@ -8218,9 +8238,9 @@ function verify(secret, signature, body) {
                                 {{$.CSRFField}}
                                 <button type="submit" class="btn btn-sm btn-primary">Run Now</button>
                             </form>
-                            <form method="POST" action="/cm/imports/sources/{{.ID.Hex}}/delete" style="display:inline;">
+                            <form method="POST" action="/cm/imports/sources/{{.ID.Hex}}/delete" style="display:inline;" data-confirm="Delete this RSS source?" data-confirm-title="Delete RSS Source">
                                 {{$.CSRFField}}
-                                <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Delete this RSS source?')">Delete</button>
+                                <button type="submit" class="btn btn-sm btn-danger">Delete</button>
                             </form>
                         </td>
                     </tr>
@@ -8703,22 +8723,22 @@ function verify(secret, signature, body) {
         var allUsers = null;
 
         async function approveRequest(id) {
-            if (!confirm('Approve this request?')) return;
+            if (!(await showConfirm('Approve this request?', 'Approve Request'))) return;
             var r = await fetch('/api/v1/approval-requests/'+id+'/approve', {method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
-            if (r.ok) location.reload(); else { var e = await r.json().catch(()=>({error:'Failed'})); alert(e.error||'Failed'); }
+            if (r.ok) location.reload(); else { var e = await r.json().catch(()=>({error:'Failed'})); showAlert(dialogText(e.error||'Failed'), 'Approve Failed'); }
         }
         function openRejectModal(id) { rejectingId = id; document.getElementById('reject-comment').value=''; document.getElementById('reject-modal').style.display='flex'; }
         function closeRejectModal() { document.getElementById('reject-modal').style.display='none'; rejectingId=null; }
         async function submitReject() {
             var c = document.getElementById('reject-comment').value.trim();
-            if (!c) { alert('Comment required'); return; }
+            if (!c) { showAlert('Comment required', 'Reject Request'); return; }
             var r = await fetch('/api/v1/approval-requests/'+rejectingId+'/reject', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({comment:c})});
-            if (r.ok) { closeRejectModal(); location.reload(); } else { var e = await r.json().catch(()=>({error:'Failed'})); alert(e.error||'Failed'); }
+            if (r.ok) { closeRejectModal(); location.reload(); } else { var e = await r.json().catch(()=>({error:'Failed'})); showAlert(dialogText(e.error||'Failed'), 'Reject Failed'); }
         }
         async function deleteWorkflow(id) {
-            if (!confirm('Delete this workflow?')) return;
+            if (!(await showConfirm('Delete this workflow?', 'Delete Workflow'))) return;
             var r = await fetch('/api/v1/approval-workflows/'+id, {method:'DELETE'});
-            if (r.ok) location.reload(); else alert('Failed');
+            if (r.ok) location.reload(); else showAlert('Failed', 'Delete Failed');
         }
         function toggleTriggerValue() {
             var t = document.getElementById('wf-trigger').value;
@@ -8760,14 +8780,14 @@ function verify(secret, signature, body) {
         }
         async function createWorkflow() {
             var name = document.getElementById('wf-name').value.trim();
-            if (!name) { alert('Name is required'); return; }
+            if (!name) { showAlert('Name is required', 'New Workflow'); return; }
             var trigger = document.getElementById('wf-trigger').value;
             var triggerValue = trigger !== 'all_contributor' ? document.getElementById('wf-trigger-value').value.trim() : '';
             var mode = document.getElementById('wf-mode').value;
             var approvers = wfApprovers.map(a => ({user_id: a.user_id}));
             var payload = {name:name, trigger:trigger, trigger_value:triggerValue, mode:mode, approvers:approvers};
             var r = await fetch('/api/v1/approval-workflows', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
-            if (r.ok) { location.reload(); } else { var e = await r.json().catch(()=>({error:'Failed'})); alert(e.error||'Failed to create workflow'); }
+            if (r.ok) { location.reload(); } else { var e = await r.json().catch(()=>({error:'Failed'})); showAlert(dialogText(e.error||'Failed to create workflow'), 'Create Failed'); }
         }
         </script>
     ` + adminLayoutEnd,
@@ -9335,7 +9355,15 @@ const adminLayoutStart = `<!DOCTYPE html>
         }
     </style>
     <script>
-    // Show info/alert modal (replacement for alert())
+    // showAlert and showConfirm take their message as HTML. Pass anything that
+    // is not a fixed string (server errors, user input) through dialogText.
+    function dialogText(text) {
+        var el = document.createElement('div');
+        el.textContent = text == null ? '' : String(text);
+        return el.innerHTML;
+    }
+
+    // Show info modal (the styled replacement for the browser's native alert)
     function showAlert(message, title, callback) {
         var modal = document.getElementById('info-modal');
         var msgEl = document.getElementById('info-modal-message');
@@ -9359,7 +9387,7 @@ const adminLayoutStart = `<!DOCTYPE html>
         okBtn.addEventListener('click', onOk);
     }
 
-    // Show confirm modal (replacement for confirm()) - returns a Promise
+    // Show confirm modal (the styled replacement for the browser's native confirm) - returns a Promise
     function showConfirm(message, title) {
         return new Promise(function(resolve) {
             var modal = document.getElementById('confirm-modal');
@@ -9392,6 +9420,20 @@ const adminLayoutStart = `<!DOCTYPE html>
             cancelBtn.addEventListener('click', onCancel);
         });
     }
+
+    // Forms with a data-confirm attribute ask through the styled confirm modal
+    // before submitting (never a native dialog from an onsubmit/onclick handler).
+    // data-confirm-title sets the modal title. The message is shown as text.
+    document.addEventListener('submit', function(e) {
+        var form = e.target;
+        if (!form || !form.getAttribute) return;
+        var message = form.getAttribute('data-confirm');
+        if (!message) return;
+        e.preventDefault();
+        showConfirm(dialogText(message), form.getAttribute('data-confirm-title') || 'Confirm').then(function(confirmed) {
+            if (confirmed) form.submit(); // form.submit() does not re-fire this handler
+        });
+    });
     </script>
 </head>
 <body>

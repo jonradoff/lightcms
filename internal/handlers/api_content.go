@@ -228,6 +228,36 @@ func (a *APIHandler) APIGetContent(w http.ResponseWriter, r *http.Request) {
 	a.jsonResponse(w, http.StatusOK, content)
 }
 
+// contentByPath resolves the ?path= of a by-path request. Paths resolve to
+// live pages only; a fork copy is reachable by path only when the caller
+// names its fork with ?fork_id=, so a path can never silently land on a copy.
+// It writes the error response itself and returns nil when resolution fails.
+func (a *APIHandler) contentByPath(w http.ResponseWriter, r *http.Request, path string) *models.Content {
+	if fid := r.URL.Query().Get("fork_id"); fid != "" {
+		forkID, err := primitive.ObjectIDFromHex(fid)
+		if err != nil {
+			a.jsonError(w, http.StatusBadRequest, "invalid fork_id")
+			return nil
+		}
+		if a.forkService == nil {
+			a.jsonError(w, http.StatusNotFound, "content not found at path: "+path)
+			return nil
+		}
+		content, err := a.forkService.GetForkPageByPath(r.Context(), forkID, path)
+		if err != nil {
+			a.jsonError(w, http.StatusNotFound, "content not found in fork at path: "+path)
+			return nil
+		}
+		return content
+	}
+	content, err := a.contentService.GetContentByPath(r.Context(), path)
+	if err != nil {
+		a.jsonError(w, http.StatusNotFound, "content not found at path: "+path)
+		return nil
+	}
+	return content
+}
+
 func (a *APIHandler) APIGetContentByPath(w http.ResponseWriter, r *http.Request) {
 	if !a.requirePermission(w, r, auth.PermContentView) {
 		return
@@ -238,9 +268,8 @@ func (a *APIHandler) APIGetContentByPath(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	content, err := a.contentService.GetContentByPath(r.Context(), path)
-	if err != nil {
-		a.jsonError(w, http.StatusNotFound, "content not found")
+	content := a.contentByPath(w, r, path)
+	if content == nil {
 		return
 	}
 
@@ -1393,6 +1422,7 @@ func (a *APIHandler) APIPreviewContent(w http.ResponseWriter, r *http.Request) {
 
 // APIUpdateContentByPath updates content identified by URL path rather than ID.
 // PUT /api/v1/content/by-path?path=/some/path
+// The path resolves to the live page; add &fork_id= to update that fork's copy.
 func (a *APIHandler) APIUpdateContentByPath(w http.ResponseWriter, r *http.Request) {
 	if !a.requirePermission(w, r, auth.PermContentEdit) {
 		return
@@ -1404,9 +1434,8 @@ func (a *APIHandler) APIUpdateContentByPath(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	content, err := a.contentService.GetContentByPath(r.Context(), path)
-	if err != nil {
-		a.jsonError(w, http.StatusNotFound, "content not found at path: "+path)
+	content := a.contentByPath(w, r, path)
+	if content == nil {
 		return
 	}
 
@@ -1544,6 +1573,14 @@ func (a *APIHandler) APIScopedSearchReplacePreview(w http.ResponseWriter, r *htt
 		return
 	}
 
+	// Search-and-replace works on live pages only; fork copies named in
+	// content_ids are reported as skipped.
+	skipped, err := a.skippedForkCopies(r.Context(), req.Scope)
+	if err != nil {
+		a.jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
 	// Push scope filters to MongoDB, then stream the cursor document-by-document.
 	cursor, err := a.contentService.StreamContentScoped(r.Context(), scopeToContentScope(req.Scope))
 	if err != nil {
@@ -1601,6 +1638,7 @@ func (a *APIHandler) APIScopedSearchReplacePreview(w http.ResponseWriter, r *htt
 		"total_matches":  totalMatchCount,
 		"affected_pages": len(matches),
 		"matches":        matches,
+		"skipped":        skipped,
 	})
 }
 
@@ -1646,6 +1684,14 @@ func (a *APIHandler) APIScopedSearchReplaceExecute(w http.ResponseWriter, r *htt
 
 	ctx, cancel := context.WithTimeout(r.Context(), bulkOpTimeout)
 	defer cancel()
+
+	// Search-and-replace works on live pages only; fork copies named in
+	// content_ids are reported as skipped.
+	skipped, err := a.skippedForkCopies(ctx, req.Scope)
+	if err != nil {
+		a.jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 
 	// Push scope filters to MongoDB and stream results to avoid loading the full
 	// scoped set into memory before processing starts.
@@ -1764,6 +1810,7 @@ func (a *APIHandler) APIScopedSearchReplaceExecute(w http.ResponseWriter, r *htt
 		"total_replacements": totalReplacements,
 		"pages_updated":      len(updatedPages),
 		"updated_pages":      updatedPages,
+		"skipped":            skipped,
 	}
 	if ctx.Err() != nil {
 		resp["warning"] = "operation timed out; results are partial"
@@ -2224,7 +2271,25 @@ respond:
 	})
 }
 
-// APIBulkFieldOperation applies a field operation to all matching content.
+// reasonForkCopyScope is the skip reason for fork copies named in a scope.
+const reasonForkCopyScope = "fork copy; this operation works on live pages only"
+
+// skippedForkCopies reports which explicitly requested content_ids are fork
+// copies. Scoped operations run on live pages only, so those IDs match
+// nothing; they are returned as {id, reason} so callers are told instead of
+// getting a silently smaller result. Always returns a non-nil slice.
+func (a *APIHandler) skippedForkCopies(ctx context.Context, f scopeFilter) ([]map[string]string, error) {
+	skipped := []map[string]string{}
+	ids, err := a.contentService.ForkCopyIDs(ctx, scopeToContentScope(f).ContentIDs)
+	if err != nil {
+		return nil, err
+	}
+	for _, id := range ids {
+		skipped = append(skipped, map[string]string{"id": id.Hex(), "reason": reasonForkCopyScope})
+	}
+	return skipped, nil
+}
+
 // scopeToContentScope converts a scopeFilter (handler-layer) to services.ContentScope.
 // ContentIDs strings are parsed to ObjectIDs; unparseable ones are silently dropped.
 func scopeToContentScope(f scopeFilter) services.ContentScope {
@@ -2292,6 +2357,12 @@ func (a *APIHandler) APIBulkFieldOperation(w http.ResponseWriter, r *http.Reques
 
 	// Push scope filters to MongoDB — avoids full-collection load.
 	contents, err := a.contentService.ListContentScoped(r.Context(), scopeToContentScope(req.Scope))
+	if err != nil {
+		a.jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	// Fork copies named in content_ids are never touched; report them.
+	skipped, err := a.skippedForkCopies(r.Context(), req.Scope)
 	if err != nil {
 		a.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -2399,7 +2470,7 @@ respond:
 	}
 	a.auditLog(r, "content.bulk_field_op", "content", "", map[string]interface{}{
 		"operation": req.Operation, "field": req.Field, "dry_run": req.DryRun,
-		"total": len(results), "succeeded": succeeded, "failed": failed,
+		"total": len(results), "succeeded": succeeded, "failed": failed, "skipped": len(skipped),
 	})
 	a.jsonResponse(w, http.StatusOK, map[string]interface{}{
 		"dry_run":   req.DryRun,
@@ -2408,6 +2479,7 @@ respond:
 		"total":     len(results),
 		"succeeded": succeeded,
 		"failed":    failed,
+		"skipped":   skipped,
 		"results":   results,
 	})
 }
@@ -2440,6 +2512,12 @@ func (a *APIHandler) APIExportContent(w http.ResponseWriter, r *http.Request) {
 		Category:     req.Category,
 	}
 	contents, err := a.contentService.ListContentScoped(r.Context(), scopeToContentScope(exportScope))
+	if err != nil {
+		a.jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	// Fork copies named in content_ids are not exported; report them.
+	skipped, err := a.skippedForkCopies(r.Context(), exportScope)
 	if err != nil {
 		a.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -2492,7 +2570,8 @@ func (a *APIHandler) APIExportContent(w http.ResponseWriter, r *http.Request) {
 		items = []ExportItem{}
 	}
 	a.jsonResponse(w, http.StatusOK, map[string]interface{}{
-		"total": len(items),
-		"items": items,
+		"total":   len(items),
+		"items":   items,
+		"skipped": skipped,
 	})
 }
