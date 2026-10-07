@@ -7,6 +7,7 @@ import (
 )
 
 func TestGetMongoURI_NoConfig(t *testing.T) {
+	t.Setenv("MONGO_URI", "")
 	// Run from a temp dir with no config files
 	tmp := t.TempDir()
 	orig, _ := os.Getwd()
@@ -20,6 +21,7 @@ func TestGetMongoURI_NoConfig(t *testing.T) {
 }
 
 func TestGetMongoURI_DevConfig(t *testing.T) {
+	t.Setenv("MONGO_URI", "")
 	tmp := t.TempDir()
 	orig, _ := os.Getwd()
 	os.Chdir(tmp)
@@ -34,6 +36,7 @@ func TestGetMongoURI_DevConfig(t *testing.T) {
 }
 
 func TestGetMongoURI_ProdTakesPriority(t *testing.T) {
+	t.Setenv("MONGO_URI", "")
 	tmp := t.TempDir()
 	orig, _ := os.Getwd()
 	os.Chdir(tmp)
@@ -78,6 +81,7 @@ func TestLoadURIFromConfig_EmptyURI(t *testing.T) {
 }
 
 func TestGetDatabaseName(t *testing.T) {
+	t.Setenv("MONGO_URI", "")
 	tmp := t.TempDir()
 	orig, _ := os.Getwd()
 	os.Chdir(tmp)
@@ -103,5 +107,43 @@ func TestGetDatabaseName(t *testing.T) {
 	t.Setenv("DATABASE_NAME", "lightcms_test")
 	if got := GetDatabaseName(); got != "lightcms_test" {
 		t.Errorf("expected env override, got %q", got)
+	}
+}
+
+// MONGO_URI is the variable the server reads and the one the tools' error
+// message names: it wins over both config files, and the database name then
+// comes from DATABASE_NAME alone (no config file is consulted).
+func TestGetMongoURI_EnvWins(t *testing.T) {
+	tmp := t.TempDir()
+	orig, _ := os.Getwd()
+	os.Chdir(tmp)
+	defer os.Chdir(orig)
+	os.WriteFile(filepath.Join(tmp, "config.prod.json"), []byte(`{"mongo_uri":"mongodb://prod:27017","database_name":"proddb"}`), 0644)
+	os.WriteFile(filepath.Join(tmp, "config.dev.json"), []byte(`{"mongo_uri":"mongodb://dev:27017","database_name":"devdb"}`), 0644)
+
+	t.Setenv("MONGO_URI", "mongodb://env:27017")
+	t.Setenv("DATABASE_NAME", "")
+	if got := GetMongoURI(); got != "mongodb://env:27017" {
+		t.Errorf("GetMongoURI = %q, want the MONGO_URI value", got)
+	}
+	if got := GetDatabaseName(); got != "lightcms" {
+		t.Errorf("GetDatabaseName = %q, want the default (config files are not read in env mode)", got)
+	}
+	t.Setenv("DATABASE_NAME", "lightcms-test")
+	if got := GetDatabaseName(); got != "lightcms-test" {
+		t.Errorf("GetDatabaseName = %q, want lightcms-test", got)
+	}
+
+	// No config files at all: the env var alone is enough
+	os.Remove(filepath.Join(tmp, "config.prod.json"))
+	os.Remove(filepath.Join(tmp, "config.dev.json"))
+	if got := GetMongoURI(); got != "mongodb://env:27017" {
+		t.Errorf("GetMongoURI without config files = %q", got)
+	}
+
+	// Blank is not set
+	t.Setenv("MONGO_URI", "  ")
+	if got := GetMongoURI(); got != "" {
+		t.Errorf("GetMongoURI with blank MONGO_URI = %q, want empty", got)
 	}
 }

@@ -2,6 +2,28 @@ package handlers
 
 var adminTemplates = map[string]string{
 
+	// The styled refusal a signed-in user gets for a page or form their role
+	// may not use (see refuseAdmin).
+	"forbidden": adminLayoutStart + `
+        <div class="page-header">
+            <h1>Not permitted</h1>
+        </div>
+        <div class="error-message" id="forbidden-message" role="alert">{{.Message}}</div>
+        <div class="form-actions" style="justify-content: flex-start;">
+            <a href="/cm" class="btn btn-outline" id="forbidden-back" data-back>Go back</a>
+            <a href="/cm" class="btn btn-primary">Dashboard</a>
+        </div>
+        <script>
+        // Return to the page the refused form was on when there is one
+        document.getElementById('forbidden-back').addEventListener('click', function(e) {
+            if (document.referrer && document.referrer.indexOf(location.origin + '/cm') === 0) {
+                e.preventDefault();
+                location.href = document.referrer;
+            }
+        });
+        </script>
+    ` + adminLayoutEnd,
+
 	"indexnow_tool": adminLayoutStart + `
         <div class="page-header">
             <h1>📡 IndexNow</h1>
@@ -311,8 +333,8 @@ var adminTemplates = map[string]string{
             <div class="quick-actions">
                 <h2>Quick Actions</h2>
                 <div class="action-buttons">
-                    <a href="/cm/content/new" class="btn btn-primary">New Content</a>
-                    <a href="/cm/templates/new" class="btn btn-secondary">New Template</a>
+                    {{if index $.Can "content.create"}}<a href="/cm/content/new" class="btn btn-primary">New Content</a>{{end}}
+                    {{if index $.Can "template.create"}}<a href="/cm/templates/new" class="btn btn-secondary">New Template</a>{{end}}
                     <a href="/" target="_blank" class="btn btn-outline">View Site</a>
                 </div>
             </div>
@@ -391,7 +413,7 @@ var adminTemplates = map[string]string{
 	"templates_list": adminLayoutStart + `
         <div class="page-header">
             <h1>Templates</h1>
-            <a href="/cm/templates/new" class="btn btn-primary">New Template</a>
+            {{if index $.Can "template.create"}}<a href="/cm/templates/new" class="btn btn-primary">New Template</a>{{end}}
         </div>
         <div class="table-container">
             <table>
@@ -517,7 +539,7 @@ var adminTemplates = map[string]string{
 	"content_list": adminLayoutStart + `
         <div class="page-header">
             <h1>Content</h1>
-            <a href="/cm/content/new" class="btn btn-primary">New Content</a>
+            {{if index $.Can "content.create"}}<a href="/cm/content/new" class="btn btn-primary">New Content</a>{{end}}
         </div>
 
         <div class="filter-bar" style="display: flex; gap: 1rem; margin-bottom: 1.5rem; align-items: center; flex-wrap: wrap;">
@@ -1750,7 +1772,7 @@ var adminTemplates = map[string]string{
         </form>
         {{if not .IsNew}}
         <!-- Separate form (a form cannot nest inside the edit form); the Delete Page button points here with form= -->
-        <form id="delete-page-form" method="POST" action="/cm/content/{{.Content.ID.Hex}}/delete" onsubmit="return confirmDelete(this, {{if .Content.ForkID}}'Remove this copy from the fork? The live page is not affected.'{{else}}'Are you sure you want to delete this page? This cannot be undone.'{{end}})">
+        <form id="delete-page-form" method="POST" action="/cm/content/{{.Content.ID.Hex}}/delete" onsubmit="return confirmDelete(this, {{if .Content.ForkID}}'Remove this copy from the fork? The live page is not affected.'{{else}}'Delete this page? It is unpublished and moved to deleted content, where it can be restored (Search, Include deleted content).'{{end}})">
             {{$.CSRFField}}
         </form>
         {{end}}
@@ -2054,7 +2076,8 @@ var adminTemplates = map[string]string{
             if (mentionUsers !== null) return mentionUsers;
             try {
                 const r = await fetch('/api/v1/users');
-                if (r.ok) { mentionUsers = await r.json(); }
+                // The endpoint answers {"users": [...]}
+                if (r.ok) { const data = await r.json(); mentionUsers = Array.isArray(data) ? data : (data.users || []); }
             } catch(e) {}
             return mentionUsers || [];
         }
@@ -2076,12 +2099,18 @@ var adminTemplates = map[string]string{
                         const users = await loadMentionUsers();
                         const matches = users.filter(u => (u.email||'').toLowerCase().includes(query) || (u.display_name||'').toLowerCase().includes(query)).slice(0, 6);
                         if (matches.length > 0) {
-                            mentionDropdown.innerHTML = matches.map(u => {
-                                var safeName = escHtml(u.display_name || u.email || '');
-                                var safeId = escHtml(u.id || u.ID || '');
-                                var safeNameForAttr = (u.display_name||u.email||'').replace(/["'<>&]/g, '');
-                                return '<button type="button" onclick="insertMention(\'' + safeId + '\',\'' + safeNameForAttr + '\'">' + safeName + '</button>';
-                            }).join('');
+                            // One button per match, built with the DOM: the id and
+                            // name travel as data attributes and text, never as markup
+                            // or as code in an inline handler.
+                            mentionDropdown.textContent = '';
+                            matches.forEach(u => {
+                                const b = document.createElement('button');
+                                b.type = 'button';
+                                b.dataset.mentionId = u.id || u.ID || '';
+                                b.dataset.mentionName = u.display_name || u.email || '';
+                                b.textContent = u.display_name || u.email || '';
+                                mentionDropdown.appendChild(b);
+                            });
                             mentionDropdown.style.display = 'block';
                             return;
                         }
@@ -2092,6 +2121,10 @@ var adminTemplates = map[string]string{
             });
             commentInput.addEventListener('keydown', function(e) {
                 if (e.key === 'Escape') { mentionDropdown.style.display = 'none'; }
+            });
+            mentionDropdown.addEventListener('click', function(e) {
+                const b = e.target.closest('button[data-mention-name]');
+                if (b) insertMention(b.dataset.mentionId, b.dataset.mentionName);
             });
             document.addEventListener('click', function(e) {
                 if (!mentionDropdown.contains(e.target) && e.target !== commentInput) {
@@ -2120,7 +2153,7 @@ var adminTemplates = map[string]string{
             try {
                 const resp = await fetch('/api/v1/content/' + contentId + '/comments', {
                     method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
+                    headers: csrfHeaders({'Content-Type': 'application/json'}),
                     body: JSON.stringify({text: text, mentions: pendingMentions})
                 });
                 if (!resp.ok) {
@@ -2164,7 +2197,7 @@ var adminTemplates = map[string]string{
             if (!(await showConfirm('Delete this comment?', 'Delete Comment'))) return;
             btn.disabled = true;
             try {
-                const resp = await fetch('/api/v1/content/' + contentId + '/comments/' + commentId, {method: 'DELETE'});
+                const resp = await fetch('/api/v1/content/' + contentId + '/comments/' + commentId, {method: 'DELETE', headers: csrfHeaders()});
                 if (!resp.ok) { showAlert('Failed to delete comment', 'Delete Failed'); btn.disabled = false; return; }
                 btn.closest('.comment-item').remove();
                 const count = document.querySelectorAll('.comment-item').length;
@@ -3476,7 +3509,7 @@ var adminTemplates = map[string]string{
 	"collections_list": adminLayoutStart + `
         <div class="page-header">
             <h1>Collections</h1>
-            <a href="/cm/collections/new" class="btn btn-primary">New Collection</a>
+            {{if index $.Can "settings.edit"}}<a href="/cm/collections/new" class="btn btn-primary">New Collection</a>{{end}}
         </div>
         <div class="table-container">
             <table>
@@ -3669,7 +3702,7 @@ var adminTemplates = map[string]string{
             </div>
 
             <div class="form-actions">
-                <button type="submit" class="btn btn-primary">Save Theme</button>
+                {{if index $.Can "settings.edit"}}<button type="submit" class="btn btn-primary">Save Theme</button>{{else}}<span style="color: var(--text-muted); font-size: 0.9rem;">Read-only: your role cannot change these settings.</span>{{end}}
             </div>
         </form>
 
@@ -4208,32 +4241,6 @@ var adminTemplates = map[string]string{
                 color: var(--text-muted);
             }
         </style>
-        <script>
-        function confirmRevert(form, version) {
-            event.preventDefault();
-
-            var overlay = document.createElement('div');
-            overlay.className = 'modal-overlay';
-            overlay.innerHTML = '<div class="modal-box">' +
-                '<h3>Revert Theme to Version ' + version + '?</h3>' +
-                '<p style="color: var(--text-muted); margin-bottom: 1.5rem;">This will restore the theme settings from version ' + version + '. A new version will be created with the restored settings.</p>' +
-                '<div class="modal-actions">' +
-                '<button type="button" class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button>' +
-                '<button type="button" class="btn btn-primary" id="confirmRevertBtn">Revert Theme</button>' +
-                '</div></div>';
-            document.body.appendChild(overlay);
-
-            document.getElementById('confirmRevertBtn').addEventListener('click', function() {
-                form.submit();
-            });
-
-            overlay.addEventListener('click', function(e) {
-                if (e.target === overlay) overlay.remove();
-            });
-
-            return false;
-        }
-        </script>
     ` + adminLayoutEnd,
 
 	"theme_version_diff": adminLayoutStart + `
@@ -4503,31 +4510,6 @@ var adminTemplates = map[string]string{
         </style>
 
         <script>
-        function confirmRevert(form, version) {
-            event.preventDefault();
-
-            var overlay = document.createElement('div');
-            overlay.className = 'modal-overlay';
-            overlay.innerHTML = '<div class="modal-box">' +
-                '<h3>Revert Theme to Version ' + version + '?</h3>' +
-                '<p style="color: var(--text-muted); margin-bottom: 1.5rem;">This will restore the theme settings from version ' + version + '. A new version will be created with the restored settings.</p>' +
-                '<div class="modal-actions">' +
-                '<button type="button" class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button>' +
-                '<button type="button" class="btn btn-primary" id="confirmRevertBtn">Revert Theme</button>' +
-                '</div></div>';
-            document.body.appendChild(overlay);
-
-            document.getElementById('confirmRevertBtn').addEventListener('click', function() {
-                form.submit();
-            });
-
-            overlay.addEventListener('click', function(e) {
-                if (e.target === overlay) overlay.remove();
-            });
-
-            return false;
-        }
-
         document.addEventListener('DOMContentLoaded', function() {
             // Process each diff section
             document.querySelectorAll('.diff-section').forEach(function(section) {
@@ -4557,7 +4539,7 @@ var adminTemplates = map[string]string{
 	"folders_list": adminLayoutStart + `
         <div class="page-header">
             <h1>Folders</h1>
-            <a href="/cm/folders/new" class="btn btn-primary">New Folder</a>
+            {{if index $.Can "settings.edit"}}<a href="/cm/folders/new" class="btn btn-primary">New Folder</a>{{end}}
         </div>
         <p class="page-subtitle">Organize your content into folders to create clean URL structures like /blog/2024/post-name</p>
         {{if not .Folders}}
@@ -4584,7 +4566,7 @@ var adminTemplates = map[string]string{
                         <td><code>{{.Folder.Path}}</code></td>
                         <td class="actions">
                             <a href="/cm/folders/{{.Folder.ID.Hex}}" class="btn btn-sm">Edit</a>
-                            <form method="POST" action="/cm/folders/{{.Folder.ID.Hex}}/delete" onsubmit="return confirmDelete(this, 'Are you sure you want to delete this folder?<br><br><span style=&quot;color: var(--text-muted); font-size: 0.9rem;&quot;>Make sure it has no content or subfolders.</span>')">
+                            <form method="POST" action="/cm/folders/{{.Folder.ID.Hex}}/delete" onsubmit="return confirmDelete(this, 'Are you sure you want to delete this folder?\n\nMake sure it has no content or subfolders.')">
                                 {{$.CSRFField}}
                                 <button type="submit" class="btn btn-sm btn-danger">Delete</button>
                             </form>
@@ -4810,7 +4792,7 @@ var adminTemplates = map[string]string{
             </div>
 
             <div class="form-actions">
-                <button type="submit" class="btn btn-primary">Save Configuration</button>
+                {{if index $.Can "settings.edit"}}<button type="submit" class="btn btn-primary">Save Configuration</button>{{else}}<span style="color: var(--text-muted); font-size: 0.9rem;">Read-only: your role cannot change these settings.</span>{{end}}
             </div>
         </form>
     ` + adminLayoutEnd,
@@ -4818,7 +4800,7 @@ var adminTemplates = map[string]string{
 	"redirects_list": adminLayoutStart + `
         <div class="page-header">
             <h1>Redirects</h1>
-            <a href="/cm/redirects/new" class="btn btn-primary">New Redirect</a>
+            {{if index $.Can "settings.edit"}}<a href="/cm/redirects/new" class="btn btn-primary">New Redirect</a>{{end}}
         </div>
         <div class="table-container">
             <table>
@@ -4840,7 +4822,7 @@ var adminTemplates = map[string]string{
                         <td>{{.Description}}</td>
                         <td class="actions">
                             <a href="/cm/redirects/{{.ID.Hex}}" class="btn btn-sm">Edit</a>
-                            <form method="POST" action="/cm/redirects/{{.ID.Hex}}/delete" style="display:inline" onsubmit="return confirmDelete(this, 'Are you sure you want to delete this redirect?&lt;br&gt;&lt;br&gt;Note: Browsers cache 301 redirects. After deletion, users may need to clear their browser cache.')">
+                            <form method="POST" action="/cm/redirects/{{.ID.Hex}}/delete" style="display:inline" onsubmit="return confirmDelete(this, 'Are you sure you want to delete this redirect?\n\nNote: Browsers cache 301 redirects. After deletion, users may need to clear their browser cache.')">
             {{$.CSRFField}}
                                 <button type="submit" class="btn btn-sm btn-danger">Delete</button>
                             </form>
@@ -5007,7 +4989,7 @@ var adminTemplates = map[string]string{
 	"asset_library": adminLayoutStart + `
         <div class="page-header">
             <h1>Asset Library</h1>
-            <a href="/cm/assets/upload" class="btn btn-primary">Upload Asset</a>
+            {{if index $.Can "asset.upload"}}<a href="/cm/assets/upload" class="btn btn-primary">Upload Asset</a>{{end}}
         </div>
 
         <div class="filter-bar" style="margin-bottom: 1rem;">
@@ -5705,7 +5687,7 @@ var adminTemplates = map[string]string{
                         <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem;">Exact page paths to always rank lower (e.g. /thank-you). Uses the Demotion Score above.</div>
                     </div>
                 </div>
-                <button type="submit" class="btn btn-primary">Save Ranking Config</button>
+                {{if index $.Can "settings.edit"}}<button type="submit" class="btn btn-primary">Save Ranking Config</button>{{else}}<span style="color: var(--text-muted); font-size: 0.9rem;">Read-only: your role cannot change these settings.</span>{{end}}
             </form>
         </div>
         {{end}}
@@ -6143,7 +6125,7 @@ async function doSearch(q) {
                             </div>
                         </div>
 
-                        <button type="submit" class="btn btn-primary">Save Configuration</button>
+                        {{if index $.Can "settings.edit"}}<button type="submit" class="btn btn-primary">Save Configuration</button>{{else}}<span style="color: var(--text-muted); font-size: 0.9rem;">Read-only: your role cannot change these settings.</span>{{end}}
                     </form>
                 </div>
 
@@ -6181,7 +6163,7 @@ async function doSearch(q) {
                         </div>
 
                         <div style="display: flex; align-items: center; gap: 1rem;">
-                            <button type="submit" class="btn btn-primary">Save Prompts</button>
+                            {{if index $.Can "settings.edit"}}<button type="submit" class="btn btn-primary">Save Prompts</button>{{else}}<span style="color: var(--text-muted); font-size: 0.9rem;">Read-only: your role cannot change these settings.</span>{{end}}
                             <button type="button" class="btn btn-outline btn-sm" id="reset-prompts-btn">Reset to defaults</button>
                         </div>
                     </form>
@@ -7638,7 +7620,7 @@ async function doSearch(q) {
 	"snippets_list": adminLayoutStart + `
         <div class="page-header">
             <h1>Snippets</h1>
-            <a href="/cm/snippets/new" class="btn btn-primary">+ New Snippet</a>
+            {{if index $.Can "template.edit"}}<a href="/cm/snippets/new" class="btn btn-primary">+ New Snippet</a>{{end}}
         </div>
         <p class="help-text" style="margin-bottom: 1.5rem;">Snippets are reusable HTML templates used to render individual items in <code>lc:query</code> index pages. Reference them by name in your template layouts.</p>
 
@@ -7788,12 +7770,22 @@ async function doSearch(q) {
     ` + adminLayoutEnd,
 
 	"fork_detail": adminLayoutStart + `
-        <div class="page-header">
-            <div>
+        <style>
+            /* The action buttons keep their size on one line. A name too long
+               to sit beside them takes the full width and the buttons drop
+               below it as a row; a short name keeps them on its right. */
+            .fork-header { flex-wrap: wrap; gap: 1rem; }
+            .fork-header-title { flex: 1 1 auto; min-width: 0; max-width: 100%; }
+            .fork-header-title h1, .fork-header-title p { overflow-wrap: anywhere; }
+            .fork-header-actions { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; justify-content: flex-end; flex-shrink: 0; max-width: 100%; margin-left: auto; }
+            .fork-header-actions .btn { white-space: nowrap; }
+        </style>
+        <div class="page-header fork-header">
+            <div class="fork-header-title">
                 <h1>🌿 {{.Fork.Name}}</h1>
                 {{if .Fork.Description}}<p style="color:var(--text-muted);margin-top:0.25rem">{{.Fork.Description}}</p>{{end}}
             </div>
-            <div style="display:flex;gap:0.75rem;align-items:center">
+            <div class="fork-header-actions">
                 {{if eq .Fork.Status "active"}}
                 <a href="/cm/forks/{{.Fork.ID.Hex}}/preview" class="btn btn-secondary">👁 Start Preview</a>
                 {{if .CanMerge}}
@@ -8724,7 +8716,7 @@ function verify(secret, signature, body) {
 
         async function approveRequest(id) {
             if (!(await showConfirm('Approve this request?', 'Approve Request'))) return;
-            var r = await fetch('/api/v1/approval-requests/'+id+'/approve', {method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+            var r = await fetch('/api/v1/approval-requests/'+id+'/approve', {method:'POST',headers:csrfHeaders({'Content-Type':'application/json'}),body:'{}'});
             if (r.ok) location.reload(); else { var e = await r.json().catch(()=>({error:'Failed'})); showAlert(dialogText(e.error||'Failed'), 'Approve Failed'); }
         }
         function openRejectModal(id) { rejectingId = id; document.getElementById('reject-comment').value=''; document.getElementById('reject-modal').style.display='flex'; }
@@ -8732,12 +8724,12 @@ function verify(secret, signature, body) {
         async function submitReject() {
             var c = document.getElementById('reject-comment').value.trim();
             if (!c) { showAlert('Comment required', 'Reject Request'); return; }
-            var r = await fetch('/api/v1/approval-requests/'+rejectingId+'/reject', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({comment:c})});
+            var r = await fetch('/api/v1/approval-requests/'+rejectingId+'/reject', {method:'POST',headers:csrfHeaders({'Content-Type':'application/json'}),body:JSON.stringify({comment:c})});
             if (r.ok) { closeRejectModal(); location.reload(); } else { var e = await r.json().catch(()=>({error:'Failed'})); showAlert(dialogText(e.error||'Failed'), 'Reject Failed'); }
         }
         async function deleteWorkflow(id) {
             if (!(await showConfirm('Delete this workflow?', 'Delete Workflow'))) return;
-            var r = await fetch('/api/v1/approval-workflows/'+id, {method:'DELETE'});
+            var r = await fetch('/api/v1/approval-workflows/'+id, {method:'DELETE',headers:csrfHeaders()});
             if (r.ok) location.reload(); else showAlert('Failed', 'Delete Failed');
         }
         function toggleTriggerValue() {
@@ -8786,7 +8778,7 @@ function verify(secret, signature, body) {
             var mode = document.getElementById('wf-mode').value;
             var approvers = wfApprovers.map(a => ({user_id: a.user_id}));
             var payload = {name:name, trigger:trigger, trigger_value:triggerValue, mode:mode, approvers:approvers};
-            var r = await fetch('/api/v1/approval-workflows', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+            var r = await fetch('/api/v1/approval-workflows', {method:'POST',headers:csrfHeaders({'Content-Type':'application/json'}),body:JSON.stringify(payload)});
             if (r.ok) { location.reload(); } else { var e = await r.json().catch(()=>({error:'Failed'})); showAlert(dialogText(e.error||'Failed to create workflow'), 'Create Failed'); }
         }
         </script>
@@ -9353,14 +9345,64 @@ const adminLayoutStart = `<!DOCTYPE html>
                 grid-template-columns: 1fr 1fr;
             }
         }
+
+        /* One dialog at a time: see dialogOpened(). Immediately — buttons and
+           inputs have "transition: all", which would leave them showing for a
+           moment after their modal is hidden. */
+        body.dialog-open .modal-overlay,
+        body.dialog-open .modal-overlay * {
+            visibility: hidden !important;
+            transition: none !important;
+        }
     </style>
     <script>
+    // csrfHeaders returns request headers carrying this page's CSRF token.
+    // Every fetch() that changes state must send them, to /cm and to /api/v1
+    // alike: a session-authenticated API request without the token is refused.
+    //   fetch(url, {method: 'POST', headers: csrfHeaders({'Content-Type': 'application/json'}), body: ...})
+    // html/template quotes and escapes the value in script context; do not pre-quote it
+    var lcCSRFToken = {{.CSRFToken}};
+    function csrfHeaders(extra) {
+        var headers = {'X-CSRF-Token': lcCSRFToken};
+        for (var name in (extra || {})) headers[name] = extra[name];
+        return headers;
+    }
+
     // showAlert and showConfirm take their message as HTML. Pass anything that
     // is not a fixed string (server errors, user input) through dialogText.
     function dialogText(text) {
         var el = document.createElement('div');
         el.textContent = text == null ? '' : String(text);
         return el.innerHTML;
+    }
+
+    // While a styled dialog (alert, confirm, delete, revert) is up it is the
+    // only dialog on screen: the page's own modals (.modal-overlay — search,
+    // replace preview) are hidden until it closes instead of showing through
+    // around it, focus moves to the dialog's button so Enter cannot re-run
+    // whatever is underneath, and Escape answers the dialog rather than
+    // closing the modal below. Returns the function to call when it closes.
+    var openDialogs = 0;
+    function dialogOpened(focusBtn, onEscape) {
+        var previous = document.activeElement;
+        openDialogs++;
+        document.body.classList.add('dialog-open');
+        function onKey(e) {
+            if (e.key !== 'Escape') return;
+            e.preventDefault();
+            e.stopPropagation();
+            onEscape();
+        }
+        document.addEventListener('keydown', onKey, true);
+        if (focusBtn) focusBtn.focus();
+        return function() {
+            document.removeEventListener('keydown', onKey, true);
+            if (--openDialogs <= 0) {
+                openDialogs = 0;
+                document.body.classList.remove('dialog-open');
+            }
+            if (previous && previous.focus && document.contains(previous)) previous.focus();
+        };
     }
 
     // Show info modal (the styled replacement for the browser's native alert)
@@ -9373,10 +9415,12 @@ const adminLayoutStart = `<!DOCTYPE html>
         titleEl.textContent = title || 'Information';
         msgEl.innerHTML = message;
         modal.style.display = 'flex';
+        var closed = dialogOpened(okBtn, onOk);
 
         function cleanup() {
             modal.style.display = 'none';
             okBtn.removeEventListener('click', onOk);
+            closed();
         }
 
         function onOk() {
@@ -9399,11 +9443,13 @@ const adminLayoutStart = `<!DOCTYPE html>
             titleEl.textContent = title || 'Confirm';
             msgEl.innerHTML = message;
             modal.style.display = 'flex';
+            var closed = dialogOpened(cancelBtn, onCancel); // Cancel is the safe default for Enter
 
             function cleanup() {
                 modal.style.display = 'none';
                 okBtn.removeEventListener('click', onOk);
                 cancelBtn.removeEventListener('click', onCancel);
+                closed();
             }
 
             function onOk() {
@@ -9509,7 +9555,7 @@ const adminLayoutEnd = `
                 <h3 style="margin: 0; color: var(--danger);">Confirm Delete</h3>
             </div>
             <div style="padding: 1.5rem; background: #1e293b;">
-                <p id="delete-modal-message" style="margin: 0;">Are you sure you want to delete this item?</p>
+                <p id="delete-modal-message" style="margin: 0; white-space: pre-line;">Are you sure you want to delete this item?</p>
             </div>
             <div style="padding: 1rem 1.5rem; border-top: 1px solid rgba(239, 68, 68, 0.2); display: flex; gap: 0.75rem; justify-content: flex-end; background: #1a2332;">
                 <button type="button" class="btn btn-outline" id="delete-cancel-btn">Cancel</button>
@@ -9556,7 +9602,7 @@ const adminLayoutEnd = `
                 <h3 style="margin: 0; color: var(--warning);">Confirm Revert</h3>
             </div>
             <div style="padding: 1.5rem; background: #1e293b;">
-                <p id="revert-modal-message" style="margin: 0;"></p>
+                <p id="revert-modal-message" style="margin: 0; white-space: pre-line;"></p>
             </div>
             <div style="padding: 1rem 1.5rem; border-top: 1px solid rgba(245, 158, 11, 0.2); display: flex; gap: 0.75rem; justify-content: flex-end; background: #1a2332;">
                 <button type="button" class="btn btn-outline" id="revert-cancel-btn">Cancel</button>
@@ -9575,13 +9621,16 @@ const adminLayoutEnd = `
         var confirmBtn = document.getElementById('revert-confirm-btn');
         var cancelBtn = document.getElementById('revert-cancel-btn');
 
-        msgEl.innerHTML = 'Revert to version ' + version + '?<br><br>A new version will be saved with the reverted content.';
+        // Shown as text (white-space: pre-line keeps the paragraph break)
+        msgEl.textContent = 'Revert to version ' + version + '?\n\nA new version will be saved with the reverted content.';
         modal.style.display = 'flex';
+        var closed = dialogOpened(cancelBtn, onCancel);
 
         function cleanup() {
             modal.style.display = 'none';
             confirmBtn.removeEventListener('click', onConfirm);
             cancelBtn.removeEventListener('click', onCancel);
+            closed();
         }
 
         function onConfirm() {
@@ -9611,13 +9660,16 @@ const adminLayoutEnd = `
         var confirmBtn = document.getElementById('delete-confirm-btn');
         var cancelBtn = document.getElementById('delete-cancel-btn');
 
-        msgEl.innerHTML = message || 'Are you sure you want to delete this item?';
+        // Shown as text; "\n" in a message is a line break (white-space: pre-line)
+        msgEl.textContent = message || 'Are you sure you want to delete this item?';
         modal.style.display = 'flex';
+        var closed = dialogOpened(cancelBtn, onCancel);
 
         function cleanup() {
             modal.style.display = 'none';
             confirmBtn.removeEventListener('click', onConfirm);
             cancelBtn.removeEventListener('click', onCancel);
+            closed();
         }
 
         function onConfirm() {

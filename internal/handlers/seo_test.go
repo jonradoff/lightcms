@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
-	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -356,10 +355,11 @@ func TestServeSitemapRegeneratesWhenStale(t *testing.T) {
 	tmplID := seedTemplate(t, h.db, "Standard Page", "standard-page")
 	seedSEOPage(t, h, tmplID, "Standard Page", "Fresh Page", "/fresh-page", `<p>x</p>`, nil)
 	// A stale file that predates the page.
-	os.WriteFile("static/sitemap.xml", []byte("<urlset></urlset>"), 0644)
+	// (sitemapFile is in a temp directory for tests, see TestMain)
+	os.WriteFile(sitemapFile, []byte("<urlset></urlset>"), 0644)
 	old := time.Now().Add(-time.Hour)
-	os.Chtimes("static/sitemap.xml", old, old)
-	defer exec.Command("git", "checkout", "static/sitemap.xml").Run()
+	os.Chtimes(sitemapFile, old, old)
+	defer os.Remove(sitemapFile)
 
 	rr := httptest.NewRecorder()
 	h.ServeSitemap(rr, httptest.NewRequest("GET", "/sitemap.xml", nil))

@@ -590,9 +590,11 @@ func (s *ImportService) finalizeJob(ctx context.Context, jobID primitive.ObjectI
 	s.publish(jobID.Hex(), doneMsg)
 }
 
+// findByPath returns the live page at fullPath. A fork copy shares its live
+// page's path (and source URL) and must never be the row an import updates.
 func (s *ImportService) findByPath(ctx context.Context, fullPath string) *models.Content {
 	var content models.Content
-	err := s.db.FindOne(ctx, "content", bson.M{"full_path": fullPath, "deleted": bson.M{"$ne": true}}, &content)
+	err := s.db.FindOne(ctx, "content", bson.M{"full_path": fullPath, "deleted": bson.M{"$ne": true}, "fork_id": nil}, &content)
 	if err != nil {
 		return nil
 	}
@@ -601,7 +603,7 @@ func (s *ImportService) findByPath(ctx context.Context, fullPath string) *models
 
 func (s *ImportService) findBySourceURL(ctx context.Context, sourceURL string) *models.Content {
 	var content models.Content
-	err := s.db.FindOne(ctx, "content", bson.M{"source_url": sourceURL, "deleted": bson.M{"$ne": true}}, &content)
+	err := s.db.FindOne(ctx, "content", bson.M{"source_url": sourceURL, "deleted": bson.M{"$ne": true}, "fork_id": nil}, &content)
 	if err != nil {
 		return nil
 	}

@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"crypto/tls"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -33,22 +34,58 @@ func TestSecurityHeaders_BasicHeaders(t *testing.T) {
 	}
 }
 
-func TestSecurityHeaders_HSTS_HTTPS(t *testing.T) {
-	handler := SecurityHeaders(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.Header.Set("X-Forwarded-Proto", "https")
-	rr := httptest.NewRecorder()
-	handler.ServeHTTP(rr, req)
-
-	hsts := rr.Header().Get("Strict-Transport-Security")
-	if hsts == "" {
-		t.Error("expected HSTS header for HTTPS request")
+// HSTS follows server configuration (and a connection that really is TLS),
+// never X-Forwarded-Proto: any client can send that header.
+func TestSecurityHeaders_HSTS(t *testing.T) {
+	const want = "max-age=31536000; includeSubDomains"
+	ok := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+	cases := []struct {
+		name    string
+		handler http.Handler
+		forged  bool // client sends X-Forwarded-Proto: https
+		tls     bool // the connection itself is TLS
+		want    string
+	}{
+		{"configured on, plain request", SecurityHeadersWithHSTS(true)(ok), false, false, want},
+		{"configured on, forwarded header", SecurityHeadersWithHSTS(true)(ok), true, false, want},
+		{"configured off, plain request", SecurityHeadersWithHSTS(false)(ok), false, false, ""},
+		{"configured off, forged header", SecurityHeadersWithHSTS(false)(ok), true, false, ""},
+		{"configured off, real TLS connection", SecurityHeadersWithHSTS(false)(ok), false, true, want},
+		{"SecurityHeaders (no config), forged header", SecurityHeaders(ok), true, false, ""},
 	}
-	if hsts != "max-age=31536000; includeSubDomains" {
-		t.Errorf("unexpected HSTS value: %q", hsts)
+	for _, c := range cases {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		if c.forged {
+			req.Header.Set("X-Forwarded-Proto", "https")
+		}
+		if c.tls {
+			req.TLS = &tls.ConnectionState{}
+		}
+		rr := httptest.NewRecorder()
+		c.handler.ServeHTTP(rr, req)
+		if got := rr.Header().Get("Strict-Transport-Security"); got != c.want {
+			t.Errorf("%s: HSTS = %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+func TestHSTSEnabled(t *testing.T) {
+	cases := []struct {
+		secure  bool
+		baseURL string
+		want    bool
+	}{
+		{true, "https://example.com", true},
+		{true, "HTTPS://example.com", true},
+		{true, "http://example.com", false},
+		{false, "https://example.com", false},
+		{false, "http://localhost:8082", false},
+		{true, "", false},
+	}
+	for _, c := range cases {
+		if got := HSTSEnabled(c.secure, c.baseURL); got != c.want {
+			t.Errorf("HSTSEnabled(%v, %q) = %v, want %v", c.secure, c.baseURL, got, c.want)
+		}
 	}
 }
 

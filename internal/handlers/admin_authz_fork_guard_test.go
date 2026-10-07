@@ -279,13 +279,22 @@ func TestServerRoutes_AdminStateChangesAreUnderCSRF(t *testing.T) {
 		t.Errorf("%d /api routes registered but %d have a Methods(...) restriction on the same line", n, len(routes))
 	}
 
+	// The /cm routes are declared in AdminRoutes (7.4.2) and registered on
+	// that CSRF-protected subrouter by RegisterAdminRoutes.
+	if !strings.Contains(main, "h.RegisterAdminRoutes(admin)") {
+		t.Fatal("main.go no longer registers the admin route table on the /cm subrouter")
+	}
+	declared := map[string]bool{}
+	for _, rt := range routesTestHandler().AdminRoutes() {
+		declared[rt.Method+" "+rt.Path] = true
+	}
 	for _, want := range []string{
-		`admin.HandleFunc("/replace/preview", h.ReplacePreview).Methods("GET")`,
-		`admin.HandleFunc("/replace/execute", h.ReplaceExecute).Methods("POST")`,
-		`admin.HandleFunc("/tools/broken-links/fix", h.FixBrokenLink).Methods("POST")`,
+		"GET /replace/preview",
+		"POST /replace/execute",
+		"POST /tools/broken-links/fix",
 	} {
-		if !strings.Contains(main, want) {
-			t.Errorf("main.go lacks %s", want)
+		if !declared[want] {
+			t.Errorf("the /cm route table lacks %s", want)
 		}
 	}
 
@@ -600,7 +609,7 @@ func TestAdminContentForm_ForkCopyControls(t *testing.T) {
 		t.Error("fork copy editor still offers Delete Page")
 	}
 	liveHTML := page(live)
-	for _, want := range []string{`name="published" checked>`, ">Delete Page</button>", "Are you sure you want to delete this page? This cannot be undone."} {
+	for _, want := range []string{`name="published" checked>`, ">Delete Page</button>", "Delete this page? It is unpublished and moved to deleted content, where it can be restored"} {
 		if !strings.Contains(liveHTML, want) {
 			t.Errorf("live editor lacks %q", want)
 		}

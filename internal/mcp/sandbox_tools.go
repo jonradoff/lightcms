@@ -296,6 +296,10 @@ type BackfillPublishedDatesInput struct {
 	DryRun bool `json:"dry_run,omitempty" jsonschema:"Only count the pages that would change"`
 }
 
+type RepairForkDamageInput struct {
+	DryRun bool `json:"dry_run,omitempty" jsonschema:"Only list what would be repaired; change nothing"`
+}
+
 type MaintenanceScanInput struct {
 	LinkCheck bool `json:"link_check,omitempty" jsonschema:"Also start an async broken-link check job"`
 }
@@ -325,6 +329,22 @@ func (s *Server) registerMaintenanceTools() {
 		},
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args BackfillPublishedDatesInput) (*mcp.CallToolResult, any, error) {
 		res, err := s.client.BackfillPublishedDates(ctx, args.DryRun)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		return jsonResult(res), nil, nil
+	})
+
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:        "repair_fork_damage",
+		Title:       "Repair Fork Damage",
+		Description: "Repair damage the admin editor could do when saving a fork copy before v7.4.1: (1) fork copies left flagged published get the flag cleared; (2) live published pages whose generated HTML file is missing are regenerated. Page content is not changed: no versions, no IndexNow pings. A flagged copy with has_live_page=false is a page created inside its fork, where the flag meant publish-on-merge — after the repair, merge that fork with publish_new to publish it. Run with dry_run first and show the user the lists. Requires admin role.",
+		Annotations: &mcp.ToolAnnotations{
+			Title:        "Repair Fork Damage",
+			ReadOnlyHint: false, DestructiveHint: boolPtr(false), IdempotentHint: true, OpenWorldHint: boolPtr(false),
+		},
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args RepairForkDamageInput) (*mcp.CallToolResult, any, error) {
+		res, err := s.client.RepairForkDamage(ctx, args.DryRun)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}

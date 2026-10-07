@@ -4,6 +4,40 @@ All notable changes to LightCMS are documented here, organized by version.
 
 ---
 
+## [7.4.2] - 2026-10-07
+
+### Security
+- **Every admin route checks a permission.** 33 state-changing routes under `/cm` only checked that someone was signed in, so any role could call them: a viewer could create, edit and delete templates, snippets, collections, folders and redirects, save or revert the theme, save site configuration, create and edit pages, restore, regenerate, re-template and revert pages, upload and delete assets, and revoke **any** user's API key. Every `/cm` route is now declared in one table (`handlers.AdminRoutes`) with the permission it needs, the same one its `/api/v1` equivalent requires, and the check runs in front of the handler. A refused form post or page gets a styled "Not permitted" page (403); a refused fetch gets a JSON 403. Nothing is written.
+  - **What each role can no longer do in the admin UI** (all of this was already refused by the API):
+    - **Editors** can no longer create, edit or delete **templates, snippets, collections, folders and redirects**, save or revert the **theme**, save **site configuration**, or rebuild the search index. These need `template.*` / `settings.edit`, which only admins hold. Editors keep everything on content, assets, forks, imports, webhooks, approvals and comments.
+    - **Contributors** can no longer edit a **published** page, a fork copy or a deleted page (saving a published page as a contributor silently unpublished it), and cannot delete, restore, regenerate, re-template or revert pages. They still create pages, save and resubmit their drafts, upload assets, comment, manage their own API keys and see the approvals page.
+    - **Viewers** can no longer change anything, and no longer see the API keys and approvals pages (they have no key or approval permission).
+  - Revoking an API key in the admin now follows the API's rule: your own keys, or any key with `apikey.manage_all` (admin).
+  - The configuration page no longer puts the **Cloudflare API token** into the page for roles that cannot save it. Before, any signed-in user could read it from the form.
+  - Buttons a role cannot use (New Template, New Snippet, New Collection, New Folder, New Redirect, Upload Asset, New Content, Save Theme, Save Configuration and the search and chat settings) are no longer shown to it.
+- **Session-authenticated API requests need the CSRF token.** `/api/v1` (and `/mcp`) accept the admin session cookie so admin pages can call them. Those requests had no CSRF defence beyond the cookie's `SameSite=Strict`, which does not cover another origin on the same site (a different port or subdomain). A request authenticated by the session cookie that uses POST, PUT, PATCH or DELETE must now send the token the admin pages are rendered with as `X-CSRF-Token`, and passes the same Origin/Referer check as the `/cm` forms; otherwise it gets a JSON 403. **API keys and OAuth tokens are not affected**, and neither are GET requests. The admin UI's own calls (comments, approvals, approval workflows) send the token. The CSRF cookie is now site-wide and named `lightcms_csrf`; an admin page left open across the upgrade needs one reload before its forms submit.
+- **The broken-link scan requires `content.edit`** (it was open to any signed-in role) **and no longer contacts internal addresses.** The scan fetches every external link found in published content from the server; a link, or a redirect, to a loopback, private or link-local address is now reported as broken without being requested.
+- **`Strict-Transport-Security` follows server configuration** (secure cookies and an `https://` base URL) instead of the `X-Forwarded-Proto` request header, which any client can send.
+
+### Fixed
+- **Unpublishing a page in a folder no longer removes another page's file.** The admin editor removed `content/generated/<slug>.html` instead of the page's full path, so unpublishing `/docs/about` deleted the generated file of a root page `/about` and left its own behind. Deleting a legacy page that has no path could remove the homepage's file the same way. Both now go through the service's removal by full path.
+- Admin Search and Replace is recorded in the audit log (`content.search_replace`, with pages and replacement counts), as the API's always was.
+- Deleting or unpublishing a **fork copy** through the API no longer fires the `content.delete` / `content.unpublish` webhook or a Cloudflare purge for the live page at that path.
+- Import lookups by path and by source URL, and the edit links on the analytics pages, resolve live pages only. They could land on a fork copy sharing the path.
+- "Delete Page" no longer says "This cannot be undone": a deleted page is unpublished and kept under deleted content, where Restore brings it back.
+- **@mentions in comments work.** The dropdown never opened (the user list was read in the wrong shape) and each entry's click handler was malformed. Entries are now built without inline handlers, so a name containing quotes or markup is just text.
+- The delete and revert confirmation dialogs show their message as text, like the other dialogs.
+- A message that opens over the search dialog on the content list is now layered correctly: it takes the keyboard, and Escape or Enter act on it rather than on the dialog underneath.
+- The buttons in a fork's page header stay on one line when the fork has a long name.
+- `resetpw` and `migrate-hourly-bots` read `MONGO_URI` from the environment, as their error message said they did (the config files are still read when it is not set).
+- The test suites no longer rewrite tracked files (`static/sitemap.xml`, `static/css/theme-vars.css` under the test packages); a run that modifies a tracked file now fails.
+
+### Added
+- **Repair for damage from before 7.4.1.** The admin editor could leave a fork copy marked published, and could remove a live page's generated HTML. `POST /api/v1/maintenance/repair-fork-damage` (`?dry_run=true` to only list) and the `repair_fork_damage` MCP tool list the fork copies flagged published and the live published pages whose generated file is missing, then clear the flags and regenerate the files. Admin only; real runs are recorded in the audit log. Page content is not changed: no versions are saved and search engines are not pinged. For a page that exists only inside a fork the flag meant "publish on merge"; after a repair, merge that fork with "Publish new pages" to publish it. 130 MCP tools total. Only fork copies that have a live page at the same path have the flag cleared; a page that exists only inside a fork is reported with `has_live_page: false` and keeps its flag, which there means publish on merge.
+- Tests fail the build if a `/cm` route that changes state is registered without a permission (outside a four-entry allowlist of sign-in and own-password routes), if a role reaches a route it should not (a role matrix over every route), or if a served template sends a state-changing request without the CSRF token.
+
+---
+
 ## [7.4.1] - 2026-10-07
 
 ### Fixed — fork copies, follow-ups to 7.4.0

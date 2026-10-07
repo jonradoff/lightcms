@@ -6,8 +6,30 @@ import (
 	"strings"
 )
 
-// SecurityHeaders adds security headers to all responses
+// HSTSEnabled reports whether the server is configured as an HTTPS site:
+// secure cookies on and an https:// base URL. This is what decides the
+// Strict-Transport-Security header.
+func HSTSEnabled(secureCookies bool, baseURL string) bool {
+	return secureCookies && strings.HasPrefix(strings.ToLower(strings.TrimSpace(baseURL)), "https://")
+}
+
+// SecurityHeaders adds security headers to all responses. HSTS is sent only
+// on a connection that is itself TLS; use SecurityHeadersWithHSTS for a
+// server behind a TLS-terminating proxy.
 func SecurityHeaders(next http.Handler) http.Handler {
+	return SecurityHeadersWithHSTS(false)(next)
+}
+
+// SecurityHeadersWithHSTS is SecurityHeaders with Strict-Transport-Security
+// decided by server configuration (see HSTSEnabled). It is never keyed on
+// X-Forwarded-Proto: a client can send that header itself.
+func SecurityHeadersWithHSTS(hsts bool) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return securityHeaders(next, hsts)
+	}
+}
+
+func securityHeaders(next http.Handler, hsts bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Security headers for all responses
 		w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -15,9 +37,9 @@ func SecurityHeaders(next http.Handler) http.Handler {
 		w.Header().Set("X-XSS-Protection", "1; mode=block")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 
-		// HSTS - only in production when using HTTPS
-		// This will be applied when SecureCookies is true
-		if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+		// HSTS - when the server is configured as an HTTPS site, or the
+		// connection itself is TLS
+		if hsts || r.TLS != nil {
 			w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 		}
 

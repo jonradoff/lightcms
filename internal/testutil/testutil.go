@@ -3,11 +3,14 @@ package testutil
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -248,4 +251,40 @@ func ReadResponseBody(t *testing.T, resp *http.Response) string {
 		sb.WriteString(scanner.Text())
 	}
 	return sb.String()
+}
+
+// SnapshotTrackedFiles records the content of every git-tracked file under
+// the working directory (a test binary runs in its package directory) and
+// returns a function that lists the ones that have since changed or gone.
+// A package's TestMain calls it around m.Run() so a test that rewrites a
+// tracked file fails the suite instead of leaving the working tree dirty.
+// Without git (or outside a checkout) the returned function reports nothing.
+func SnapshotTrackedFiles() (changed func() []string) {
+	out, err := exec.Command("git", "ls-files", "-z", "--", ".").Output()
+	if err != nil {
+		return func() []string { return nil }
+	}
+	hash := func(path string) string {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return "missing"
+		}
+		return fmt.Sprintf("%x", sha256.Sum256(data))
+	}
+	before := map[string]string{}
+	for _, path := range strings.Split(strings.TrimRight(string(out), "\x00"), "\x00") {
+		if path != "" {
+			before[path] = hash(path)
+		}
+	}
+	return func() []string {
+		var dirty []string
+		for path, was := range before {
+			if was != "missing" && hash(path) != was {
+				dirty = append(dirty, path)
+			}
+		}
+		sort.Strings(dirty)
+		return dirty
+	}
 }

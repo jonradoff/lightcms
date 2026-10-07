@@ -786,7 +786,8 @@ func TestUpdateTheme_CustomCSS(t *testing.T) {
 	}
 
 	// Verify CSS file was generated
-	data, err := os.ReadFile(tmpDir + "/static/css/theme-vars.css")
+	// (ThemeCSSFile is in a temp directory for tests, see TestMain)
+	data, err := os.ReadFile(ThemeCSSFile)
 	if err != nil {
 		t.Fatalf("Expected theme-vars.css to exist: %v", err)
 	}
