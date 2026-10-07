@@ -315,9 +315,8 @@ func TestGenerateSitemap(t *testing.T) {
 	h, cleanup := newTestHandler(t)
 	defer cleanup()
 
-	// Ensure static directory exists for sitemap output
-	os.MkdirAll("static", 0755)
-	defer os.Remove("static/sitemap.xml")
+	// sitemapFile is in a temp directory for tests (see TestMain)
+	defer os.Remove(sitemapFile)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -326,7 +325,7 @@ func TestGenerateSitemap(t *testing.T) {
 		t.Fatalf("GenerateSitemap: %v", err)
 	}
 
-	data, err := os.ReadFile("static/sitemap.xml")
+	data, err := os.ReadFile(sitemapFile)
 	if err != nil {
 		t.Fatalf("sitemap.xml not created: %v", err)
 	}
@@ -375,9 +374,8 @@ func TestServeSitemap(t *testing.T) {
 	h, cleanup := newTestHandler(t)
 	defer cleanup()
 
-	// Ensure static directory exists
-	os.MkdirAll("static", 0755)
-	defer os.Remove("static/sitemap.xml")
+	// sitemapFile is in a temp directory for tests (see TestMain)
+	defer os.Remove(sitemapFile)
 
 	req := httptest.NewRequest(http.MethodGet, "/sitemap.xml", nil)
 	rr := httptest.NewRecorder()

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/jonradoff/lightcms/v7/internal/database"
@@ -249,12 +250,17 @@ func (s *SettingsService) generateThemeCSS(theme *database.ThemeSettings) error 
 	}
 
 	// Ensure directory exists
-	if err := os.MkdirAll("static/css", 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(ThemeCSSFile), 0755); err != nil {
 		return err
 	}
 
-	return os.WriteFile("static/css/theme-vars.css", []byte(css), 0644)
+	return os.WriteFile(ThemeCSSFile, []byte(css), 0644)
 }
+
+// ThemeCSSFile is where the theme's generated CSS variables are written,
+// relative to the working directory. A variable so the tests point it at a
+// temp directory instead of rewriting a tracked file.
+var ThemeCSSFile = "static/css/theme-vars.css"
 
 // GetSiteConfig retrieves site configuration
 func (s *SettingsService) GetSiteConfig(ctx context.Context) (*database.SiteConfig, error) {

@@ -5,7 +5,7 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/jonradoff/lightcms)](https://goreportcard.com/report/github.com/jonradoff/lightcms)
 [![lightcms MCP server](https://glama.ai/mcp/servers/jonradoff/lightcms/badges/score.svg)](https://glama.ai/mcp/servers/jonradoff/lightcms)
 
-LightCMS is a Go-powered content management system built for the AI era. It's simultaneously **AI-native** (semantic search, built-in Claude-powered chat widget, MCP server for agent control), **agentically controllable** (Claude Code and any MCP client can read, write, publish, and bulk-import content via 129 MCP tools), and **agentically updatable** (the codebase is clean, well-structured Go — coding agents can safely extend it). For teams that want a CMS that works with AI rather than around it.
+LightCMS is a Go-powered content management system built for the AI era. It's simultaneously **AI-native** (semantic search, built-in Claude-powered chat widget, MCP server for agent control), **agentically controllable** (Claude Code and any MCP client can read, write, publish, and bulk-import content via 130 MCP tools), and **agentically updatable** (the codebase is clean, well-structured Go — coding agents can safely extend it). For teams that want a CMS that works with AI rather than around it.
 
 ## What's New in v7.3 — SEO & AI
 
@@ -92,7 +92,7 @@ LightCMS is a Go-powered content management system built for the AI era. It's si
 **Lightweight**: A clean, focused codebase that's easy to understand, modify, and extend. No bloated frameworks or complex abstractions.
 
 **AI-Native**: Built from the ground up for the AI era:
-- **MCP Integration**: Full Model Context Protocol server with 129 tools and 3 prompt resources for website management. Supports both local stdio and HTTP streamable transports — connect from Claude Code, Claude Desktop, or any MCP-compatible client.
+- **MCP Integration**: Full Model Context Protocol server with 130 tools and 3 prompt resources for website management. Supports both local stdio and HTTP streamable transports — connect from Claude Code, Claude Desktop, or any MCP-compatible client.
 - **OAuth 2.1 for Remote Agents**: Sandboxed desktop apps like Claude's Cowork can securely connect over HTTP using OAuth 2.1 with PKCE. No embedded passwords — just authorize once and the agent manages your site.
 - **Fork-Friendly**: Designed to be forked and customized by Claude Code. Ask Claude to add new content types, modify templates, or build custom features — the codebase is structured for AI-assisted development.
 - **Natural Language Website Management**: Skip the admin UI entirely. Create pages, manage assets, customize themes, and publish content through conversation.
@@ -177,7 +177,7 @@ Recommended agent pattern for large updates: `list_content` → transform in par
 
 ### Developer & Integration
 - **REST API**: Full `/api/v1/` JSON API with API key and OAuth token authentication, RBAC-enforced
-- **MCP Server**: 129 tools + 3 prompt resources for agentic website management (stdio + HTTP streamable)
+- **MCP Server**: 130 tools + 3 prompt resources for agentic website management (stdio + HTTP streamable)
 - **OAuth 2.1**: Authorization code flow with PKCE for remote MCP clients — no embedded passwords
 - **CLI Tool**: Command-line interface for all content management operations
 - **URL Redirects**: 301/302 redirect rules managed from the admin panel
@@ -949,7 +949,7 @@ Run `lightcms --help` for full usage.
 
 [![lightcms MCP server](https://glama.ai/mcp/servers/jonradoff/lightcms/badges/card.svg)](https://glama.ai/mcp/servers/jonradoff/lightcms)
 
-LightCMS includes a full MCP (Model Context Protocol) server with 129 tools and 3 prompt resources for managing your entire website through AI agents. It supports two transport modes:
+LightCMS includes a full MCP (Model Context Protocol) server with 130 tools and 3 prompt resources for managing your entire website through AI agents. It supports two transport modes:
 
 - **Stdio** — for local tools like Claude Code
 - **HTTP Streamable** — for remote/sandboxed clients like Claude's Cowork, Claude Desktop, or any MCP-compatible app
@@ -1008,7 +1008,7 @@ The MCP HTTP endpoint accepts both authentication methods:
 
 Both methods enforce RBAC based on the authenticated user's role.
 
-### Available Tools (129 total) + 3 Prompt Resources
+### Available Tools (130 total) + 3 Prompt Resources
 
 - **Content** (19): list, read, create, update, update by path, delete, restore, publish, unpublish, publish multiple, preview, versions (list + get), revert, bulk create, bulk update, bulk field operation, export, backlinks
 - **Templates** (5): create, read, update, delete, list
@@ -1024,7 +1024,7 @@ Both methods enforce RBAC based on the authenticated user's role.
 - **Audit & Link Check** (3, v4.5+): list audit logs, start link check, get link check results
 - **Comments** (3, v6.0+): list comments, post comment, delete comment
 - **Approvals** (11, v6.0+): list/get/create/update/delete approval workflows; list/get/submit/approve/reject/cancel approval requests
-- **Agent Sandbox & Governance** (9, v7.0+): start/get/end agent sandbox, fork diff, agent session changes, session rollback, maintenance report, run maintenance scan, backfill published dates
+- **Agent Sandbox & Governance** (10, v7.0+): start/get/end agent sandbox, fork diff, agent session changes, session rollback, maintenance report, run maintenance scan, backfill published dates, repair fork damage
 - **IndexNow** (3, v7.2.3+): get status, enable/disable, submit
 - **SEO & AI** (3, v7.3+): get/update SEO settings, AI traffic
 - **Prompt Resources** (3, v4.5+): `lightcms://site/structure`, `lightcms://content/recent`, `lightcms://theme/config`

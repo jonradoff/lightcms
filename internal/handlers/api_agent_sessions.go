@@ -104,3 +104,28 @@ func (a *APIHandler) APIBackfillPublishedDates(w http.ResponseWriter, r *http.Re
 	}
 	a.jsonResponse(w, http.StatusOK, map[string]interface{}{"dry_run": dryRun, "pages": n})
 }
+
+// APIRepairForkDamage finds — and unless ?dry_run=true repairs — damage the
+// admin editor could do to fork copies before 7.4.1: fork copies left flagged
+// published, and live published pages missing their generated HTML.
+// Admin only, like the other maintenance writes.
+func (a *APIHandler) APIRepairForkDamage(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermContentEdit) || !a.requirePermission(w, r, auth.PermSettingsEdit) {
+		return
+	}
+	dryRun := r.URL.Query().Get("dry_run") == "true"
+	report, err := a.contentService.RepairForkDamage(r.Context(), dryRun)
+	if err != nil {
+		a.jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if !dryRun {
+		a.auditLog(r, "maintenance.repair_fork_damage", "content", "", map[string]interface{}{
+			"fork_copies_cleared": report.ForkCopiesCleared,
+			"missing_static":      len(report.MissingStatic),
+			"regenerated":         report.Regenerated,
+			"regenerate_failed":   len(report.RegenerateFailed),
+		})
+	}
+	a.jsonResponse(w, http.StatusOK, report)
+}

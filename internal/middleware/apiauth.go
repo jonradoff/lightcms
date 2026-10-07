@@ -44,8 +44,9 @@ type APIAuth struct {
 	validate            APIKeyValidateFunc
 	validateOAuth       OAuthValidateFunc
 	validateSession     SessionValidateFunc
-	systemAPIKey        string // internal API key substituted for OAuth-authenticated requests
-	resourceMetadataURL string // for WWW-Authenticate header (OAuth discovery)
+	sessionCSRF         func(http.Handler) http.Handler // CSRF check for unsafe session-authenticated requests
+	systemAPIKey        string                          // internal API key substituted for OAuth-authenticated requests
+	resourceMetadataURL string                          // for WWW-Authenticate header (OAuth discovery)
 }
 
 // NewAPIAuth creates a new API auth middleware
@@ -55,8 +56,26 @@ func NewAPIAuth(validate APIKeyValidateFunc) *APIAuth {
 
 // SetSessionAuth enables session cookie fallback for browser-based admin UI calls.
 // When no Authorization header is present, the session validator is tried as a fallback.
-func (m *APIAuth) SetSessionAuth(validateSession SessionValidateFunc) {
+//
+// A session cookie is sent by the browser on its own, so a session-authenticated
+// request with an unsafe method (anything but GET, HEAD, OPTIONS, TRACE) must
+// also pass csrfProtect — middleware.CSRFProtectAPI in the server. With a nil
+// csrfProtect those requests are refused outright. Requests authenticated by
+// an API key or OAuth bearer token never reach the check: a browser does not
+// attach an Authorization header by itself.
+func (m *APIAuth) SetSessionAuth(validateSession SessionValidateFunc, csrfProtect func(http.Handler) http.Handler) {
 	m.validateSession = validateSession
+	m.sessionCSRF = csrfProtect
+}
+
+// isSafeMethod reports whether the method is read-only under RFC 7231 (the
+// set gorilla/csrf exempts).
+func isSafeMethod(method string) bool {
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions, http.MethodTrace:
+		return true
+	}
+	return false
 }
 
 // SetOAuth enables OAuth token validation alongside API key validation.
@@ -77,7 +96,15 @@ func (m *APIAuth) Middleware(next http.Handler) http.Handler {
 			if m.validateSession != nil {
 				if user := m.validateSession(r); user != nil {
 					r = r.WithContext(context.WithValue(r.Context(), apiUserContextKey, user))
-					next.ServeHTTP(w, r)
+					if isSafeMethod(r.Method) {
+						next.ServeHTTP(w, r)
+						return
+					}
+					if m.sessionCSRF == nil {
+						apiJsonError(w, http.StatusForbidden, "Session-authenticated API requests that change state are not enabled")
+						return
+					}
+					m.sessionCSRF(next).ServeHTTP(w, r)
 					return
 				}
 			}

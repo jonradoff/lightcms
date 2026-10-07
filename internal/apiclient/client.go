@@ -1452,6 +1452,20 @@ func (c *Client) GetAITraffic(ctx context.Context, days int) (map[string]interfa
 	return result, nil
 }
 
+// RepairForkDamage lists (dryRun) or repairs fork copies flagged published
+// and live published pages missing their generated HTML.
+func (c *Client) RepairForkDamage(ctx context.Context, dryRun bool) (map[string]interface{}, error) {
+	path := "/maintenance/repair-fork-damage"
+	if dryRun {
+		path += "?dry_run=true"
+	}
+	var result map[string]interface{}
+	if err := c.do(ctx, "POST", path, nil, &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
 // BackfillPublishedDates sets published_at = created_at on published pages missing it.
 func (c *Client) BackfillPublishedDates(ctx context.Context, dryRun bool) (map[string]interface{}, error) {
 	path := "/maintenance/backfill-published-dates"

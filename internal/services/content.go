@@ -738,6 +738,12 @@ func (s *ContentService) UnpublishContent(ctx context.Context, id primitive.Obje
 		return err
 	}
 
+	// A fork copy was never on the live site: clearing its flag is not an
+	// unpublish of the live page at that path (no webhook, no cache purge).
+	if content.ForkID != nil {
+		return nil
+	}
+
 	// Fire webhook event
 	if s.webhookService != nil {
 		s.webhookService.FireEvent(ctx, "content.unpublish", map[string]interface{}{
@@ -773,11 +779,16 @@ func (s *ContentService) DeleteContent(ctx context.Context, id primitive.ObjectI
 		return fmt.Errorf("failed to delete content: %w", err)
 	}
 
-	// Remove static page. A fork copy shares its full_path with the live
-	// page, whose file must stay.
-	if content.ForkID == nil {
-		s.removeStaticPage(content.FullPath)
+	// A fork copy shares its full_path with the live page. Deleting the copy
+	// changes nothing on the live site: the live page's static file stays,
+	// and no content.delete webhook, Cloudflare purge, IndexNow ping, keyword
+	// rebuild or index regeneration is issued for the live path.
+	if content.ForkID != nil {
+		return nil
 	}
+
+	// Remove static page
+	s.removeStaticPage(content.FullPath)
 	s.NotifyLiveChange(ctx, &content, nil)
 
 	// Rebuild search keyword cache
@@ -1449,6 +1460,13 @@ func (s *ContentService) generateStaticPageWithWikilinkIndex(ctx context.Context
 	s.notifyIndexNow(ctx, content.FullPath)
 
 	return nil
+}
+
+// RemoveStaticPage removes a live page's generated HTML by its full path. It
+// is for callers that write content to MongoDB directly (the admin editor);
+// the caller is responsible for never passing a fork copy's path.
+func (s *ContentService) RemoveStaticPage(fullPath string) {
+	s.removeStaticPage(fullPath)
 }
 
 // removeStaticPage removes the static HTML file for content

@@ -32,9 +32,11 @@ func (h *Handler) resolveEditIDs(ctx context.Context, pageLists ...[]services.Pa
 	for p := range pathSet {
 		paths = append(paths, p)
 	}
+	// Live pages only: a fork copy shares its live page's path
 	cursor, err := h.db.FindMany(ctx, "content", bson.M{
 		"full_path": bson.M{"$in": paths},
 		"deleted":   bson.M{"$ne": true},
+		"fork_id":   nil,
 	}, options.Find().SetProjection(bson.M{"full_path": 1}))
 	if err != nil {
 		return
@@ -158,7 +160,7 @@ func (h *Handler) AnalyticsPageDetail(w http.ResponseWriter, r *http.Request) {
 	// Look up content ID for edit link
 	editID := ""
 	var content models.Content
-	if err := h.db.FindOne(ctx, "content", bson.M{"full_path": pagePath, "deleted": bson.M{"$ne": true}}, &content); err == nil {
+	if err := h.db.FindOne(ctx, "content", bson.M{"full_path": pagePath, "deleted": bson.M{"$ne": true}, "fork_id": nil}, &content); err == nil {
 		editID = content.ID.Hex()
 	}
 

@@ -91,7 +91,7 @@ Once connected, you can ask Claude to manage your content naturally:
 Binary: `bin/lightcms-mcp`
 Config: Uses same `config.dev.json` or environment variables as main server
 
-### Available MCP Tools (129 total):
+### Available MCP Tools (130 total):
 
 **Content (23 tools):** list_content, get_content, create_content, update_content, update_content_by_path, publish_content, publish_multiple, unpublish_content, delete_content, restore_content, preview_content, get_content_versions, get_content_version, revert_to_version, bulk_create_content, bulk_update_content, bulk_field_operation, export_content, get_backlinks
 
@@ -109,7 +109,7 @@ Config: Uses same `config.dev.json` or environment variables as main server
 
 **Comments (3 tools, v6.0+):** list_comments, create_comment, delete_comment
 
-**Agent Sandbox & Governance (8 tools, v7.0+):** start_agent_sandbox, get_agent_sandbox, end_agent_sandbox, get_fork_diff, get_agent_session_changes, rollback_agent_session, get_maintenance_report, run_maintenance_scan, backfill_published_dates
+**Agent Sandbox & Governance (10 tools, v7.0+):** start_agent_sandbox, get_agent_sandbox, end_agent_sandbox, get_fork_diff, get_agent_session_changes, rollback_agent_session, get_maintenance_report, run_maintenance_scan, backfill_published_dates, repair_fork_damage
 
 **IndexNow (3 tools, v7.2.3+):** get_indexnow_status, set_indexnow_enabled, submit_indexnow
 
@@ -204,6 +204,10 @@ Hard-won rules from building v7. Violating these has bitten us before:
 
 ### Fork-content safety invariant
 - Content with `ForkID != nil` shares its `full_path` with the live page. It must NEVER generate or remove static files, or touch the embedding index. `GenerateStaticPage` and `UpdateContent` guard this — preserve those guards in any new content-mutation path.
+- The same holds outside the service layer. The **admin editor handlers** write to MongoDB directly and each one guards fork copies itself: `UpdateContent` forces `published=false` on a copy and skips the static file, redirect, link-rewrite, wikilink, sitemap and IndexNow work; `DeleteContent` removes a copy from its fork (`ForkService.RemovePage`) instead of soft-deleting; `RegenerateContent`, `ConfirmChangeTemplate` and `RevertContentVersion` never write a copy's file (`Handler.generateStaticPage` returns early for a copy). The **change-stream watcher** (`content_watcher.go`) skips fork copies before it generates or removes anything. A new admin handler or background job that touches content needs the same check.
+- Deleting or unpublishing a fork copy says nothing about the live page at its path: service `DeleteContent` and `UnpublishContent` return before the webhook, Cloudflare purge, IndexNow, keyword-rebuild and index-regen steps for a copy (7.4.2). (Service `CreateContent`/`UpdateContent` still fire `content.create`/`content.update` webhooks for a copy, and `UpdateContent` still runs the wikilink rename for one — known gaps.) Remove a live page's file through `ContentService.RemoveStaticPage(fullPath)` — by full path, never by slug (two pages in different folders share a slug), and never for an empty path (it maps to the homepage's file).
+- A path lookup that means "the page at this URL" must be live-only: add `"fork_id": nil` (or `liveOnly(filter)`) to any `full_path` / `source_url` query. Import lookups and the analytics edit links were fixed in 7.4.2; the admin editor's duplicate-path checks (`UpdateContent`, `UndeleteContent`, `CheckSlug`) still match fork copies.
+- `ContentService.RepairForkDamage(ctx, dryRun)` (API `POST /api/v1/maintenance/repair-fork-damage`, MCP `repair_fork_damage`) repairs pre-7.4.1 damage: it clears `published` on fork copies and regenerates live published pages whose static file is missing. Regeneration there must clear the in-memory `ContentHash` first — `GenerateStaticPage` skips the write when the hash matches, even if the file is gone — and runs under `WithoutIndexNow`.
 - Fork copies are never published directly (`PublishContent` returns `ErrPublishForkCopy`) and are hidden from `ListContent`, `ListContentPaginated`, `ListContentScoped` and search unless include-forks is passed (v7.4). Any new listing must filter `"fork_id": nil` unless it is fork-specific. `ForkService.Merge` deletes a fork's copies after a successful merge. `StreamContent`/`StreamContentScoped` (search-and-replace) and `GetContentByPath` are live-only too (v7.4.1); a path reaches a fork copy only through `ForkService.GetForkPageByPath` (by-path API with `fork_id`, the fork-page endpoint the agent sandbox uses, fork preview). Scoped bulk operations report fork copies named in `content_ids` as `skipped` (`ContentService.ForkCopyIDs`).
 - `Hold` (v7.4): a held draft cannot become published. `PublishContent`, `CreateContent` and `UpdateContent` return `ErrContentHeld`; batch publish, the scheduler, approvals and fork merges skip held pages. Paths that write `published` straight to MongoDB (the admin editor, approvals) must check hold themselves.
 
@@ -218,6 +222,7 @@ Hard-won rules from building v7. Violating these has bitten us before:
 ### Testing
 - DB tests need `.env.test` with MONGODB_URI; the database name MUST contain "test" (safety guard). Run DB packages with `-p 1`.
 - New MongoDB collections MUST be added to `CleanupCollections` in `internal/testutil/testutil.go`, or leftover data makes tests flake across runs (bit us with `maintenance_reports`).
+- Tests must not write tracked files. The handlers and services write `static/sitemap.xml` and `static/css/theme-vars.css` relative to the working directory, which under `go test` is the package directory, where copies of both are checked in. `TestMain` in `internal/handlers` and `internal/services` points them at a temp directory (`sitemapFile`, `services.ThemeCSSFile`) and fails the run if any tracked file under the package changed (`testutil.SnapshotTrackedFiles`). Give any new file the server writes the same kind of variable.
 - Tests asserting on collection contents should match by seeded paths/IDs, not exact counts — background goroutines (index regen, keyword rebuild) can insert content mid-test.
 - Coverage gate: Codecov ≥80% (target margin ~85%); codecov.yml excludes cmd/, testutil, internal/handlers, content_watcher.go. Codecov's line metric reads ~2 points BELOW `go tool cover` statement totals.
 - Transient Atlas DNS failures ("no such host", "server selection timeout") are environmental — rerun before investigating.
@@ -377,7 +382,8 @@ Always pass context as first parameter for DB/service methods.
 
 ### Roles
 - **admin**: Full access — manage users, templates, settings, audit logs, all API keys
-- **editor**: Create/edit/delete/publish content, upload/delete assets, manage own API keys
+- **editor**: Create/edit/delete/publish content, upload/delete assets, forks, imports, approvals, manage own API keys. Not templates, snippets, collections, folders, redirects, theme or site configuration (admin only, in the UI as in the API)
+- **contributor**: Create content and save drafts (publishing submits for approval), upload assets (pending review), comment, manage own API keys
 - **viewer**: Read-only access to content, templates, assets, settings
 
 ### Auth Flow
@@ -397,6 +403,8 @@ go run cmd/resetpw/main.go [email]  # Reset specific user, or first admin if no 
 ## Security Notes
 
 - CSRF protection on all `/cm` routes (Gorilla CSRF, built in `middleware.CSRFProtect`). gorilla/csrf assumes HTTPS for its Origin/Referer check; requests are marked plaintext only when `secure_cookies` is false AND the connection has no TLS. Never key this on a request header.
+- **Session CSRF rule for `/api/v1` and `/mcp` (7.4.2):** a request authenticated by the session cookie (no `Authorization` header) with an unsafe method must pass `middleware.CSRFProtectAPI` — the same gorilla token the `/cm` pages are rendered with, sent as `X-CSRF-Token`, same cookie (`lightcms_csrf`, path `/`), same key, same Origin/Referer check. API keys and OAuth tokens never reach the check; GETs are exempt. In admin templates every state-changing `fetch()` passes `headers: csrfHeaders({...})` (defined in `adminLayoutStart`); `TestServedTemplates_UnsafeFetchSendsCSRFToken` fails on one that does not. Do not send state-changing requests any other way (XHR, `sendBeacon`, a form posting to `/api/v1`).
+- HSTS is decided by configuration (`middleware.HSTSEnabled`: secure cookies and an `https://` base URL), never by `X-Forwarded-Proto`.
 - Admin CSP (`middleware.SecurityHeaders`) is `script-src 'self' 'unsafe-inline'`: a script or stylesheet from another origin is silently blocked. Vendor third-party admin assets under `static/admin/` with a README recording version, source URL and SHA-256 (see `static/admin/quill/`); `TestAdminTemplates_ExternalAssetsAllowedByCSP` enforces it.
 - No native browser dialogs anywhere (`alert`/`confirm`/`prompt`): use `data-confirm` (+ `data-confirm-title`) on a form, or `showConfirm()` / `showAlert()` from `adminLayoutStart`. Both take HTML — wrap anything that is not a fixed string in `dialogText()`. `TestServedTemplatesAndJS_NoNativeDialogs` scans every served template and JS file.
 - HTML forms cannot nest: the parser drops the inner `<form>` and its `</form>` closes the outer one. Put the second form outside and point the button at it with `form="id"` (see the webhook edit page).
@@ -405,7 +413,11 @@ go run cmd/resetpw/main.go [email]  # Reset specific user, or first admin if no 
 - Path traversal protection on all file operations
 - Login rate limiting: Escalating lockout (10→1min, 15→5min, 20+→15min)
 - Passwords: bcrypt with cost=12
-- RBAC permission checks on all admin handlers and REST API endpoints
+- RBAC: every REST endpoint calls `requirePermission`, and every `/cm` route is declared in `handlers.AdminRoutes` (`internal/handlers/admin_routes.go`) with the permission it needs — the one its `/api/v1` equivalent requires. `RegisterAdminRoutes` is the only place `/cm` routes are registered and puts the check in front of the handler (styled 403 page for forms and pages, JSON 403 for routes marked `JSON`). To add an admin route, add a line to that table; do not call `admin.HandleFunc` in `main.go`.
+  - `TestAdminRoutes_EveryWriteRouteIsGuarded` walks the registered router and fails if a non-GET `/cm` route has no permission and is not in `writeRoutesWithoutPermission` (login, logout, the two own-password routes, each with its reason). `TestAdminRoutes_RoleMatrix` sends every route as viewer, contributor, editor and admin against a hand-written expectation (`adminRoleMatrix`): changing who may call a route means changing that table on purpose.
+  - Rules the route table cannot express live in the handler: `UpdateContent` lets a contributor (`content.create` without `content.edit`) save a live draft only; `DeleteContent` needs `content.delete`, or `fork.create` for a fork copy; `DeleteAPIKey` only revokes the caller's own key below `apikey.manage_all`; `SiteConfiguration` leaves the Cloudflare token out of the page below `settings.edit`.
+  - Templates get `.Can` (the role's permissions) from `renderAdmin`: hide a control with `{{if index $.Can "settings.edit"}}`.
+  - Known difference: the admin webhook pages require `content.edit` while the webhook API requires `settings.edit`.
 - Audit logging on all mutations (async, 365-day TTL auto-cleanup)
 
 ## Configuration

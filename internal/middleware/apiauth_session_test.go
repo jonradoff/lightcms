@@ -19,7 +19,7 @@ func TestAPIAuth_SessionFallback(t *testing.T) {
 			return "session-user"
 		}
 		return nil
-	})
+	}, nil)
 
 	var gotUser interface{}
 	handler := m.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

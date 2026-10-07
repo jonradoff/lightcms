@@ -243,14 +243,20 @@ func TestCopilotCSRFTokenNotDoubleQuoted(t *testing.T) {
 	if rr.Code != 200 {
 		t.Fatalf("status = %d", rr.Code)
 	}
-	m := regexp.MustCompile(`'X-CSRF-Token': (\S+)}`).FindStringSubmatch(rr.Body.String())
-	if m == nil {
-		t.Fatal("could not locate X-CSRF-Token expression in rendered page")
-	}
-	expr := m[1]
-	// Must be exactly one level of JS quoting around a non-empty token.
-	if !regexp.MustCompile(`^"[^"\\]+"$`).MatchString(expr) {
-		t.Errorf("CSRF token expression malformed (double-quoted or empty): %s", expr)
+	// The copilot drawer's own header, and the page-wide token csrfHeaders()
+	// sends (7.4.2): each must be exactly one level of JS quoting around a
+	// non-empty token.
+	for name, re := range map[string]string{
+		"copilot X-CSRF-Token header": `'Content-Type': 'application/json', 'X-CSRF-Token': (\S+)}`,
+		"lcCSRFToken":                 `var lcCSRFToken = (\S+);`,
+	} {
+		m := regexp.MustCompile(re).FindStringSubmatch(rr.Body.String())
+		if m == nil {
+			t.Fatalf("could not locate the %s expression in rendered page", name)
+		}
+		if !regexp.MustCompile(`^"[^"\\]+"$`).MatchString(m[1]) {
+			t.Errorf("%s expression malformed (double-quoted or empty): %s", name, m[1])
+		}
 	}
 }
 

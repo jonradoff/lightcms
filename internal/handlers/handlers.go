@@ -1278,6 +1278,21 @@ func (h *Handler) UpdateContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Saving a page needs content.edit, as PUT /api/v1/content/{id} does. A
+	// contributor (content.create without content.edit) writes and revises a
+	// submission here, so may save a live draft — but not a published page
+	// (the save would take it off the site), a fork copy or a deleted page.
+	if user, ok := h.auth.GetCurrentUser(r); ok && !auth.HasPermission(user.Role, auth.PermContentEdit) {
+		if !auth.HasPermission(user.Role, auth.PermContentCreate) {
+			h.refuseAdmin(w, r, false, []string{auth.PermContentEdit})
+			return
+		}
+		if existingContent.Published || existingContent.ForkID != nil || existingContent.Deleted {
+			h.refuseAdminMessage(w, r, false, "Your role can edit drafts only. This page is published, deleted or part of a fork, and changing it needs content.edit. Nothing was changed.")
+			return
+		}
+	}
+
 	// Make a copy of the original content before modifications (for versioning)
 	originalContent := existingContent
 	// Deep copy the Data map
@@ -1615,9 +1630,10 @@ func (h *Handler) UpdateContent(w http.ResponseWriter, r *http.Request) {
 	if published {
 		h.generateStaticPage(ctx, &existingContent, &tmpl)
 	} else {
-		// Remove static file if unpublished
-		staticPath := filepath.Join("content/generated", slug+".html")
-		os.Remove(staticPath)
+		// Remove the static file if unpublished — by full path: a slug is
+		// only unique inside its folder, so /docs/about must not take
+		// /about's file with it.
+		h.removeStaticPage(fullPath)
 	}
 	// This handler writes to the DB directly; tell IndexNow about URL
 	// transitions (content edits reach it via the change-stream regen).
@@ -1689,12 +1705,7 @@ func (h *Handler) DeleteContent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Delete static file using full path
-	staticPath := h.getStaticFilePath(content.FullPath)
-	if staticPath == "" {
-		// Fallback for legacy content
-		staticPath = filepath.Join("content/generated", content.Slug+".html")
-	}
-	os.Remove(staticPath)
+	h.removeStaticPage(content.FullPath)
 
 	// Remove any redirects that point to this page
 	// (no point keeping redirects to a deleted page)
@@ -2821,6 +2832,21 @@ func (h *Handler) updateContentFolderPaths(ctx context.Context, oldFolderPath, n
 	}
 }
 
+// removeStaticPage removes a live page's generated HTML by its full path,
+// through the service's removal function: one definition of where a page's
+// file lives, and a legacy row with an empty full_path removes nothing
+// (getStaticFilePath maps "" to the homepage's file).
+func (h *Handler) removeStaticPage(fullPath string) {
+	if h.contentService != nil {
+		h.contentService.RemoveStaticPage(fullPath)
+		return
+	}
+	if fullPath == "" {
+		return
+	}
+	os.Remove(h.getStaticFilePath(fullPath))
+}
+
 // Get the static file path for a content item's full path
 func (h *Handler) getStaticFilePath(fullPath string) string {
 	if fullPath == "" || fullPath == "/" {
@@ -2982,7 +3008,7 @@ func (h *Handler) generateThemeCSS(settings *database.ThemeSettings) {
 		settings.BackgroundColor, settings.TextColor, settings.FontFamily,
 		settings.HeadingFont, settings.BorderRadius, settings.CustomCSS)
 
-	os.WriteFile("static/css/theme-vars.css", []byte(css), 0644)
+	os.WriteFile(services.ThemeCSSFile, []byte(css), 0644)
 }
 
 // ThemeVersions shows the theme version history
@@ -3337,11 +3363,36 @@ func (h *Handler) DeleteAPIKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.apiKeyService.DeleteAPIKey(r.Context(), id); err != nil {
-		log.Printf("Failed to delete API key: %v", err)
+	// As DELETE /api/v1/api-keys/{id}: apikey.manage_all (admin) revokes any
+	// key, everyone else only a key they own.
+	user, _ := h.auth.GetCurrentUser(r)
+	if user != nil && auth.HasPermission(user.Role, auth.PermAPIKeyManageAll) {
+		if err := h.apiKeyService.DeleteAPIKey(r.Context(), id); err != nil {
+			log.Printf("Failed to delete API key: %v", err)
+		}
+	} else {
+		// DeleteAPIKeyForUser deletes nothing for a key that is not the
+		// caller's, without saying so: check first, so the user is told.
+		ownerID, err := primitive.ObjectIDFromHex(userIDOf(user))
+		owned := int64(0)
+		if err == nil {
+			owned, err = h.db.Count(r.Context(), "api_keys", bson.M{"_id": id, "user_id": ownerID})
+		}
+		if err != nil || owned == 0 || h.apiKeyService.DeleteAPIKeyForUser(r.Context(), id, ownerID) != nil {
+			h.refuseAdminMessage(w, r, false, "That API key was not found or is not yours. Nothing was changed.")
+			return
+		}
 	}
 
 	http.Redirect(w, r, "/cm/api-keys", http.StatusSeeOther)
+}
+
+// userIDOf returns the session user's ID, "" for no user.
+func userIDOf(u *auth.SessionUser) string {
+	if u == nil {
+		return ""
+	}
+	return u.ID
 }
 
 // SiteConfiguration shows the site configuration page
@@ -3379,6 +3430,14 @@ func (h *Handler) SiteConfiguration(w http.ResponseWriter, r *http.Request) {
 		} else {
 			cfStatus = "ok"
 		}
+	}
+
+	// The form carries the Cloudflare API token. Only a role that can save
+	// the form (settings.edit) gets it; settings.view sees the page without it.
+	if user, ok := h.auth.GetCurrentUser(r); !ok || !auth.HasPermission(user.Role, auth.PermSettingsEdit) {
+		redacted := *config
+		redacted.CloudflareAPIToken = ""
+		config = &redacted
 	}
 
 	h.renderAdmin(w, r, "config", map[string]interface{}{
@@ -4104,17 +4163,30 @@ func templateToInt64(v interface{}) int64 {
 }
 
 func (h *Handler) renderAdmin(w http.ResponseWriter, r *http.Request, name string, data map[string]interface{}) {
+	h.renderAdminStatus(w, r, http.StatusOK, name, data)
+}
+
+// renderAdminStatus is renderAdmin with an explicit HTTP status (the styled
+// 403 page).
+func (h *Handler) renderAdminStatus(w http.ResponseWriter, r *http.Request, status int, name string, data map[string]interface{}) {
 	if data == nil {
 		data = make(map[string]interface{})
 	}
 	data["IsAuthenticated"] = h.auth.IsAuthenticated(r)
 
-	// Inject current user into template data for sidebar/nav
+	// Inject current user into template data for sidebar/nav, and what the
+	// role may do so templates can hide controls it cannot use:
+	// {{if index .Can "template.edit"}}
+	can := map[string]bool{}
 	if user, ok := h.auth.GetCurrentUser(r); ok {
 		if _, exists := data["CurrentUser"]; !exists {
 			data["CurrentUser"] = user
 		}
+		for _, p := range auth.RolePermissions[user.Role] {
+			can[p] = true
+		}
 	}
+	data["Can"] = can
 
 	// Add CSRF token to template data
 	data["CSRFToken"] = csrf.Token(r)
@@ -4155,6 +4227,9 @@ func (h *Handler) renderAdmin(w http.ResponseWriter, r *http.Request, name strin
 	w.Header().Set("Pragma", "no-cache")
 	w.Header().Set("Expires", "0")
 	// Note: Security headers are now applied globally via middleware
+	if status != http.StatusOK {
+		w.WriteHeader(status)
+	}
 	tmpl.Execute(w, data)
 }
 
@@ -5209,6 +5284,11 @@ func (h *Handler) DeleteAsset(w http.ResponseWriter, r *http.Request) {
 
 // ==================== Sitemap Generation ====================
 
+// sitemapFile is where the generated sitemap is written and read, relative
+// to the working directory. A variable so the tests point it at a temp
+// directory instead of rewriting a tracked file.
+var sitemapFile = "static/sitemap.xml"
+
 // GenerateSitemap creates/updates the sitemap.xml file
 func (h *Handler) GenerateSitemap(ctx context.Context, baseURL string) error {
 	// Get all published content
@@ -5295,7 +5375,7 @@ func (h *Handler) GenerateSitemap(ctx context.Context, baseURL string) error {
 `)
 
 	// Write to static file
-	return os.WriteFile("static/sitemap.xml", []byte(sb.String()), 0644)
+	return os.WriteFile(sitemapFile, []byte(sb.String()), 0644)
 }
 
 // ==================== Tools ====================
@@ -5313,8 +5393,15 @@ func (h *Handler) BrokenLinkFinder(w http.ResponseWriter, r *http.Request) {
 
 // BrokenLinkScan performs the actual scan with Server-Sent Events for real-time progress
 func (h *Handler) BrokenLinkScan(w http.ResponseWriter, r *http.Request) {
-	if !h.auth.IsAuthenticated(r) {
+	user, ok := h.auth.GetCurrentUser(r)
+	if !ok {
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	// The scan fetches every external link in published content from this
+	// server: it needs the permission the broken-link fix needs.
+	if !auth.HasPermission(user.Role, auth.PermContentEdit) {
+		adminJSONError(w, http.StatusForbidden, forbiddenMessage([]string{auth.PermContentEdit}))
 		return
 	}
 
@@ -5450,9 +5537,13 @@ func (h *Handler) BrokenLinkScan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// HTTP client with short timeout for external link checking
-	// Use 3 seconds to prevent blocking the SSE stream too long
+	// Use 3 seconds to prevent blocking the SSE stream too long.
+	// The URLs come from page content, so the client dials through the SSRF
+	// guard: a link (or a redirect) that resolves to a loopback, private or
+	// link-local address is never contacted.
 	httpClient := &http.Client{
-		Timeout: 5 * time.Second,
+		Transport: ssrfSafeClient.Transport,
+		Timeout:   5 * time.Second,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			// Allow up to 10 redirects (sites like anchor.fm can have 4+ redirects)
 			if len(via) >= 10 {
@@ -5781,8 +5872,8 @@ func (h *Handler) ServeSitemap(w http.ResponseWriter, r *http.Request) {
 	// Serve the generated file, regenerating it when missing or stale. Only
 	// admin-UI edits trigger RegenerateSitemap, so API/MCP-driven changes
 	// would otherwise never reach the sitemap.
-	data, err := os.ReadFile("static/sitemap.xml")
-	if info, statErr := os.Stat("static/sitemap.xml"); statErr == nil && time.Since(info.ModTime()) > sitemapMaxAge {
+	data, err := os.ReadFile(sitemapFile)
+	if info, statErr := os.Stat(sitemapFile); statErr == nil && time.Since(info.ModTime()) > sitemapMaxAge {
 		err = os.ErrNotExist
 	}
 	if err != nil {
@@ -5798,7 +5889,7 @@ func (h *Handler) ServeSitemap(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Failed to generate sitemap", http.StatusInternalServerError)
 			return
 		}
-		data, _ = os.ReadFile("static/sitemap.xml")
+		data, _ = os.ReadFile(sitemapFile)
 	}
 
 	w.Header().Set("Content-Type", "application/xml; charset=utf-8")
@@ -6305,9 +6396,11 @@ func (h *Handler) ReplaceExecute(w http.ResponseWriter, r *http.Request) {
 
 	versionComment := fmt.Sprintf("Bulk search and replace: '%s' → '%s'", request.Search, request.Replace)
 	updatedCount := 0
+	totalReplacements := 0
 
 	for _, content := range allContent {
 		needsUpdate := false
+		pageReplacements := 0
 
 		newData := make(map[string]interface{})
 		for k, v := range content.Data {
@@ -6318,6 +6411,7 @@ func (h *Handler) ReplaceExecute(w http.ResponseWriter, r *http.Request) {
 		for fieldName, value := range content.Data {
 			if strVal, ok := value.(string); ok {
 				if strings.Contains(strVal, request.Search) {
+					pageReplacements += strings.Count(strVal, request.Search)
 					newData[fieldName] = strings.ReplaceAll(strVal, request.Search, request.Replace)
 					needsUpdate = true
 				}
@@ -6327,6 +6421,7 @@ func (h *Handler) ReplaceExecute(w http.ResponseWriter, r *http.Request) {
 		// Replace in title
 		newTitle := content.Title
 		if strings.Contains(content.Title, request.Search) {
+			pageReplacements += strings.Count(content.Title, request.Search)
 			newTitle = strings.ReplaceAll(content.Title, request.Search, request.Replace)
 			needsUpdate = true
 		}
@@ -6344,12 +6439,26 @@ func (h *Handler) ReplaceExecute(w http.ResponseWriter, r *http.Request) {
 			}
 
 			updatedCount++
+			totalReplacements += pageReplacements
 		}
 	}
 
 	// Regenerate sitemap if content was updated
 	if updatedCount > 0 {
 		go h.RegenerateSitemap(context.Background())
+	}
+
+	// Audit the run under the action the API endpoint logs
+	if h.auditService != nil {
+		uid, _ := primitive.ObjectIDFromHex(user.ID)
+		h.auditService.LogAsync(models.AuditLog{
+			UserID: uid, UserEmail: user.Email,
+			Action: "content.search_replace", Resource: "content",
+			Details: map[string]interface{}{
+				"pairs_count":   1,
+				"pages_updated": updatedCount, "total_replacements": totalReplacements,
+			},
+		})
 	}
 
 	w.Header().Set("Content-Type", "application/json")
