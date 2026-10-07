@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"html/template"
 	"log"
@@ -168,6 +169,21 @@ func (s *ContentService) NotifyLiveChange(ctx context.Context, before, after *mo
 	}
 }
 
+// ErrPublishForkCopy is returned when a fork copy is published directly.
+// Fork copies share their full_path with the live page and reach the live
+// site only through ForkService.Merge.
+var ErrPublishForkCopy = errors.New("cannot publish a fork copy; merge the fork instead")
+
+// ErrContentHeld is returned when a held page would go from draft to
+// published. Clearing the hold flag is the only way to publish it.
+var ErrContentHeld = errors.New("content is on hold; clear the hold flag before publishing")
+
+// liveOnly restricts a content filter to live pages. Fork copies carry a
+// fork_id; live pages have none (missing or null).
+func liveOnly(filter bson.M) {
+	filter["fork_id"] = nil
+}
+
 // stampPublishedAt records the publish time on content that is published
 // without one. Before 7.3.2 only PublishContent set it, so pages created
 // already-published (API, MCP, bulk, import) had no published date.
@@ -292,6 +308,11 @@ func (s *ContentService) TriggerIndexRegen() {
 
 // CreateContent creates new content and saves the initial version
 func (s *ContentService) CreateContent(ctx context.Context, content *models.Content, versionComment ...string) error {
+	// A held page cannot be created already-published.
+	if content.Hold && content.Published {
+		return ErrContentHeld
+	}
+
 	now := time.Now()
 	content.CreatedAt = now
 	content.UpdatedAt = now
@@ -387,6 +408,10 @@ func (s *ContentService) UpsertContent(ctx context.Context, content *models.Cont
 		existing.AuthorURL = content.AuthorURL
 		if content.Published {
 			existing.Published = true
+		}
+		// Like published, an upsert can set hold but never silently clears it.
+		if content.Hold {
+			existing.Hold = true
 		}
 		if err := s.UpdateContent(ctx, existing, versionComment); err != nil {
 			return false, err
@@ -537,6 +562,12 @@ func (s *ContentService) UpdateContent(ctx context.Context, content *models.Cont
 		return fmt.Errorf("failed to get original content: %w", err)
 	}
 
+	// A held draft cannot go live through an update either. Holding a page
+	// that is already published is allowed and does not unpublish it.
+	if content.Hold && content.Published && !original.Published {
+		return ErrContentHeld
+	}
+
 	content.UpdatedAt = time.Now()
 	stampPublishedAt(content)
 
@@ -585,6 +616,7 @@ func (s *ContentService) UpdateContent(ctx context.Context, content *models.Cont
 			"use_theme":        content.UseTheme,
 			"raw_mode":         content.RawMode,
 			"noindex":          content.NoIndex,
+			"hold":             content.Hold,
 			"author_name":      content.AuthorName,
 			"author_url":       content.AuthorURL,
 			"internal_links":   content.InternalLinks,
@@ -661,6 +693,12 @@ func (s *ContentService) PublishContent(ctx context.Context, id primitive.Object
 	var content models.Content
 	if err := s.db.FindOne(ctx, "content", bson.M{"_id": id}, &content); err != nil {
 		return fmt.Errorf("content not found: %w", err)
+	}
+	if content.ForkID != nil {
+		return ErrPublishForkCopy
+	}
+	if content.Hold {
+		return ErrContentHeld
 	}
 
 	now := time.Now()
@@ -880,14 +918,19 @@ type ContentScope struct {
 	FolderPath     string // prefix match: full_path starts with FolderPath+"/"
 	ContentIDs     []primitive.ObjectID
 	IncludeDeleted bool
+	IncludeForks   bool // ListContentScoped only: also return fork copies
 }
 
 // ListContentScoped fetches content with all filters pushed down to MongoDB,
 // avoiding the full-collection-load + application-level filter pattern.
+// Fork copies are left out unless scope.IncludeForks is set.
 func (s *ContentService) ListContentScoped(ctx context.Context, scope ContentScope) ([]models.Content, error) {
 	filter := bson.M{}
 	if !scope.IncludeDeleted {
 		filter["deleted"] = bson.M{"$ne": true}
+	}
+	if !scope.IncludeForks {
+		liveOnly(filter)
 	}
 	if scope.TemplateName != "" {
 		filter["template_name"] = scope.TemplateName
@@ -969,11 +1012,15 @@ func (s *ContentService) GetContentByIDs(ctx context.Context, ids []primitive.Ob
 	return m, nil
 }
 
-// ListContent lists all content with optional filters
-func (s *ContentService) ListContent(ctx context.Context, includeDeleted bool, category string, folderID *primitive.ObjectID) ([]models.Content, error) {
+// ListContent lists all content with optional filters. Fork copies are left
+// out unless includeForks is passed as true.
+func (s *ContentService) ListContent(ctx context.Context, includeDeleted bool, category string, folderID *primitive.ObjectID, includeForks ...bool) ([]models.Content, error) {
 	filter := bson.M{}
 	if !includeDeleted {
 		filter["deleted"] = bson.M{"$ne": true}
+	}
+	if len(includeForks) == 0 || !includeForks[0] {
+		liveOnly(filter)
 	}
 	if category != "" {
 		filter["category"] = category
@@ -1000,6 +1047,7 @@ type PaginationOpts struct {
 	Limit          int
 	Offset         int
 	IncludeDeleted bool
+	IncludeForks   bool // also return fork copies (left out by default)
 	Category       string
 	FolderID       *primitive.ObjectID
 }
@@ -1017,6 +1065,9 @@ func (s *ContentService) ListContentPaginated(ctx context.Context, opts Paginati
 	filter := bson.M{}
 	if !opts.IncludeDeleted {
 		filter["deleted"] = bson.M{"$ne": true}
+	}
+	if !opts.IncludeForks {
+		liveOnly(filter)
 	}
 	if opts.Category != "" {
 		filter["category"] = opts.Category

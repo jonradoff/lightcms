@@ -671,6 +671,7 @@ func main() {
 	apiv1.HandleFunc("/maintenance/backfill-published-dates", apiHandler.APIBackfillPublishedDates).Methods("POST")
 	apiv1.HandleFunc("/forks/{id}/merge", apiHandler.APIMergeFork).Methods("POST")
 	apiv1.HandleFunc("/forks/{id}/archive", apiHandler.APIArchiveFork).Methods("POST")
+	apiv1.HandleFunc("/forks/{id}/purge-copies", apiHandler.APIPurgeForkCopies).Methods("POST")
 
 	// Regenerate (rate-limited: 2/min — full rebuild is expensive)
 	apiv1.Handle("/regenerate", middleware.RegenerateLimiter()(http.HandlerFunc(apiHandler.APIRegenerateAllContent))).Methods("POST")

@@ -962,6 +962,13 @@ func (h *Handler) CreateContent(w http.ResponseWriter, r *http.Request) {
 
 	published := r.FormValue("published") == "on"
 
+	// A held page is always created as a draft: hold wins over the publish
+	// checkbox (and over a contributor's submit-for-approval).
+	hold := r.FormValue("hold") == "on"
+	if hold {
+		published = false
+	}
+
 	// Contributor intercept: if a contributor attempts to create published content,
 	// create it as a draft and auto-submit for approval.
 	createContributorApproval := false
@@ -1061,6 +1068,7 @@ func (h *Handler) CreateContent(w http.ResponseWriter, r *http.Request) {
 		MetaDescription: metaDescription,
 		OGImage:         ogImage,
 		NoIndex:         noIndex,
+		Hold:            hold,
 		AuthorName:      authorName,
 		AuthorURL:       authorURL,
 		Data:            data,
@@ -1177,6 +1185,8 @@ func (h *Handler) EditContent(w http.ResponseWriter, r *http.Request) {
 		} else {
 			errorMsg = "A page already exists at that URL path. Please choose a different slug."
 		}
+	} else if r.URL.Query().Get("error") == "held" {
+		errorMsg = "This page is on hold and was not saved. Uncheck Hold to publish it, or uncheck Published to save it as a held draft."
 	}
 
 	// Get all templates for template change feature
@@ -1343,6 +1353,14 @@ func (h *Handler) UpdateContent(w http.ResponseWriter, r *http.Request) {
 
 	published := r.FormValue("published") == "on"
 
+	// A held draft cannot be published: refuse before anything is written.
+	// Holding a page that is already published leaves it published.
+	hold := r.FormValue("hold") == "on"
+	if hold && published && !existingContent.Published {
+		http.Redirect(w, r, fmt.Sprintf("/cm/content/%s?error=held", existingContent.ID.Hex()), http.StatusSeeOther)
+		return
+	}
+
 	// Contributor intercept: contributors cannot publish directly.
 	// If they attempt to publish, save as draft and submit for approval instead.
 	contributorSubmittedForApproval := false
@@ -1483,6 +1501,7 @@ func (h *Handler) UpdateContent(w http.ResponseWriter, r *http.Request) {
 			"meta_description": metaDescription,
 			"og_image":         ogImage,
 			"noindex":          noIndex,
+			"hold":             hold,
 			"author_name":      authorName,
 			"author_url":       authorURL,
 			"data":             data,
@@ -1555,6 +1574,7 @@ func (h *Handler) UpdateContent(w http.ResponseWriter, r *http.Request) {
 	existingContent.MetaDescription = metaDescription
 	existingContent.OGImage = ogImage
 	existingContent.NoIndex = noIndex
+	existingContent.Hold = hold
 	existingContent.AuthorName = authorName
 	existingContent.AuthorURL = authorURL
 	existingContent.Data = data
@@ -5901,6 +5921,7 @@ func (h *Handler) SearchContent(w http.ResponseWriter, r *http.Request) {
 		FullPath     string `json:"full_path"`
 		Slug         string `json:"slug"`
 		Published    bool   `json:"published"`
+		Hold         bool   `json:"hold,omitempty"`
 		Deleted      bool   `json:"deleted"`
 		UpdatedAt    string `json:"updated_at"`
 	}
@@ -5918,6 +5939,7 @@ func (h *Handler) SearchContent(w http.ResponseWriter, r *http.Request) {
 			FullPath:     path,
 			Slug:         c.Slug,
 			Published:    c.Published,
+			Hold:         c.Hold,
 			Deleted:      c.Deleted,
 			UpdatedAt:    c.UpdatedAt.Format("Jan 2, 2006"),
 		})

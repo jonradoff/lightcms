@@ -18,6 +18,7 @@ type Content struct {
 	MetaDescription string                 `json:"meta_description"`
 	OGImage         string                 `json:"og_image"`
 	NoIndex         bool                   `json:"noindex,omitempty"`
+	Hold            bool                   `json:"hold,omitempty"`
 	AuthorName      string                 `json:"author_name,omitempty"`
 	AuthorURL       string                 `json:"author_url,omitempty"`
 	Data            map[string]interface{} `json:"data"`
@@ -54,6 +55,10 @@ type ForkPageDiff struct {
 type ForkDiff struct {
 	ForkID string         `json:"fork_id"`
 	Pages  []ForkPageDiff `json:"pages"`
+	Status string         `json:"status,omitempty"`
+	// Set on merged forks: their copies are gone, so Pages is empty.
+	MergedCreated int `json:"merged_created,omitempty"`
+	MergedUpdated int `json:"merged_updated,omitempty"`
 }
 
 type ContentVersion struct {
@@ -97,6 +102,7 @@ type CreateContentRequest struct {
 	MetaDescription string                 `json:"meta_description,omitempty"`
 	OGImage         string                 `json:"og_image,omitempty"`
 	NoIndex         bool                   `json:"noindex,omitempty"`
+	Hold            bool                   `json:"hold,omitempty"`
 	AuthorName      string                 `json:"author_name,omitempty"`
 	AuthorURL       string                 `json:"author_url,omitempty"`
 	Data            map[string]interface{} `json:"data"`
@@ -366,6 +372,8 @@ type Fork struct {
 	CreatedAt      string  `json:"created_at"`
 	MergedAt       *string `json:"merged_at,omitempty"`
 	MergedByEmail  string  `json:"merged_by_email,omitempty"`
+	MergedCreated  int     `json:"merged_created,omitempty"`
+	MergedUpdated  int     `json:"merged_updated,omitempty"`
 	ArchivedAt     *string `json:"archived_at,omitempty"`
 }
 
@@ -378,6 +386,11 @@ type ForkDetail struct {
 	CreatedAt      string        `json:"created_at"`
 	PageCount      int           `json:"page_count"`
 	Pages          []ForkPageRef `json:"pages"`
+	// Set on merged forks, whose page copies are deleted by the merge.
+	MergedAt      string `json:"merged_at,omitempty"`
+	MergedByEmail string `json:"merged_by_email,omitempty"`
+	MergedCreated int    `json:"merged_created,omitempty"`
+	MergedUpdated int    `json:"merged_updated,omitempty"`
 }
 
 type ForkPageRef struct {
@@ -395,11 +408,38 @@ type ForkPageResult struct {
 }
 
 type ForkMergeResult struct {
-	Success   bool                `json:"success"`
-	Updated   int                 `json:"updated"`
-	Created   int                 `json:"created"`
-	Conflicts []ForkMergeConflict `json:"conflicts"`
-	Message   string              `json:"message"`
+	Success      bool                    `json:"success"`
+	Updated      int                     `json:"updated"`
+	Created      int                     `json:"created"`
+	CreatedIDs   []string                `json:"created_ids"`
+	UpdatedIDs   []string                `json:"updated_ids"`
+	PublishNew   bool                    `json:"publish_new"`
+	NotPublished []ForkMergeNotPublished `json:"not_published"`
+	Conflicts    []ForkMergeConflict     `json:"conflicts"`
+	Message      string                  `json:"message"`
+}
+
+// ForkMergeNotPublished is a page a merge created that stayed a draft even
+// though publish_new was set (held, or its publish failed).
+type ForkMergeNotPublished struct {
+	ID     string `json:"id"`
+	Path   string `json:"path"`
+	Reason string `json:"reason"`
+}
+
+// ForkPurgeResult is returned by PurgeForkCopies. Copies is filled on a dry
+// run; Deleted on a real one.
+type ForkPurgeResult struct {
+	ForkID  string        `json:"fork_id"`
+	DryRun  bool          `json:"dry_run"`
+	Count   int           `json:"count"`
+	Deleted int           `json:"deleted,omitempty"`
+	Copies  []ForkCopyRef `json:"copies,omitempty"`
+}
+
+type ForkCopyRef struct {
+	ID       string `json:"id"`
+	FullPath string `json:"full_path"`
 }
 
 type ForkMergeConflict struct {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"log"
@@ -32,12 +33,32 @@ type contentListItem struct {
 	Category        string                 `json:"category"`
 	Tags            []string               `json:"tags,omitempty"`
 	Published       bool                   `json:"published"`
+	Hold            bool                   `json:"hold,omitempty"`
 	Deleted         bool                   `json:"deleted"`
 	UpdatedAt       string                 `json:"updated_at"`
 	MetaDescription string                 `json:"meta_description,omitempty"`
 	TemplateID      string                 `json:"template_id,omitempty"`
 	TemplateName    string                 `json:"template_name,omitempty"`
+	ForkID          string                 `json:"fork_id,omitempty"` // set on fork copies (only listed with include_forks)
 	Data            map[string]interface{} `json:"data,omitempty"`
+}
+
+// forkIDHex renders an optional fork ID for API responses ("" for live pages).
+func forkIDHex(id *primitive.ObjectID) string {
+	if id == nil {
+		return ""
+	}
+	return id.Hex()
+}
+
+// contentErrorStatus maps a content-service error to an HTTP status: a
+// publish refused because the page is a fork copy or on hold is a conflict
+// with the page's state, not a server fault.
+func contentErrorStatus(err error) int {
+	if errors.Is(err, services.ErrContentHeld) || errors.Is(err, services.ErrPublishForkCopy) {
+		return http.StatusConflict
+	}
+	return http.StatusInternalServerError
 }
 
 // formatContentList converts content models to API response items with optional field filtering.
@@ -49,10 +70,11 @@ func (a *APIHandler) formatContentList(contents []models.Content, includeData bo
 			result[i] = contentListItem{
 				ID: c.ID.Hex(), Title: c.Title, Slug: c.Slug,
 				FullPath: c.FullPath, Category: c.Category, Tags: c.Tags,
-				Published: c.Published, Deleted: c.Deleted,
+				Published: c.Published, Hold: c.Hold, Deleted: c.Deleted,
 				UpdatedAt:       c.UpdatedAt.Format("2006-01-02T15:04:05Z"),
 				MetaDescription: c.MetaDescription,
 				TemplateID:      c.TemplateID.Hex(), TemplateName: c.TemplateName,
+				ForkID: forkIDHex(c.ForkID),
 			}
 		}
 		return result
@@ -74,10 +96,11 @@ func (a *APIHandler) formatContentList(contents []models.Content, includeData bo
 		item := contentListItem{
 			ID: c.ID.Hex(), Title: c.Title, Slug: c.Slug,
 			FullPath: c.FullPath, Category: c.Category, Tags: c.Tags,
-			Published: c.Published, Deleted: c.Deleted,
+			Published: c.Published, Hold: c.Hold, Deleted: c.Deleted,
 			UpdatedAt:       c.UpdatedAt.Format("2006-01-02T15:04:05Z"),
 			MetaDescription: c.MetaDescription,
 			TemplateID:      c.TemplateID.Hex(), TemplateName: c.TemplateName,
+			ForkID: forkIDHex(c.ForkID),
 		}
 		if includeFields != nil {
 			item.Data = make(map[string]interface{})
@@ -99,6 +122,8 @@ func (a *APIHandler) APIListContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	includeDeleted, _ := strconv.ParseBool(r.URL.Query().Get("include_deleted"))
+	// Fork copies are working copies, not site pages: listed only on request.
+	includeForks, _ := strconv.ParseBool(r.URL.Query().Get("include_forks"))
 	category := r.URL.Query().Get("category")
 	includeData, _ := strconv.ParseBool(r.URL.Query().Get("include_data"))
 	includeFieldsParam := r.URL.Query().Get("include_fields") // comma-separated field names
@@ -138,6 +163,7 @@ func (a *APIHandler) APIListContent(w http.ResponseWriter, r *http.Request) {
 			Limit:          limit,
 			Offset:         offset,
 			IncludeDeleted: includeDeleted,
+			IncludeForks:   includeForks,
 			Category:       category,
 			FolderID:       folderID,
 		})
@@ -157,7 +183,7 @@ func (a *APIHandler) APIListContent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	contents, err := a.contentService.ListContent(r.Context(), includeDeleted, category, folderID)
+	contents, err := a.contentService.ListContent(r.Context(), includeDeleted, category, folderID, includeForks)
 	if err != nil {
 		a.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -255,6 +281,7 @@ func (a *APIHandler) APICreateContent(w http.ResponseWriter, r *http.Request) {
 		MetaDescription string                 `json:"meta_description"`
 		OGImage         string                 `json:"og_image"`
 		NoIndex         bool                   `json:"noindex"`
+		Hold            bool                   `json:"hold"`
 		AuthorName      string                 `json:"author_name"`
 		AuthorURL       string                 `json:"author_url"`
 		Data            map[string]interface{} `json:"data"`
@@ -346,6 +373,7 @@ func (a *APIHandler) APICreateContent(w http.ResponseWriter, r *http.Request) {
 		MetaDescription: req.MetaDescription,
 		OGImage:         req.OGImage,
 		NoIndex:         req.NoIndex,
+		Hold:            req.Hold,
 		AuthorName:      req.AuthorName,
 		AuthorURL:       req.AuthorURL,
 		Data:            req.Data,
@@ -362,7 +390,7 @@ func (a *APIHandler) APICreateContent(w http.ResponseWriter, r *http.Request) {
 	if req.Upsert {
 		created, err := a.contentService.UpsertContent(r.Context(), content, comment)
 		if err != nil {
-			a.jsonError(w, http.StatusInternalServerError, err.Error())
+			a.jsonError(w, contentErrorStatus(err), err.Error())
 			return
 		}
 		action := "updated"
@@ -388,7 +416,7 @@ func (a *APIHandler) APICreateContent(w http.ResponseWriter, r *http.Request) {
 		args = append(args, comment)
 	}
 	if err := a.contentService.CreateContent(r.Context(), content, args...); err != nil {
-		a.jsonError(w, http.StatusInternalServerError, err.Error())
+		a.jsonError(w, contentErrorStatus(err), err.Error())
 		return
 	}
 
@@ -473,6 +501,9 @@ func (a *APIHandler) APIUpdateContent(w http.ResponseWriter, r *http.Request) {
 	if v, ok := raw["noindex"]; ok {
 		json.Unmarshal(v, &content.NoIndex)
 	}
+	if v, ok := raw["hold"]; ok {
+		json.Unmarshal(v, &content.Hold)
+	}
 	if v, ok := raw["author_name"]; ok {
 		json.Unmarshal(v, &content.AuthorName)
 	}
@@ -519,7 +550,7 @@ func (a *APIHandler) APIUpdateContent(w http.ResponseWriter, r *http.Request) {
 		args = append(args, versionComment)
 	}
 	if err := a.contentService.UpdateContent(r.Context(), content, args...); err != nil {
-		a.jsonError(w, http.StatusInternalServerError, err.Error())
+		a.jsonError(w, contentErrorStatus(err), err.Error())
 		return
 	}
 
@@ -579,7 +610,7 @@ func (a *APIHandler) APIPublishContent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := a.contentService.PublishContent(r.Context(), id); err != nil {
-		a.jsonError(w, http.StatusInternalServerError, err.Error())
+		a.jsonError(w, contentErrorStatus(err), err.Error())
 		return
 	}
 
@@ -706,9 +737,10 @@ func (a *APIHandler) APISearchContent(w http.ResponseWriter, r *http.Request) {
 		searchType = "fulltext"
 	}
 	includeDeleted, _ := strconv.ParseBool(r.URL.Query().Get("include_deleted"))
+	includeForks, _ := strconv.ParseBool(r.URL.Query().Get("include_forks"))
 
 	// Use service to list all content, then filter in-memory (matching MCP behavior)
-	contents, err := a.contentService.ListContent(r.Context(), includeDeleted, "", nil)
+	contents, err := a.contentService.ListContent(r.Context(), includeDeleted, "", nil, includeForks)
 	if err != nil {
 		a.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -720,6 +752,7 @@ func (a *APIHandler) APISearchContent(w http.ResponseWriter, r *http.Request) {
 		FullPath     string   `json:"full_path"`
 		TemplateName string   `json:"template_name"`
 		Published    bool     `json:"published"`
+		ForkID       string   `json:"fork_id,omitempty"` // set on fork copies (include_forks only)
 		MatchedIn    []string `json:"matched_in"`
 	}
 
@@ -750,6 +783,7 @@ func (a *APIHandler) APISearchContent(w http.ResponseWriter, r *http.Request) {
 				FullPath:     c.FullPath,
 				TemplateName: c.TemplateName,
 				Published:    c.Published,
+				ForkID:       forkIDHex(c.ForkID),
 				MatchedIn:    matchedIn,
 			})
 		}
@@ -1213,6 +1247,10 @@ func (a *APIHandler) renderContentWithWarnings(r *http.Request, content *models.
 
 // APIBatchPublishContent publishes multiple content items in one call.
 // Body: {"ids": ["id1","id2",...]} or {"publish_all_drafts": true}
+//
+// Fork copies and held pages are never published here: they are returned in
+// "skipped" with a reason instead of "failed". publish_all_drafts does not
+// consider fork copies at all (they are not drafts of the site).
 func (a *APIHandler) APIBatchPublishContent(w http.ResponseWriter, r *http.Request) {
 	if !a.requirePermission(w, r, auth.PermContentPublish) {
 		return
@@ -1227,42 +1265,83 @@ func (a *APIHandler) APIBatchPublishContent(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	const (
+		reasonHeld = "on hold"
+		reasonFork = "fork copy; merge the fork instead"
+	)
+	var published []string
+	skipped := []map[string]string{}
+	var failed []map[string]string
+	skip := func(id primitive.ObjectID, reason string) {
+		skipped = append(skipped, map[string]string{"id": id.Hex(), "reason": reason})
+	}
+
 	var ids []primitive.ObjectID
 	if req.PublishAllDrafts {
+		// ListContent leaves fork copies out by default.
 		contents, err := a.contentService.ListContent(r.Context(), false, "", nil)
 		if err != nil {
 			a.jsonError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
 		for _, c := range contents {
-			if !c.Published {
+			switch {
+			case c.Published:
+			case c.Hold:
+				skip(c.ID, reasonHeld)
+			default:
 				ids = append(ids, c.ID)
 			}
 		}
 	} else {
+		var requested []primitive.ObjectID
 		for _, sid := range req.IDs {
 			id, err := primitive.ObjectIDFromHex(sid)
 			if err != nil {
 				a.jsonError(w, http.StatusBadRequest, fmt.Sprintf("invalid id: %s", sid))
 				return
 			}
-			ids = append(ids, id)
+			requested = append(requested, id)
+		}
+		// One query to classify the requested items; unknown IDs fall through
+		// to PublishContent and are reported as failed, as before.
+		existing, err := a.contentService.GetContentByIDs(r.Context(), requested)
+		if err != nil {
+			a.jsonError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		for _, id := range requested {
+			c := existing[id]
+			switch {
+			case c != nil && c.ForkID != nil:
+				skip(id, reasonFork)
+			case c != nil && c.Hold:
+				skip(id, reasonHeld)
+			default:
+				ids = append(ids, id)
+			}
 		}
 	}
 
-	var published []string
-	var failed []map[string]string
 	for _, id := range ids {
-		if err := a.contentService.PublishContent(r.Context(), id); err != nil {
-			failed = append(failed, map[string]string{"id": id.Hex(), "error": sanitizeAPIError(err)})
-		} else {
+		err := a.contentService.PublishContent(r.Context(), id)
+		switch {
+		case err == nil:
 			published = append(published, id.Hex())
+		// Held or forked between the check above and now.
+		case errors.Is(err, services.ErrContentHeld):
+			skip(id, reasonHeld)
+		case errors.Is(err, services.ErrPublishForkCopy):
+			skip(id, reasonFork)
+		default:
+			failed = append(failed, map[string]string{"id": id.Hex(), "error": sanitizeAPIError(err)})
 		}
 	}
 
-	a.auditLog(r, "content.batch_publish", "content", "", map[string]interface{}{"count": len(published)})
+	a.auditLog(r, "content.batch_publish", "content", "", map[string]interface{}{"count": len(published), "skipped": len(skipped)})
 	a.jsonResponse(w, http.StatusOK, map[string]interface{}{
 		"published": published,
+		"skipped":   skipped,
 		"failed":    failed,
 	})
 }
@@ -1364,6 +1443,9 @@ func (a *APIHandler) APIUpdateContentByPath(w http.ResponseWriter, r *http.Reque
 	if v, ok := raw["noindex"]; ok {
 		json.Unmarshal(v, &content.NoIndex)
 	}
+	if v, ok := raw["hold"]; ok {
+		json.Unmarshal(v, &content.Hold)
+	}
 	if v, ok := raw["author_name"]; ok {
 		json.Unmarshal(v, &content.AuthorName)
 	}
@@ -1396,7 +1478,7 @@ func (a *APIHandler) APIUpdateContentByPath(w http.ResponseWriter, r *http.Reque
 		args = append(args, versionComment)
 	}
 	if err := a.contentService.UpdateContent(r.Context(), content, args...); err != nil {
-		a.jsonError(w, http.StatusInternalServerError, err.Error())
+		a.jsonError(w, contentErrorStatus(err), err.Error())
 		return
 	}
 
@@ -2201,6 +2283,7 @@ func (a *APIHandler) APIBulkFieldOperation(w http.ResponseWriter, r *http.Reques
 		"og_image": true, "content_hash": true, "use_header": true, "use_footer": true,
 		"use_theme": true, "raw_mode": true, "locked_by": true, "locked_at": true,
 		"noindex": true, "author_name": true, "author_url": true, "content_modified_at": true,
+		"hold": true,
 	}
 	if blockedFields[req.Field] {
 		a.jsonError(w, http.StatusBadRequest, "cannot modify system field via bulk field operation")

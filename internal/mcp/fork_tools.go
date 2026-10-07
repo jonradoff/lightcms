@@ -30,7 +30,13 @@ type RemoveForkPageInput struct {
 }
 
 type MergeForkInput struct {
-	ForkID string `json:"fork_id" jsonschema:"Fork workspace ID to merge into live,required"`
+	ForkID     string `json:"fork_id" jsonschema:"Fork workspace ID to merge into live,required"`
+	PublishNew bool   `json:"publish_new,omitempty" jsonschema:"Also publish the pages this merge creates. Default false: new pages keep the publish state they had in the fork (normally draft). Pages on hold always stay drafts"`
+}
+
+type PurgeForkCopiesInput struct {
+	ForkID string `json:"fork_id" jsonschema:"ID of a merged or archived fork,required"`
+	DryRun bool   `json:"dry_run,omitempty" jsonschema:"If true, return the count and the list of {id, full_path} without deleting anything"`
 }
 
 type ArchiveForkInput struct {
@@ -180,11 +186,11 @@ If the page is already in this fork, returns the existing fork copy.`,
 
 For each page in the fork:
 - If a matching live page exists (same URL): updates it with the fork content (fork wins). If the live page was edited after the fork was created, records a conflict but still merges.
-- If no live page exists at that URL: creates a new live page.
+- If no live page exists at that URL: creates a new live page. It keeps the publish state it had in the fork (normally draft) unless publish_new is true, which publishes it. Pages on hold always stay drafts.
 
-After merging, the fork status changes to "merged". Published live pages are regenerated immediately.
+After merging, the fork status changes to "merged", its page copies are deleted, and the created/updated counts are kept on the fork record. Published live pages are regenerated immediately.
 
-Returns: updated count, created count, any conflicts detected.
+Returns: updated and created counts, created_ids and updated_ids (live page IDs), not_published (new pages publish_new left as drafts, with the reason), and any conflicts detected.
 
 ALWAYS confirm with the user before merging, as this pushes changes to the live site.`,
 		Annotations: &mcp.ToolAnnotations{
@@ -198,7 +204,7 @@ ALWAYS confirm with the user before merging, as this pushes changes to the live 
 		if sbID, sbName, sbActive := s.sandboxFork(); sbActive && args.ForkID == sbID {
 			return textResult(fmt.Sprintf("BLOCKED: %s targets the active agent sandbox %q. Agents cannot merge their own sandbox — use end_agent_sandbox instead; merging is a human decision.", "merge_fork", sbName)), nil, nil
 		}
-		result, err := s.client.MergeFork(ctx, args.ForkID)
+		result, err := s.client.MergeFork(ctx, args.ForkID, args.PublishNew)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
@@ -231,7 +237,7 @@ ALWAYS confirm with the user before merging, as this pushes changes to the live 
 	mcp.AddTool(s.mcpServer, &mcp.Tool{
 		Name:        "delete_fork",
 		Title:       "Delete Fork",
-		Description: "Permanently delete a fork and all its pages. Cannot delete a merged fork. Requires admin role.",
+		Description: "Permanently delete a fork and all its page copies. Deleting a merged fork removes only its history record (and any leftover copies) — the merged live pages are not affected. Requires admin role.",
 		Annotations: &mcp.ToolAnnotations{
 			Title:           "Delete Fork",
 			ReadOnlyHint:    false,
@@ -247,5 +253,37 @@ ALWAYS confirm with the user before merging, as this pushes changes to the live 
 			return errorResult(err), nil, nil
 		}
 		return textResult(fmt.Sprintf("Fork %s deleted", args.ForkID)), nil, nil
+	})
+
+	// Purge leftover copies of a merged/archived fork
+	mcp.AddTool(s.mcpServer, &mcp.Tool{
+		Name:  "purge_fork_copies",
+		Title: "Purge Fork Copies",
+		Description: `Delete the page copies still attached to a merged or archived fork. Requires admin role.
+
+Merges clean up after themselves since v7.4; forks merged before that kept their copies. Live pages are never touched, and the fork record is kept. Active forks are refused.
+
+Use dry_run: true first to see the count and the list of {id, full_path}. Returns the number deleted and writes an audit log entry.`,
+		Annotations: &mcp.ToolAnnotations{
+			Title:           "Purge Fork Copies",
+			ReadOnlyHint:    false,
+			DestructiveHint: boolPtr(true),
+			IdempotentHint:  true,
+			OpenWorldHint:   boolPtr(false),
+		},
+	}, func(ctx context.Context, req *mcp.CallToolRequest, args PurgeForkCopiesInput) (*mcp.CallToolResult, any, error) {
+		if args.ForkID == "" {
+			return errorResult(fmt.Errorf("fork_id is required")), nil, nil
+		}
+		if !args.DryRun {
+			if blocked := s.sandboxBlock("purge_fork_copies"); blocked != nil {
+				return blocked, nil, nil
+			}
+		}
+		result, err := s.client.PurgeForkCopies(ctx, args.ForkID, args.DryRun)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		return jsonResult(result), nil, nil
 	})
 }

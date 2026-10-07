@@ -463,13 +463,18 @@ func (c *Client) DeleteCollection(ctx context.Context, id string) error {
 
 // Search
 
-func (c *Client) SearchContent(ctx context.Context, query, searchType string, includeDeleted bool) (*SearchResult, error) {
+// SearchContent searches content by title or full text. Fork copies are left
+// out unless includeForks is passed as true.
+func (c *Client) SearchContent(ctx context.Context, query, searchType string, includeDeleted bool, includeForks ...bool) (*SearchResult, error) {
 	params := url.Values{"q": {query}}
 	if searchType != "" {
 		params.Set("type", searchType)
 	}
 	if includeDeleted {
 		params.Set("include_deleted", "true")
+	}
+	if len(includeForks) > 0 && includeForks[0] {
+		params.Set("include_forks", "true")
 	}
 
 	var result SearchResult
@@ -704,6 +709,7 @@ func (c *Client) ScopedSearchReplaceExecute(ctx context.Context, search, replace
 // ListContentOptions provides optional parameters for listing content.
 type ListContentOptions struct {
 	IncludeDeleted bool
+	IncludeForks   bool // also list fork copies (left out by default)
 	Category       string
 	FolderID       string
 	IncludeData    bool
@@ -727,6 +733,9 @@ func (c *Client) ListContentWithOptions(ctx context.Context, opts ListContentOpt
 	params := url.Values{}
 	if opts.IncludeDeleted {
 		params.Set("include_deleted", "true")
+	}
+	if opts.IncludeForks {
+		params.Set("include_forks", "true")
 	}
 	if opts.Category != "" {
 		params.Set("category", opts.Category)
@@ -776,6 +785,9 @@ func (c *Client) ListContentPaginated(ctx context.Context, opts ListContentOptio
 	params := url.Values{}
 	if opts.IncludeDeleted {
 		params.Set("include_deleted", "true")
+	}
+	if opts.IncludeForks {
+		params.Set("include_forks", "true")
 	}
 	if opts.Category != "" {
 		params.Set("category", opts.Category)
@@ -938,10 +950,29 @@ func (c *Client) RemoveForkPage(ctx context.Context, forkID, pageID string) erro
 	return c.do(ctx, "DELETE", "/forks/"+forkID+"/pages/"+pageID, nil, nil)
 }
 
-// MergeFork merges all fork pages into live content.
-func (c *Client) MergeFork(ctx context.Context, forkID string) (*ForkMergeResult, error) {
+// MergeFork merges all fork pages into live content. With publishNew, pages
+// the merge creates are also published (held pages stay drafts).
+func (c *Client) MergeFork(ctx context.Context, forkID string, publishNew bool) (*ForkMergeResult, error) {
+	var body interface{}
+	if publishNew {
+		body = map[string]bool{"publish_new": true}
+	}
 	var result ForkMergeResult
-	if err := c.do(ctx, "POST", "/forks/"+forkID+"/merge", nil, &result); err != nil {
+	if err := c.do(ctx, "POST", "/forks/"+forkID+"/merge", body, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// PurgeForkCopies deletes the page copies still attached to a merged or
+// archived fork. With dryRun it only lists them.
+func (c *Client) PurgeForkCopies(ctx context.Context, forkID string, dryRun bool) (*ForkPurgeResult, error) {
+	path := "/forks/" + forkID + "/purge-copies"
+	if dryRun {
+		path += "?dry_run=true"
+	}
+	var result ForkPurgeResult
+	if err := c.do(ctx, "POST", path, nil, &result); err != nil {
 		return nil, err
 	}
 	return &result, nil

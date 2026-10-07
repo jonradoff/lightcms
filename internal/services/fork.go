@@ -30,9 +30,28 @@ func NewForkService(db *database.DB, cs *ContentService) *ForkService {
 
 // MergeResult summarises what happened when a fork was merged into live.
 type MergeResult struct {
-	Updated   int
-	Created   int
-	Conflicts []ForkConflict
+	Updated    int
+	Created    int
+	CreatedIDs []primitive.ObjectID // live pages created by the merge
+	UpdatedIDs []primitive.ObjectID // live pages updated by the merge
+	Conflicts  []ForkConflict
+	// NotPublished lists created pages that publishNew left as drafts
+	// (held pages, or pages whose publish failed).
+	NotPublished []MergeNotPublished
+}
+
+// MergeNotPublished records a page created by a merge that stayed a draft
+// even though the merge was asked to publish new pages.
+type MergeNotPublished struct {
+	ID     primitive.ObjectID
+	Path   string
+	Reason string
+}
+
+// ForkCopyRef identifies one page copy belonging to a fork.
+type ForkCopyRef struct {
+	ID       primitive.ObjectID `bson:"_id" json:"id"`
+	FullPath string             `bson:"full_path" json:"full_path"`
 }
 
 // ForkConflict records a page that was modified on the live site after the fork was made.
@@ -192,9 +211,15 @@ func (s *ForkService) RemovePage(ctx context.Context, forkID primitive.ObjectID,
 	return nil
 }
 
-// Merge merges all fork pages into live content and marks the fork as merged.
-// Returns a MergeResult summarising what was created, updated, and any conflicts.
-func (s *ForkService) Merge(ctx context.Context, forkID primitive.ObjectID, mergedByID primitive.ObjectID, mergedByEmail string) (*MergeResult, error) {
+// Merge merges all fork pages into live content, marks the fork as merged
+// (recording the created/updated counts on it) and deletes the fork's page
+// copies. Returns a MergeResult summarising what was created, updated, and
+// any conflicts.
+//
+// New pages are created with the fork copy's published flag. With publishNew,
+// new pages that would be drafts are then published through the normal
+// publish path. Held pages always stay drafts.
+func (s *ForkService) Merge(ctx context.Context, forkID primitive.ObjectID, mergedByID primitive.ObjectID, mergedByEmail string, publishNew bool) (*MergeResult, error) {
 	fork, err := s.GetByID(ctx, forkID)
 	if err != nil {
 		return nil, fmt.Errorf("fork not found: %w", err)
@@ -229,6 +254,11 @@ func (s *ForkService) Merge(ctx context.Context, forkID primitive.ObjectID, merg
 			newPage.BaseUpdatedAt = nil
 			newPage.CreatedAt = now
 			newPage.UpdatedAt = now
+			if newPage.Hold {
+				// A held page never goes live through a merge.
+				newPage.Published = false
+				newPage.PublishedAt = nil
+			}
 			if _, err := s.db.InsertOne(ctx, "content", &newPage); err != nil {
 				return nil, fmt.Errorf("create live page %s: %w", forkPage.FullPath, err)
 			}
@@ -236,7 +266,15 @@ func (s *ForkService) Merge(ctx context.Context, forkID primitive.ObjectID, merg
 			if newPage.Published && s.contentService != nil {
 				_ = s.contentService.GenerateStaticPage(ctx, &newPage)
 			}
+			if publishNew && !newPage.Published {
+				if reason := s.publishMerged(ctx, &newPage); reason != "" {
+					result.NotPublished = append(result.NotPublished, MergeNotPublished{
+						ID: newPage.ID, Path: newPage.FullPath, Reason: reason,
+					})
+				}
+			}
 			result.Created++
+			result.CreatedIDs = append(result.CreatedIDs, newPage.ID)
 		} else {
 			// Live page exists — check for conflict
 			if forkPage.BaseUpdatedAt != nil && livePage.UpdatedAt.After(*forkPage.BaseUpdatedAt) {
@@ -286,19 +324,48 @@ func (s *ForkService) Merge(ctx context.Context, forkID primitive.ObjectID, merg
 				_ = s.contentService.GenerateStaticPage(ctx, &livePage)
 			}
 			result.Updated++
+			result.UpdatedIDs = append(result.UpdatedIDs, livePage.ID)
 		}
 	}
 
-	// Mark fork as merged
+	// Mark fork as merged, keeping the page counts as its history.
 	now := time.Now()
-	_ = s.db.UpdateOne(ctx, "content_forks", bson.M{"_id": forkID}, bson.M{"$set": bson.M{
+	if err := s.db.UpdateOne(ctx, "content_forks", bson.M{"_id": forkID}, bson.M{"$set": bson.M{
 		"status":          "merged",
 		"merged_at":       now,
 		"merged_by":       mergedByID,
 		"merged_by_email": mergedByEmail,
-	}})
+		"merged_created":  result.Created,
+		"merged_updated":  result.Updated,
+	}}); err != nil {
+		return nil, fmt.Errorf("mark fork merged: %w", err)
+	}
+
+	// The copies have served their purpose: left behind they would only be
+	// stale duplicates of live pages. A failure here does not undo the merge —
+	// PurgeCopies removes whatever remains.
+	if _, err := s.db.Collection("content").DeleteMany(ctx, bson.M{"fork_id": forkID}); err != nil {
+		fmt.Printf("Warning: failed to delete page copies of merged fork %s: %v\n", forkID.Hex(), err)
+	}
 
 	return result, nil
+}
+
+// publishMerged publishes a page that a merge just created, through the
+// normal publish path so versioning, static generation, embeddings, IndexNow
+// and webhooks behave as for any other publish. It returns "" on success, or
+// the reason the page stayed a draft.
+func (s *ForkService) publishMerged(ctx context.Context, page *models.Content) string {
+	if page.Hold {
+		return "on hold"
+	}
+	if s.contentService == nil {
+		return "no content service"
+	}
+	if err := s.contentService.PublishContent(ctx, page.ID); err != nil {
+		return err.Error()
+	}
+	return ""
 }
 
 // Archive marks a fork as archived without merging.
@@ -310,14 +377,12 @@ func (s *ForkService) Archive(ctx context.Context, forkID primitive.ObjectID) er
 	}})
 }
 
-// Delete permanently deletes a fork and all its pages (only for non-merged forks).
+// Delete permanently deletes a fork and all its pages. For a merged fork this
+// removes the history record and any page copies left over from before
+// merges cleaned up after themselves; the merged live pages are not touched.
 func (s *ForkService) Delete(ctx context.Context, forkID primitive.ObjectID) error {
-	fork, err := s.GetByID(ctx, forkID)
-	if err != nil {
+	if _, err := s.GetByID(ctx, forkID); err != nil {
 		return err
-	}
-	if fork.Status == "merged" {
-		return fmt.Errorf("cannot delete a merged fork")
 	}
 	// Delete all fork pages
 	if _, err := s.db.Collection("content").DeleteMany(ctx, bson.M{"fork_id": forkID}); err != nil {
@@ -328,6 +393,48 @@ func (s *ForkService) Delete(ctx context.Context, forkID primitive.ObjectID) err
 		return fmt.Errorf("delete fork: %w", err)
 	}
 	return nil
+}
+
+// PurgeCopies deletes the page copies still attached to a merged or archived
+// fork (forks merged before v7.4 kept theirs). Active forks are refused:
+// their copies are work in progress. With dryRun nothing is deleted. It
+// returns the copies found (and, unless dryRun, deleted).
+func (s *ForkService) PurgeCopies(ctx context.Context, forkID primitive.ObjectID, dryRun bool) ([]ForkCopyRef, error) {
+	fork, err := s.GetByID(ctx, forkID)
+	if err != nil {
+		return nil, fmt.Errorf("fork not found: %w", err)
+	}
+	if fork.Status != "merged" && fork.Status != "archived" {
+		return nil, fmt.Errorf("fork is %s; only merged or archived forks can be purged", fork.Status)
+	}
+
+	// Soft-deleted copies count too, so no "deleted" condition here.
+	filter := bson.M{"fork_id": forkID}
+	opts := options.Find().
+		SetSort(bson.D{{Key: "full_path", Value: 1}}).
+		SetProjection(bson.M{"full_path": 1})
+	cursor, err := s.db.Collection("content").Find(ctx, filter, opts)
+	if err != nil {
+		return nil, fmt.Errorf("list fork copies: %w", err)
+	}
+	defer cursor.Close(ctx)
+	copies := []ForkCopyRef{}
+	if err := cursor.All(ctx, &copies); err != nil {
+		return nil, fmt.Errorf("decode fork copies: %w", err)
+	}
+	if dryRun || len(copies) == 0 {
+		return copies, nil
+	}
+
+	// Delete exactly the copies listed, so the result matches what was removed.
+	ids := make([]primitive.ObjectID, len(copies))
+	for i, c := range copies {
+		ids[i] = c.ID
+	}
+	if _, err := s.db.Collection("content").DeleteMany(ctx, bson.M{"fork_id": forkID, "_id": bson.M{"$in": ids}}); err != nil {
+		return nil, fmt.Errorf("delete fork copies: %w", err)
+	}
+	return copies, nil
 }
 
 // GetPageCount returns the number of pages in a fork.
