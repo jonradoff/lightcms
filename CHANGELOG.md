@@ -4,6 +4,24 @@ All notable changes to LightCMS are documented here, organized by version.
 
 ---
 
+## [7.4.0] - 2026-10-07
+
+### Added — draft safety
+- **Hold flag.** Any page can be put on hold (`hold: true` on the create and update API, the `create_content`, `update_content` and `update_content_by_path` MCP tools, or the Hold checkbox in the editor). A held draft cannot be published by any path until the flag is cleared: single publish and updates that set `published` return 409, bulk publish and scheduled publishing skip it, an approval leaves it a draft, and a fork merge creates it as a draft. Holding a page that is already published does not unpublish it. The content list shows a "Held" badge. No migration: existing pages are not on hold.
+- **Merges can publish what they create.** `POST /api/v1/forks/{id}/merge` accepts `{"publish_new": true}`, the `merge_fork` MCP tool accepts `publish_new`, and the admin merge button has a "Publish new pages" checkbox. Pages the merge creates are then published through the normal publish path. Held pages stay drafts and are listed in `not_published`. The default is unchanged: new pages keep the publish state they had in the fork.
+- Merge results now include `created_ids` and `updated_ids` (the live pages).
+- **Purge for already-merged forks:** `POST /api/v1/forks/{id}/purge-copies` (with `?dry_run=true` to list `{id, full_path}` without deleting) and the `purge_fork_copies` MCP tool delete the page copies still attached to a merged or archived fork. Admin only, refused for active forks, and recorded in the audit log. 129 MCP tools total.
+- `include_forks` on `GET /api/v1/content`, `GET /api/v1/search` and the `list_content` and `search_content` MCP tools.
+
+### Changed
+- **Bulk publish no longer touches fork copies.** `publish_all_drafts` used to publish every unpublished document, including the working copies inside forks. It now ignores fork copies, and publishing one directly returns "cannot publish a fork copy; merge the fork instead" (409). Batch publish returns held pages and explicitly listed fork copies in a new `skipped` array of `{id, reason}`.
+- **Fork copies are hidden from listings and search** unless `include_forks` is set. They used to appear in `list_content`, draft counts and `search_content` as duplicate drafts of live pages. Fork-specific endpoints (`get_fork`, fork diff, fork pages, `get_content` by ID) are unaffected. Site search, suggestions and search keywords also leave them out.
+- **A merge deletes the fork's page copies.** The fork record is kept with status "merged" and the number of pages created and updated; the fork page and `get_fork` / `get_fork_diff` show those counts once the copies are gone.
+- A merged fork can now be deleted. This removes the history record and any leftover copies; merged live pages are not affected.
+- Scheduled publishing ignores fork copies. A copy of a scheduled page used to inherit its `publish_at`.
+
+---
+
 ## [7.3.4] - 2026-10-05
 
 ### Fixed

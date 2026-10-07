@@ -79,15 +79,27 @@ func TestClientWrappers(t *testing.T) {
 		"DeleteSnippet": func(c *Client) error { return c.DeleteSnippet(ctx, "id") },
 
 		// Forks
-		"ListForks":      func(c *Client) error { _, err := c.ListForks(ctx); return err },
-		"CreateFork":     func(c *Client) error { _, err := c.CreateFork(ctx, "n", "d"); return err },
-		"GetFork":        func(c *Client) error { _, err := c.GetFork(ctx, "id"); return err },
-		"ForkPage":       func(c *Client) error { _, err := c.ForkPage(ctx, "f", "c", "/p"); return err },
-		"ListForkPages":  func(c *Client) error { _, err := c.ListForkPages(ctx, "f"); return err },
-		"RemoveForkPage": func(c *Client) error { return c.RemoveForkPage(ctx, "f", "p") },
-		"MergeFork":      func(c *Client) error { _, err := c.MergeFork(ctx, "f"); return err },
-		"ArchiveFork":    func(c *Client) error { return c.ArchiveFork(ctx, "f") },
-		"DeleteFork":     func(c *Client) error { return c.DeleteFork(ctx, "f") },
+		"ListForks":           func(c *Client) error { _, err := c.ListForks(ctx); return err },
+		"CreateFork":          func(c *Client) error { _, err := c.CreateFork(ctx, "n", "d"); return err },
+		"GetFork":             func(c *Client) error { _, err := c.GetFork(ctx, "id"); return err },
+		"ForkPage":            func(c *Client) error { _, err := c.ForkPage(ctx, "f", "c", "/p"); return err },
+		"ListForkPages":       func(c *Client) error { _, err := c.ListForkPages(ctx, "f"); return err },
+		"RemoveForkPage":      func(c *Client) error { return c.RemoveForkPage(ctx, "f", "p") },
+		"MergeFork":           func(c *Client) error { _, err := c.MergeFork(ctx, "f", false); return err },
+		"MergeForkPublishNew": func(c *Client) error { _, err := c.MergeFork(ctx, "f", true); return err },
+		"PurgeForkCopies":     func(c *Client) error { _, err := c.PurgeForkCopies(ctx, "f", false); return err },
+		"PurgeForkCopiesDry":  func(c *Client) error { _, err := c.PurgeForkCopies(ctx, "f", true); return err },
+		"SearchContentForks":  func(c *Client) error { _, err := c.SearchContent(ctx, "q", "", false, true); return err },
+		"ListContentForks": func(c *Client) error {
+			_, err := c.ListContentWithOptions(ctx, ListContentOptions{IncludeForks: true})
+			return err
+		},
+		"ListContentPaginatedForks": func(c *Client) error {
+			_, err := c.ListContentPaginated(ctx, ListContentOptions{IncludeForks: true, Limit: 5})
+			return err
+		},
+		"ArchiveFork": func(c *Client) error { return c.ArchiveFork(ctx, "f") },
+		"DeleteFork":  func(c *Client) error { return c.DeleteFork(ctx, "f") },
 
 		// Imports
 		"ListImportSources":  func(c *Client) error { _, err := c.ListImportSources(ctx); return err },

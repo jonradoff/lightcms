@@ -91,7 +91,7 @@ Once connected, you can ask Claude to manage your content naturally:
 Binary: `bin/lightcms-mcp`
 Config: Uses same `config.dev.json` or environment variables as main server
 
-### Available MCP Tools (128 total):
+### Available MCP Tools (129 total):
 
 **Content (23 tools):** list_content, get_content, create_content, update_content, update_content_by_path, publish_content, publish_multiple, unpublish_content, delete_content, restore_content, preview_content, get_content_versions, get_content_version, revert_to_version, bulk_create_content, bulk_update_content, bulk_field_operation, export_content, get_backlinks
 
@@ -105,7 +105,7 @@ Config: Uses same `config.dev.json` or environment variables as main server
 
 **Settings (18 tools):** get_theme, update_theme, get_theme_versions, get_theme_version, revert_theme_to_version, pin_theme_version, unpin_theme_version, get_site_config, update_site_config, list_redirects, create_redirect, update_redirect, delete_redirect, list_folders, create_folder, get_folder, delete_folder, list_collections, create_collection, get_collection, update_collection, delete_collection, regenerate_all_content
 
-**Forks (8 tools):** list_forks, create_fork, get_fork, fork_page, remove_fork_page, merge_fork, archive_fork, delete_fork
+**Forks (9 tools):** list_forks, create_fork, get_fork, fork_page, remove_fork_page, merge_fork, archive_fork, delete_fork, purge_fork_copies
 
 **Comments (3 tools, v6.0+):** list_comments, create_comment, delete_comment
 
@@ -204,6 +204,8 @@ Hard-won rules from building v7. Violating these has bitten us before:
 
 ### Fork-content safety invariant
 - Content with `ForkID != nil` shares its `full_path` with the live page. It must NEVER generate or remove static files, or touch the embedding index. `GenerateStaticPage` and `UpdateContent` guard this — preserve those guards in any new content-mutation path.
+- Fork copies are never published directly (`PublishContent` returns `ErrPublishForkCopy`) and are hidden from `ListContent`, `ListContentPaginated`, `ListContentScoped` and search unless include-forks is passed (v7.4). Any new listing must filter `"fork_id": nil` unless it is fork-specific. `ForkService.Merge` deletes a fork's copies after a successful merge; `StreamContent`/`StreamContentScoped` (search-and-replace) still see copies.
+- `Hold` (v7.4): a held draft cannot become published. `PublishContent`, `CreateContent` and `UpdateContent` return `ErrContentHeld`; batch publish, the scheduler, approvals and fork merges skip held pages. Paths that write `published` straight to MongoDB (the admin editor, approvals) must check hold themselves.
 
 ### Provenance & agent sessions
 - Every content mutation path must stamp `services.WithEditorEmail` and `services.WithProvenance` on the context (the /api/v1 middleware does this for API calls; the admin UI and copilot do it explicitly). Session rollback (`/api/v1/agent-sessions/{id}/rollback`) selects revert targets BY PROVENANCE — a session's own versions are never rollback targets. Timestamps race (a session's version write can land before its async audit entry); do not reintroduce timestamp-based selection.

@@ -48,6 +48,10 @@ func (h *Handler) ListForks(w http.ResponseWriter, r *http.Request) {
 	var enriched []forkWithCount
 	for _, f := range forks {
 		count, _ := h.forkService.GetPageCount(ctx, f.ID)
+		// A merged fork's copies are deleted on merge; show what it merged.
+		if f.Status == "merged" && count == 0 {
+			count = int64(f.MergedCreated + f.MergedUpdated)
+		}
 		enriched = append(enriched, forkWithCount{f, count})
 	}
 	// If coming from a content page via "Fork to workspace", carry the content ID forward
@@ -289,9 +293,13 @@ func (h *Handler) MergeFork(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid fork ID", http.StatusBadRequest)
 		return
 	}
-	ctx := r.Context()
+	r.ParseForm()
+	publishNew := r.FormValue("publish_new") == "on"
+	// Publishing new pages writes versions; stamp who did it.
+	ctx := services.WithEditorEmail(r.Context(), user.Email)
+	ctx = services.WithProvenance(ctx, services.Provenance{Actor: "human", Via: "ui"})
 	userID, _ := primitive.ObjectIDFromHex(user.ID)
-	result, err := h.forkService.Merge(ctx, forkID, userID, user.Email)
+	result, err := h.forkService.Merge(ctx, forkID, userID, user.Email, publishNew)
 	if err != nil {
 		h.renderAdmin(w, r, "fork_merge_result", map[string]interface{}{
 			"Error":  err.Error(),
@@ -307,15 +315,17 @@ func (h *Handler) MergeFork(w http.ResponseWriter, r *http.Request) {
 			Resource:   "fork",
 			ResourceID: forkID.Hex(),
 			Details: map[string]interface{}{
-				"updated":   result.Updated,
-				"created":   result.Created,
-				"conflicts": len(result.Conflicts),
+				"updated":     result.Updated,
+				"created":     result.Created,
+				"conflicts":   len(result.Conflicts),
+				"publish_new": publishNew,
 			},
 		})
 	}
 	h.renderAdmin(w, r, "fork_merge_result", map[string]interface{}{
-		"Result": result,
-		"ForkID": forkID.Hex(),
+		"Result":     result,
+		"ForkID":     forkID.Hex(),
+		"PublishNew": publishNew,
 	})
 }
 

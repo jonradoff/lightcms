@@ -12,6 +12,7 @@ import (
 // Content tool input types
 type ListContentInput struct {
 	IncludeDeleted bool     `json:"include_deleted,omitempty" jsonschema:"Include soft-deleted content in results"`
+	IncludeForks   bool     `json:"include_forks,omitempty" jsonschema:"Also list fork copies (working copies inside fork workspaces). Off by default; use get_fork to see one fork's pages"`
 	Category       string   `json:"category,omitempty" jsonschema:"Filter by content category"`
 	FolderID       string   `json:"folder_id,omitempty" jsonschema:"Filter by folder ID (MongoDB ObjectID)"`
 	IncludeData    bool     `json:"include_data,omitempty" jsonschema:"If true, include all template field data in results (avoids per-item get_content calls)"`
@@ -36,6 +37,7 @@ type CreateContentInput struct {
 	MetaDescription string                 `json:"meta_description,omitempty" jsonschema:"SEO meta description"`
 	OGImage         string                 `json:"og_image,omitempty" jsonschema:"Open Graph image URL"`
 	NoIndex         bool                   `json:"noindex,omitempty" jsonschema:"Hide this page from search engines and AI (noindex; excluded from sitemap, llms.txt, feeds, IndexNow)"`
+	Hold            bool                   `json:"hold,omitempty" jsonschema:"Put the page on hold: it cannot be published (directly, in bulk, on a schedule or by merging a fork) until hold is cleared. Cannot be combined with published=true"`
 	AuthorName      string                 `json:"author_name,omitempty" jsonschema:"Author name for structured data and feeds (defaults to the site author)"`
 	AuthorURL       string                 `json:"author_url,omitempty" jsonschema:"Author profile URL"`
 	Data            map[string]interface{} `json:"data" jsonschema:"Template field values,required"`
@@ -59,6 +61,7 @@ type UpdateContentInput struct {
 	MetaDescription string                 `json:"meta_description,omitempty" jsonschema:"SEO meta description"`
 	OGImage         string                 `json:"og_image,omitempty" jsonschema:"Open Graph image URL"`
 	NoIndex         *bool                  `json:"noindex,omitempty" jsonschema:"true hides the page from search engines and AI; false makes it visible again"`
+	Hold            *bool                  `json:"hold,omitempty" jsonschema:"true puts the page on hold so it cannot be published; false clears the hold. Holding a published page does not unpublish it"`
 	AuthorName      *string                `json:"author_name,omitempty" jsonschema:"Author name for structured data and feeds; empty string reverts to the site default"`
 	AuthorURL       *string                `json:"author_url,omitempty" jsonschema:"Author profile URL; empty string clears it"`
 	Data            map[string]interface{} `json:"data,omitempty" jsonschema:"Template field values"`
@@ -137,6 +140,7 @@ type UpdateContentByPathInput struct {
 	MetaDescription string                 `json:"meta_description,omitempty" jsonschema:"SEO meta description"`
 	OGImage         string                 `json:"og_image,omitempty" jsonschema:"Open Graph image URL"`
 	NoIndex         *bool                  `json:"noindex,omitempty" jsonschema:"true hides the page from search engines and AI; false makes it visible again"`
+	Hold            *bool                  `json:"hold,omitempty" jsonschema:"true puts the page on hold so it cannot be published; false clears the hold. Holding a published page does not unpublish it"`
 	AuthorName      *string                `json:"author_name,omitempty" jsonschema:"Author name for structured data and feeds; empty string reverts to the site default"`
 	AuthorURL       *string                `json:"author_url,omitempty" jsonschema:"Author profile URL; empty string clears it"`
 	Published       *bool                  `json:"published,omitempty" jsonschema:"Publish state"`
@@ -215,6 +219,7 @@ Up to 20 concurrent update_content calls are safe. For larger batches, prefer bu
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args ListContentInput) (*mcp.CallToolResult, any, error) {
 		contents, err := s.client.ListContentWithOptions(ctx, apiclient.ListContentOptions{
 			IncludeDeleted: args.IncludeDeleted,
+			IncludeForks:   args.IncludeForks,
 			Category:       args.Category,
 			FolderID:       args.FolderID,
 			IncludeData:    args.IncludeData,
@@ -234,9 +239,11 @@ Up to 20 concurrent update_content calls are safe. For larger batches, prefer bu
 			FullPath    string                 `json:"full_path"`
 			Category    string                 `json:"category"`
 			Published   bool                   `json:"published"`
+			Hold        bool                   `json:"hold,omitempty"`
 			Deleted     bool                   `json:"deleted"`
 			UpdatedAt   string                 `json:"updated_at"`
 			PublishedAt string                 `json:"published_at,omitempty"`
+			ForkID      string                 `json:"fork_id,omitempty"`
 			Data        map[string]interface{} `json:"data,omitempty"`
 		}
 
@@ -253,8 +260,10 @@ Up to 20 concurrent update_content calls are safe. For larger batches, prefer bu
 				FullPath:  c.FullPath,
 				Category:  c.Category,
 				Published: c.Published,
+				Hold:      c.Hold,
 				Deleted:   c.Deleted,
 				UpdatedAt: c.UpdatedAt.Format("2006-01-02 15:04:05"),
+				ForkID:    c.ForkID,
 			}
 			if c.PublishedAt != nil {
 				summary.PublishedAt = c.PublishedAt.Format("2006-01-02 15:04:05")
@@ -368,6 +377,7 @@ Templates can use {{.lc_toc}} in their HTML layout to inject an auto-generated t
 			MetaDescription: args.MetaDescription,
 			OGImage:         args.OGImage,
 			NoIndex:         args.NoIndex,
+			Hold:            args.Hold,
 			AuthorName:      args.AuthorName,
 			AuthorURL:       args.AuthorURL,
 			Data:            args.Data,
@@ -464,6 +474,9 @@ Templates can use {{.lc_toc}} in their HTML layout to inject an auto-generated t
 		}
 		if args.NoIndex != nil {
 			updates["noindex"] = *args.NoIndex
+		}
+		if args.Hold != nil {
+			updates["hold"] = *args.Hold
 		}
 		if args.AuthorName != nil {
 			updates["author_name"] = *args.AuthorName
@@ -725,7 +738,9 @@ Examples:
 - Publish specific pages: {"ids": ["abc123", "def456"]}
 - Publish all drafts at once: {"publish_all_drafts": true}
 
-Returns a list of published IDs and any failures.`,
+Held pages and fork copies are never published by this tool: they come back in "skipped" as {id, reason}. publish_all_drafts ignores fork copies entirely.
+
+Returns published IDs, skipped items, and any failures.`,
 		Annotations: &mcp.ToolAnnotations{
 			Title:           "Publish Multiple",
 			ReadOnlyHint:    false,
@@ -840,6 +855,9 @@ Only the fields you provide are changed. Always include a version_comment descri
 		}
 		if args.NoIndex != nil {
 			updates["noindex"] = *args.NoIndex
+		}
+		if args.Hold != nil {
+			updates["hold"] = *args.Hold
 		}
 		if args.AuthorName != nil {
 			updates["author_name"] = *args.AuthorName

@@ -12,6 +12,7 @@ type SearchContentInput struct {
 	Query          string `json:"query" jsonschema:"Search query string,required"`
 	SearchType     string `json:"search_type,omitempty" jsonschema:"Search type: 'name' (title only) or 'fulltext' (all fields). Defaults to 'fulltext'"`
 	IncludeDeleted bool   `json:"include_deleted,omitempty" jsonschema:"Include soft-deleted content in results"`
+	IncludeForks   bool   `json:"include_forks,omitempty" jsonschema:"Also search fork copies (working copies inside fork workspaces). Off by default"`
 }
 
 type EndUserSearchInput struct {
@@ -58,7 +59,7 @@ func (s *Server) registerSearchTools() {
 			return errorResult(fmt.Errorf("query is required")), nil, nil
 		}
 
-		result, err := s.client.SearchContent(ctx, args.Query, args.SearchType, args.IncludeDeleted)
+		result, err := s.client.SearchContent(ctx, args.Query, args.SearchType, args.IncludeDeleted, args.IncludeForks)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}

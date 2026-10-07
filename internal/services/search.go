@@ -315,9 +315,12 @@ func (s *SearchService) SearchFullText(ctx context.Context, query string, limit 
 	// Escape regex special characters for literal matching
 	escaped := regexp.QuoteMeta(query)
 
+	// fork_id nil: fork copies are never search results, whatever their
+	// published flag says — they reach the live site only by merging.
 	filter := bson.M{
 		"published": true,
 		"deleted":   bson.M{"$ne": true},
+		"fork_id":   nil,
 		"plain_text": bson.M{
 			"$regex":   escaped,
 			"$options": "i",
@@ -430,6 +433,9 @@ func (s *SearchService) SearchSemantic(ctx context.Context, query string, limit 
 				},
 			},
 		},
+		// Drop fork copies after the vector stage: a $vectorSearch filter may
+		// only use fields declared in the Atlas index, and fork_id is not one.
+		{"$match": bson.M{"fork_id": nil}},
 		{
 			"$project": bson.M{
 				"title":      1,
@@ -684,6 +690,7 @@ func (s *SearchService) Suggest(ctx context.Context, prefix string, limit int) (
 	filter := bson.M{
 		"published": true,
 		"deleted":   bson.M{"$ne": true},
+		"fork_id":   nil,
 		"title": bson.M{
 			"$regex":   escaped,
 			"$options": "i",
@@ -757,6 +764,7 @@ func (s *SearchService) RebuildKeywords(ctx context.Context) error {
 	filter := bson.M{
 		"published": true,
 		"deleted":   bson.M{"$ne": true},
+		"fork_id":   nil,
 	}
 
 	var contents []models.Content

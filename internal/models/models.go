@@ -66,6 +66,8 @@ type Content struct {
 	AuthorName        string     `bson:"author_name,omitempty" json:"author_name,omitempty"`                 // Overrides the site default author in structured data and feeds
 	AuthorURL         string     `bson:"author_url,omitempty" json:"author_url,omitempty"`                   // Author profile URL
 	ContentModifiedAt *time.Time `bson:"content_modified_at,omitempty" json:"content_modified_at,omitempty"` // Last time the rendered page actually changed (falls back to UpdatedAt)
+	// Hold (v7.4): a held draft cannot be published by any path until the flag is cleared
+	Hold bool `bson:"hold,omitempty" json:"hold,omitempty"`
 	// Fork fields — set when this content item belongs to a fork workspace
 	ForkID        *primitive.ObjectID `bson:"fork_id,omitempty" json:"fork_id,omitempty"`                 // nil for live content
 	BaseUpdatedAt *time.Time          `bson:"base_updated_at,omitempty" json:"base_updated_at,omitempty"` // updated_at of the live page at fork time (for conflict detection)
@@ -99,6 +101,10 @@ type ContentFork struct {
 	MergedBy       *primitive.ObjectID `bson:"merged_by,omitempty" json:"merged_by,omitempty"`
 	MergedByEmail  string              `bson:"merged_by_email,omitempty" json:"merged_by_email,omitempty"`
 	ArchivedAt     *time.Time          `bson:"archived_at,omitempty" json:"archived_at,omitempty"`
+	// Page counts recorded at merge time (v7.4). The fork's page copies are
+	// deleted after a successful merge, so these are the history of what it did.
+	MergedCreated int `bson:"merged_created,omitempty" json:"merged_created,omitempty"`
+	MergedUpdated int `bson:"merged_updated,omitempty" json:"merged_updated,omitempty"`
 }
 
 // ContentVersion represents a historical version of content

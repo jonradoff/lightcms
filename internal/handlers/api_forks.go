@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 
 	"github.com/jonradoff/lightcms/v7/internal/auth"
@@ -37,6 +39,8 @@ func (a *APIHandler) APIListForks(w http.ResponseWriter, r *http.Request) {
 		CreatedAt      string  `json:"created_at"`
 		MergedAt       *string `json:"merged_at,omitempty"`
 		MergedByEmail  string  `json:"merged_by_email,omitempty"`
+		MergedCreated  int     `json:"merged_created,omitempty"`
+		MergedUpdated  int     `json:"merged_updated,omitempty"`
 		ArchivedAt     *string `json:"archived_at,omitempty"`
 	}
 
@@ -53,6 +57,8 @@ func (a *APIHandler) APIListForks(w http.ResponseWriter, r *http.Request) {
 			CreatedByEmail: f.CreatedByEmail,
 			CreatedAt:      f.CreatedAt.Format("2006-01-02 15:04:05"),
 			MergedByEmail:  f.MergedByEmail,
+			MergedCreated:  f.MergedCreated,
+			MergedUpdated:  f.MergedUpdated,
 		}
 		if f.MergedAt != nil {
 			s := f.MergedAt.Format("2006-01-02 15:04:05")
@@ -144,7 +150,7 @@ func (a *APIHandler) APIGetFork(w http.ResponseWriter, r *http.Request) {
 			UpdatedAt: p.UpdatedAt.Format("2006-01-02 15:04:05"),
 		}
 	}
-	a.jsonResponse(w, http.StatusOK, map[string]interface{}{
+	resp := map[string]interface{}{
 		"id":               fork.ID.Hex(),
 		"name":             fork.Name,
 		"description":      fork.Description,
@@ -153,7 +159,18 @@ func (a *APIHandler) APIGetFork(w http.ResponseWriter, r *http.Request) {
 		"created_at":       fork.CreatedAt.Format("2006-01-02 15:04:05"),
 		"page_count":       len(pages),
 		"pages":            summaries,
-	})
+	}
+	// A merged fork's page copies are deleted on merge; the counts recorded
+	// then are what is left to show.
+	if fork.Status == "merged" {
+		resp["merged_created"] = fork.MergedCreated
+		resp["merged_updated"] = fork.MergedUpdated
+		resp["merged_by_email"] = fork.MergedByEmail
+		if fork.MergedAt != nil {
+			resp["merged_at"] = fork.MergedAt.Format("2006-01-02 15:04:05")
+		}
+	}
+	a.jsonResponse(w, http.StatusOK, resp)
 }
 
 // APIForkPage copies a live page into a fork workspace.
@@ -273,6 +290,8 @@ func (a *APIHandler) APIRemoveForkPage(w http.ResponseWriter, r *http.Request) {
 }
 
 // APIMergeFork merges all fork pages into live (admin only).
+// Optional body: {"publish_new": true} also publishes the pages the merge
+// creates (held pages stay drafts). The body may be omitted.
 func (a *APIHandler) APIMergeFork(w http.ResponseWriter, r *http.Request) {
 	if !a.requirePermission(w, r, auth.PermForkMerge) {
 		return
@@ -283,6 +302,15 @@ func (a *APIHandler) APIMergeFork(w http.ResponseWriter, r *http.Request) {
 		a.jsonError(w, http.StatusBadRequest, "invalid fork ID")
 		return
 	}
+	var body struct {
+		PublishNew bool `json:"publish_new"`
+	}
+	if raw, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20)); len(raw) > 0 {
+		if err := json.Unmarshal(raw, &body); err != nil {
+			a.jsonError(w, http.StatusBadRequest, "invalid JSON")
+			return
+		}
+	}
 	user := a.getAPIUser(r)
 	var userID primitive.ObjectID
 	var userEmail string
@@ -290,15 +318,16 @@ func (a *APIHandler) APIMergeFork(w http.ResponseWriter, r *http.Request) {
 		userID, _ = primitive.ObjectIDFromHex(user.ID)
 		userEmail = user.Email
 	}
-	result, err := a.forkService.Merge(r.Context(), forkID, userID, userEmail)
+	result, err := a.forkService.Merge(r.Context(), forkID, userID, userEmail, body.PublishNew)
 	if err != nil {
 		a.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	a.auditLog(r, "fork.merge", "fork", forkID.Hex(), map[string]interface{}{
-		"updated":   result.Updated,
-		"created":   result.Created,
-		"conflicts": len(result.Conflicts),
+		"updated":     result.Updated,
+		"created":     result.Created,
+		"conflicts":   len(result.Conflicts),
+		"publish_new": body.PublishNew,
 	})
 
 	type conflictSummary struct {
@@ -314,13 +343,31 @@ func (a *APIHandler) APIMergeFork(w http.ResponseWriter, r *http.Request) {
 			LiveTitle: c.LiveTitle,
 		}
 	}
+	// Created pages that publish_new left as drafts (held, or publish failed).
+	notPublished := make([]map[string]string, len(result.NotPublished))
+	for i, n := range result.NotPublished {
+		notPublished[i] = map[string]string{"id": n.ID.Hex(), "path": n.Path, "reason": n.Reason}
+	}
 	a.jsonResponse(w, http.StatusOK, map[string]interface{}{
-		"success":   true,
-		"updated":   result.Updated,
-		"created":   result.Created,
-		"conflicts": conflicts,
-		"message":   fmt.Sprintf("Fork merged: %d updated, %d created, %d conflicts (fork won)", result.Updated, result.Created, len(result.Conflicts)),
+		"success":       true,
+		"updated":       result.Updated,
+		"created":       result.Created,
+		"created_ids":   hexIDs(result.CreatedIDs),
+		"updated_ids":   hexIDs(result.UpdatedIDs),
+		"publish_new":   body.PublishNew,
+		"not_published": notPublished,
+		"conflicts":     conflicts,
+		"message":       fmt.Sprintf("Fork merged: %d updated, %d created, %d conflicts (fork won)", result.Updated, result.Created, len(result.Conflicts)),
 	})
+}
+
+// hexIDs renders ObjectIDs as hex strings (never nil, so JSON gets []).
+func hexIDs(ids []primitive.ObjectID) []string {
+	out := make([]string, len(ids))
+	for i, id := range ids {
+		out[i] = id.Hex()
+	}
+	return out
 }
 
 // APIArchiveFork archives a fork without merging (admin only).
@@ -340,6 +387,50 @@ func (a *APIHandler) APIArchiveFork(w http.ResponseWriter, r *http.Request) {
 	}
 	a.auditLog(r, "fork.archive", "fork", forkID.Hex(), nil)
 	a.jsonResponse(w, http.StatusOK, map[string]interface{}{"success": true})
+}
+
+// APIPurgeForkCopies deletes the page copies still attached to a merged or
+// archived fork (admin only). ?dry_run=true lists them without deleting.
+// POST /api/v1/forks/{id}/purge-copies
+func (a *APIHandler) APIPurgeForkCopies(w http.ResponseWriter, r *http.Request) {
+	if !a.requirePermission(w, r, auth.PermForkMerge) {
+		return
+	}
+	vars := mux.Vars(r)
+	forkID, err := primitive.ObjectIDFromHex(vars["id"])
+	if err != nil {
+		a.jsonError(w, http.StatusBadRequest, "invalid fork ID")
+		return
+	}
+	fork, err := a.forkService.GetByID(r.Context(), forkID)
+	if err != nil {
+		a.jsonError(w, http.StatusNotFound, "fork not found")
+		return
+	}
+	if fork.Status != "merged" && fork.Status != "archived" {
+		a.jsonError(w, http.StatusConflict, fmt.Sprintf("fork is %s; only merged or archived forks can be purged", fork.Status))
+		return
+	}
+	dryRun := r.URL.Query().Get("dry_run") == "true"
+	copies, err := a.forkService.PurgeCopies(r.Context(), forkID, dryRun)
+	if err != nil {
+		a.jsonError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	resp := map[string]interface{}{
+		"fork_id": forkID.Hex(),
+		"dry_run": dryRun,
+		"count":   len(copies),
+	}
+	if dryRun {
+		resp["copies"] = copies
+	} else {
+		resp["deleted"] = len(copies)
+		a.auditLog(r, "fork.purge_copies", "fork", forkID.Hex(), map[string]interface{}{
+			"deleted": len(copies), "status": fork.Status,
+		})
+	}
+	a.jsonResponse(w, http.StatusOK, resp)
 }
 
 // APIDeleteFork permanently deletes a fork and all its pages (admin only).
@@ -378,8 +469,17 @@ func (a *APIHandler) APIForkDiff(w http.ResponseWriter, r *http.Request) {
 		a.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	a.jsonResponse(w, http.StatusOK, map[string]interface{}{
+	resp := map[string]interface{}{
 		"fork_id": forkID.Hex(),
 		"pages":   diffs,
-	})
+	}
+	// After a merge there are no copies left to diff; report what it did.
+	if fork, err := a.forkService.GetByID(r.Context(), forkID); err == nil {
+		resp["status"] = fork.Status
+		if fork.Status == "merged" {
+			resp["merged_created"] = fork.MergedCreated
+			resp["merged_updated"] = fork.MergedUpdated
+		}
+	}
+	a.jsonResponse(w, http.StatusOK, resp)
 }

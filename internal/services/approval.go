@@ -315,8 +315,19 @@ func (s *ApprovalService) Approve(ctx context.Context,
 		if err := s.db.UpdateOne(ctx, "approval_requests", bson.M{"_id": requestID}, update); err != nil {
 			return err
 		}
-		// Publish the content
+		// Publish the content — unless it was put on hold while awaiting
+		// approval: the approval stands, but the page stays a draft until the
+		// hold is cleared and it is published explicitly.
+		held := false
 		if !req.ContentID.IsZero() {
+			n, _ := s.db.Count(ctx, "content", bson.M{"_id": req.ContentID, "hold": true, "published": bson.M{"$ne": true}})
+			held = n > 0
+		}
+		if held {
+			fmt.Printf("Approval %s: content %s is on hold, left as draft\n", requestID.Hex(), req.ContentID.Hex())
+			s.db.UpdateOne(ctx, "content", bson.M{"_id": req.ContentID}, //nolint:errcheck
+				bson.M{"$set": bson.M{"pending_approval": false, "updated_at": time.Now()}})
+		} else if !req.ContentID.IsZero() {
 			s.db.UpdateOne(ctx, "content", bson.M{"_id": req.ContentID}, //nolint:errcheck
 				bson.M{"$set": bson.M{
 					"published":        true,

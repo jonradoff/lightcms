@@ -5,7 +5,7 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/jonradoff/lightcms)](https://goreportcard.com/report/github.com/jonradoff/lightcms)
 [![lightcms MCP server](https://glama.ai/mcp/servers/jonradoff/lightcms/badges/score.svg)](https://glama.ai/mcp/servers/jonradoff/lightcms)
 
-LightCMS is a Go-powered content management system built for the AI era. It's simultaneously **AI-native** (semantic search, built-in Claude-powered chat widget, MCP server for agent control), **agentically controllable** (Claude Code and any MCP client can read, write, publish, and bulk-import content via 128 MCP tools), and **agentically updatable** (the codebase is clean, well-structured Go — coding agents can safely extend it). For teams that want a CMS that works with AI rather than around it.
+LightCMS is a Go-powered content management system built for the AI era. It's simultaneously **AI-native** (semantic search, built-in Claude-powered chat widget, MCP server for agent control), **agentically controllable** (Claude Code and any MCP client can read, write, publish, and bulk-import content via 129 MCP tools), and **agentically updatable** (the codebase is clean, well-structured Go — coding agents can safely extend it). For teams that want a CMS that works with AI rather than around it.
 
 ## What's New in v7.3 — SEO & AI
 
@@ -92,7 +92,7 @@ LightCMS is a Go-powered content management system built for the AI era. It's si
 **Lightweight**: A clean, focused codebase that's easy to understand, modify, and extend. No bloated frameworks or complex abstractions.
 
 **AI-Native**: Built from the ground up for the AI era:
-- **MCP Integration**: Full Model Context Protocol server with 128 tools and 3 prompt resources for website management. Supports both local stdio and HTTP streamable transports — connect from Claude Code, Claude Desktop, or any MCP-compatible client.
+- **MCP Integration**: Full Model Context Protocol server with 129 tools and 3 prompt resources for website management. Supports both local stdio and HTTP streamable transports — connect from Claude Code, Claude Desktop, or any MCP-compatible client.
 - **OAuth 2.1 for Remote Agents**: Sandboxed desktop apps like Claude's Cowork can securely connect over HTTP using OAuth 2.1 with PKCE. No embedded passwords — just authorize once and the agent manages your site.
 - **Fork-Friendly**: Designed to be forked and customized by Claude Code. Ask Claude to add new content types, modify templates, or build custom features — the codebase is structured for AI-assisted development.
 - **Natural Language Website Management**: Skip the admin UI entirely. Create pages, manage assets, customize themes, and publish content through conversation.
@@ -127,8 +127,11 @@ LightCMS is a Go-powered content management system built for the AI era. It's si
 - **Fork Workspaces**: Create named staging workspaces where sets of page edits can be authored, previewed, and reviewed before going live
 - **Sparse Model**: Only edited pages live in a fork — unmodified pages fall through to live content automatically
 - **Fork Preview Mode**: Activate via a floating bar injected into the live site; a cookie routes all page requests through the fork so you see exactly how the site will look after merge
-- **Merge with Conflict Detection**: Admins merge forks into live content; if a live page was changed after the fork was created, the conflict is recorded (fork wins). New pages created in the fork are inserted into live on merge
-- **Full MCP Toolset**: 8 dedicated fork tools — `list_forks`, `create_fork`, `get_fork`, `fork_page`, `remove_fork_page`, `merge_fork`, `archive_fork`, `delete_fork`
+- **Merge with Conflict Detection**: Admins merge forks into live content; if a live page was changed after the fork was created, the conflict is recorded (fork wins). New pages created in the fork are inserted into live on merge, keeping the publish state they had in the fork (normally draft) unless the merge is run with `publish_new`
+- **Merges Clean Up (v7.4+)**: A merge deletes the fork's page copies and keeps the fork record, with created/updated counts, as history. Forks merged before v7.4 can be cleaned with `purge_fork_copies`
+- **Fork Copies Stay Out of the Way (v7.4+)**: Fork copies are left out of content listings and search unless `include_forks` is set, and can never be published directly or in bulk — only merged
+- **Hold Flag (v7.4+)**: Mark any draft `hold` to block every way of publishing it (publish, bulk publish, scheduled publish, approval, fork merge) until the flag is cleared
+- **Full MCP Toolset**: 9 dedicated fork tools — `list_forks`, `create_fork`, `get_fork`, `fork_page`, `remove_fork_page`, `merge_fork`, `archive_fork`, `delete_fork`, `purge_fork_copies`
 
 ### Batch & Parallel Operations
 Designed for agents that prefer parallelized, high-throughput workflows over sequential single-item calls:
@@ -174,7 +177,7 @@ Recommended agent pattern for large updates: `list_content` → transform in par
 
 ### Developer & Integration
 - **REST API**: Full `/api/v1/` JSON API with API key and OAuth token authentication, RBAC-enforced
-- **MCP Server**: 128 tools + 3 prompt resources for agentic website management (stdio + HTTP streamable)
+- **MCP Server**: 129 tools + 3 prompt resources for agentic website management (stdio + HTTP streamable)
 - **OAuth 2.1**: Authorization code flow with PKCE for remote MCP clients — no embedded passwords
 - **CLI Tool**: Command-line interface for all content management operations
 - **URL Redirects**: 301/302 redirect rules managed from the admin panel
@@ -1004,7 +1007,7 @@ Both methods enforce RBAC based on the authenticated user's role.
 - **Assets** (6): upload, upload from URL, read, delete, list files and folders
 - **Search** (7): full-text search, end-user search, search-and-replace (global + scoped, preview + execute), reindex embeddings
 - **Settings** (23): theme CRUD + versioning + pinning, site config, redirects, folders, collections, regenerate all content
-- **Forks** (8): list, create, get, fork page, remove page, merge, archive, delete
+- **Forks** (9): list, create, get, fork page, remove page, merge, archive, delete, purge copies
 - **Import** (10, v5.0+): list/create/update/delete/trigger import sources, import markdown, import CSV, list/get/cancel import jobs
 - **Webhooks** (6, v4.5+): list, create, get, update, delete webhooks; regenerate secret
 - **Content Locking** (4, v4.5+): get lock, acquire lock, release lock, force-unlock
@@ -1306,7 +1309,7 @@ All 34 pages are updated and live in two parallel calls instead of 34 sequential
    ```json
    { "fork_id": "fork_abc123" }
    ```
-   Returns a summary of merged pages and any conflicts detected.
+   Returns a summary of merged pages (counts plus `created_ids` and `updated_ids`) and any conflicts detected. Pages the fork adds are created as drafts unless you pass `"publish_new": true`; pages on hold always stay drafts. The fork's page copies are deleted once the merge succeeds.
 
 ### Example 14: Site-Wide Notice with Auto-Republish
 

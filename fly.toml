@@ -34,7 +34,7 @@ primary_region = 'ord'
   response_header_timeout = 300
 
 [[vm]]
-  memory = '1gb'
+  memory = '2gb'
   cpu_kind = 'shared'
   cpus = 1
 

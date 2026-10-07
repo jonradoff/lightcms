@@ -569,6 +569,7 @@ var adminTemplates = map[string]string{
                             <span class="status-badge" style="background: var(--danger);">Deleted</span>
                             {{else}}
                             <span class="status-badge {{if .Published}}published{{else}}draft{{end}}">{{if .Published}}Published{{else}}Draft{{end}}</span>
+                            {{if .Hold}}<span class="status-badge" style="background: var(--warning);" title="On hold: cannot be published until the hold is cleared">Held</span>{{end}}
                             {{end}}
                         </td>
                         <td>{{.UpdatedAt.Format "Jan 2, 2006"}}</td>
@@ -888,7 +889,8 @@ var adminTemplates = map[string]string{
                     } else {
                         var statusClass = item.published ? 'published' : 'draft';
                         var statusText = item.published ? 'Published' : 'Draft';
-                        html += '<td><span class="status-badge ' + statusClass + '">' + statusText + '</span></td>';
+                        var heldBadge = item.hold ? ' <span class="status-badge" style="background: var(--warning);" title="On hold: cannot be published until the hold is cleared">Held</span>' : '';
+                        html += '<td><span class="status-badge ' + statusClass + '">' + statusText + '</span>' + heldBadge + '</td>';
                     }
 
                     html += '<td>' + escapeHtml(item.updated_at) + '</td>';
@@ -1687,6 +1689,13 @@ var adminTemplates = map[string]string{
                         <input type="checkbox" name="published" {{if .Content}}{{if .Content.Published}}checked{{end}}{{end}}>
                         Published
                     </label>
+                </div>
+                <div class="form-group checkbox-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" name="hold" {{if .Content}}{{if .Content.Hold}}checked{{end}}{{end}}>
+                        Hold
+                    </label>
+                    <p class="help-text">A held draft cannot be published — here, in bulk, on a schedule, by the API or by merging a fork — until this is unchecked. Holding a page that is already published does not unpublish it.</p>
                 </div>
                 <div class="form-group checkbox-group">
                     <label class="checkbox-label">
@@ -7771,8 +7780,12 @@ async function doSearch(q) {
                 {{if eq .Fork.Status "active"}}
                 <a href="/cm/forks/{{.Fork.ID.Hex}}/preview" class="btn btn-secondary">👁 Start Preview</a>
                 {{if .CanMerge}}
-                <form method="POST" action="/cm/forks/{{.Fork.ID.Hex}}/merge" onsubmit="return confirm('Merge this fork into the live site? This will update all matching pages and cannot be undone.')">
+                <form method="POST" action="/cm/forks/{{.Fork.ID.Hex}}/merge" style="display:flex;gap:0.75rem;align-items:center;margin:0" onsubmit="return confirm('Merge this fork into the live site? This will update all matching pages and cannot be undone.')">
                     {{.CSRFField}}
+                    <label class="checkbox-label" style="margin:0;font-size:0.85rem;white-space:nowrap" title="New pages are created as drafts unless this is checked. Pages on hold always stay drafts.">
+                        <input type="checkbox" name="publish_new">
+                        Publish new pages
+                    </label>
                     <button type="submit" class="btn btn-primary">Merge into Live →</button>
                 </form>
                 <form method="POST" action="/cm/forks/{{.Fork.ID.Hex}}/archive" style="margin:0">
@@ -7786,10 +7799,21 @@ async function doSearch(q) {
         </div>
 
         <div style="display:flex;gap:1rem;margin-bottom:1.5rem;flex-wrap:wrap">
+            {{if and (eq .Fork.Status "merged") (not .Pages)}}
+            <div class="card" style="flex:1;min-width:160px;padding:1rem;text-align:center">
+                <div style="font-size:2rem;font-weight:700;color:var(--primary)">{{.Fork.MergedUpdated}}</div>
+                <div style="color:var(--text-muted);font-size:0.85rem">Pages updated</div>
+            </div>
+            <div class="card" style="flex:1;min-width:160px;padding:1rem;text-align:center">
+                <div style="font-size:2rem;font-weight:700;color:var(--primary)">{{.Fork.MergedCreated}}</div>
+                <div style="color:var(--text-muted);font-size:0.85rem">Pages created</div>
+            </div>
+            {{else}}
             <div class="card" style="flex:1;min-width:160px;padding:1rem;text-align:center">
                 <div style="font-size:2rem;font-weight:700;color:var(--primary)">{{len .Pages}}</div>
                 <div style="color:var(--text-muted);font-size:0.85rem">Pages in fork</div>
             </div>
+            {{end}}
             <div class="card" style="flex:1;min-width:160px;padding:1rem;text-align:center">
                 <div style="font-size:1rem;font-weight:600">
                     <span class="badge badge-{{if eq .Fork.Status "active"}}success{{else if eq .Fork.Status "merged"}}info{{else}}warning{{end}}">{{.Fork.Status}}</span>
@@ -7850,7 +7874,11 @@ async function doSearch(q) {
         </div>
         {{else}}
         <div class="empty-state">
+            {{if eq .Fork.Status "merged"}}
+            <p>This fork was merged: {{.Fork.MergedUpdated}} updated, {{.Fork.MergedCreated}} created. Its page copies were removed after the merge — the changes now live in the site's pages.</p>
+            {{else}}
             <p>No pages in this fork yet.</p>
+            {{end}}
             {{if eq .Fork.Status "active"}}
             <p style="color:var(--text-muted);font-size:0.9rem">Go to <a href="/cm/content">Content</a>, open a page, and click "Fork to workspace" to add it here.</p>
             {{end}}
@@ -7883,6 +7911,25 @@ async function doSearch(q) {
                 <div style="color:var(--text-muted)">Conflicts (fork won)</div>
             </div>
         </div>
+        {{if .Result.Created}}
+        <p class="help-text" style="margin-bottom:1.5rem">{{if .PublishNew}}New pages were published.{{else}}New pages keep the publish state they had in the fork; drafts stay drafts until you publish them.{{end}}</p>
+        {{end}}
+        {{if .Result.NotPublished}}
+        <div class="card" style="margin-bottom:1.5rem">
+            <h3 style="margin-bottom:1rem">New pages left as drafts</h3>
+            <table class="table">
+                <thead><tr><th>Path</th><th>Reason</th></tr></thead>
+                <tbody>
+                {{range .Result.NotPublished}}
+                <tr>
+                    <td style="font-family:monospace;font-size:0.85rem"><a href="/cm/content/{{.ID.Hex}}">{{.Path}}</a></td>
+                    <td>{{.Reason}}</td>
+                </tr>
+                {{end}}
+                </tbody>
+            </table>
+        </div>
+        {{end}}
         {{if .Result.Conflicts}}
         <div class="card">
             <h3 style="margin-bottom:1rem;color:#f59e0b">⚠️ Conflicts — Fork Overwrote Live Changes</h3>
