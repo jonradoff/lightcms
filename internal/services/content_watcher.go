@@ -70,6 +70,12 @@ func (s *ContentService) WatchForChanges(ctx context.Context) {
 				continue
 			}
 
+			// A fork copy shares its full_path with the live page: a change
+			// to the copy must never generate or remove that page's file.
+			if content.ForkID != nil {
+				continue
+			}
+
 			if content.Published && !content.Deleted {
 				if err := s.GenerateStaticPage(ctx, content); err != nil {
 					log.Printf("Failed to regenerate %s: %v", content.FullPath, err)

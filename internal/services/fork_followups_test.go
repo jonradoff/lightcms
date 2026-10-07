@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 
@@ -222,5 +223,45 @@ func TestEmbeddings_IgnoreForkCopies(t *testing.T) {
 	}
 	if total != 1 || withEmb != 1 {
 		t.Errorf("stats total=%d withEmb=%d, want 1/1 (fork copies not counted)", total, withEmb)
+	}
+}
+
+// Deleting a fork copy through the service (API and MCP delete_content) must
+// leave the live page's static file in place: the copy shares its full_path.
+func TestDeleteContent_ForkCopyKeepsLiveStaticFile(t *testing.T) {
+	svc, cleanup := newTestContentService(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	os.MkdirAll("content/generated", 0755)
+	const file = "content/generated/del-fork-live.html"
+	if err := os.WriteFile(file, []byte("live"), 0644); err != nil {
+		t.Fatalf("write static: %v", err)
+	}
+	defer os.Remove(file)
+
+	now := time.Now()
+	live := &models.Content{ID: primitive.NewObjectID(), Title: "Live", Slug: "del-fork-live", FullPath: "/del-fork-live", Published: true, CreatedAt: now, UpdatedAt: now}
+	if _, err := svc.db.InsertOne(ctx, "content", live); err != nil {
+		t.Fatalf("seed live: %v", err)
+	}
+	copyID := seedForkCopy(t, svc, primitive.NewObjectID(), "Copy", "/del-fork-live")
+
+	if err := svc.DeleteContent(ctx, copyID); err != nil {
+		t.Fatalf("DeleteContent(fork copy): %v", err)
+	}
+	if got, err := os.ReadFile(file); err != nil || string(got) != "live" {
+		t.Fatalf("deleting a fork copy touched the live static file: %q %v", got, err)
+	}
+	if c, err := svc.GetContent(ctx, copyID); err != nil || !c.Deleted {
+		t.Errorf("fork copy not soft-deleted: %v", err)
+	}
+
+	// The live page's own delete still removes the file.
+	if err := svc.DeleteContent(ctx, live.ID); err != nil {
+		t.Fatalf("DeleteContent(live): %v", err)
+	}
+	if _, err := os.Stat(file); err == nil {
+		t.Error("deleting the live page left its static file behind")
 	}
 }

@@ -370,7 +370,10 @@ func main() {
 	admin.HandleFunc("/snippets/{id}/delete", h.DeleteSnippet).Methods("POST")
 
 	// Tools routes
+	admin.HandleFunc("/replace/preview", h.ReplacePreview).Methods("GET")  // admin only (search_replace.execute)
+	admin.HandleFunc("/replace/execute", h.ReplaceExecute).Methods("POST") // admin only (search_replace.execute)
 	admin.HandleFunc("/tools/broken-links", h.BrokenLinkFinder).Methods("GET")
+	admin.HandleFunc("/tools/broken-links/fix", h.FixBrokenLink).Methods("POST") // content.edit
 	admin.HandleFunc("/tools/search", h.SearchToolPage).Methods("GET")
 	admin.HandleFunc("/tools/search/test", h.SearchToolTest).Methods("GET")
 	admin.HandleFunc("/tools/search/reindex", h.SearchToolReindex).Methods("POST")
@@ -729,6 +732,9 @@ func main() {
 	// API routes for AJAX (admin panel internal use)
 	// Note: Most API routes require authentication (checked in handlers)
 	// The /api/contact route is public for contact form submissions
+	// This subrouter has NO CSRF middleware: an admin-session route that
+	// changes state belongs under /cm (see the search-and-replace and
+	// broken-link fix routes there), never here.
 	api := r.PathPrefix("/api").Subrouter()
 	api.HandleFunc("/template/{id}/fields", h.GetTemplateFields).Methods("GET")            // Auth checked in handler
 	api.HandleFunc("/slugs", h.GetAllSlugs).Methods("GET")                                 // Auth checked in handler
@@ -736,10 +742,7 @@ func main() {
 	api.HandleFunc("/contact", h.ContactFormSubmitWithConfig(proxyConfig)).Methods("POST") // Public, uses trusted proxy config
 	api.HandleFunc("/content/search", h.SearchContent).Methods("GET")                      // Auth checked in handler
 	api.HandleFunc("/content/check-slug", h.CheckSlug).Methods("GET")                      // Auth checked in handler
-	api.HandleFunc("/content/replace-preview", h.ReplacePreview).Methods("GET")            // Auth checked in handler
-	api.HandleFunc("/content/replace-execute", h.ReplaceExecute).Methods("POST")           // Auth checked in handler
 	api.HandleFunc("/tools/broken-links/scan", h.BrokenLinkScan).Methods("GET")            // Auth checked in handler
-	api.HandleFunc("/tools/fix-link", h.FixBrokenLink).Methods("POST")                     // Auth checked in handler
 	api.HandleFunc("/search", h.EndUserSearch).Methods("GET")                              // Public end-user search
 	api.HandleFunc("/search/suggest", h.EndUserSearchSuggest).Methods("GET")               // Public typeahead suggestions
 	api.HandleFunc("/chat", h.ChatWidgetQuery).Methods("GET", "OPTIONS")                   // Public chat widget query

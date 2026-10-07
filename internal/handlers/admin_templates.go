@@ -983,9 +983,15 @@ var adminTemplates = map[string]string{
                 document.getElementById('replace-summary').innerHTML = '';
                 document.getElementById('execute-replace-btn').disabled = true;
 
-                fetch('/api/content/replace-preview?search=' + encodeURIComponent(searchQuery) + '&replace=' + encodeURIComponent(replaceQuery))
+                fetch('/cm/replace/preview?search=' + encodeURIComponent(searchQuery) + '&replace=' + encodeURIComponent(replaceQuery))
                     .then(function(response) { return response.json(); })
                     .then(function(data) {
+                        if (data.error) {
+                            // e.g. 403: search and replace is limited to administrators
+                            replacePreviewData = null;
+                            document.getElementById('replace-preview-list').innerHTML = '<div style="text-align: center; padding: 2rem; color: var(--danger);">' + escapeHtml(data.error) + '</div>';
+                            return;
+                        }
                         replacePreviewData = data;
                         displayReplacePreview(data, searchQuery, replaceQuery);
                     })
@@ -1049,15 +1055,21 @@ var adminTemplates = map[string]string{
                     executeBtn.disabled = true;
                     executeBtn.textContent = 'Replacing...';
 
-                    fetch('/api/content/replace-execute', {
+                    fetch('/cm/replace/execute', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
                         body: JSON.stringify({
                             search: searchQuery,
                             replace: replaceQuery
                         })
                     })
-                    .then(function(response) { return response.json(); })
+                    .then(function(response) {
+                        // A 403 that is not JSON (a rejected CSRF token) still gets a readable message
+                        return response.json().catch(function(err) {
+                            if (response.status === 403) return { error: 'The request was refused (403). Reload the page and try again.' };
+                            throw err;
+                        });
+                    })
                     .then(function(data) {
                         if (data.error) {
                             showAlert(dialogText('Error: ' + data.error), 'Replace Failed');
@@ -1686,9 +1698,10 @@ var adminTemplates = map[string]string{
                 <h3>Page Settings</h3>
                 <div class="form-group checkbox-group">
                     <label class="checkbox-label">
-                        <input type="checkbox" name="published" {{if .Content}}{{if .Content.Published}}checked{{end}}{{end}}>
+                        <input type="checkbox" name="published" {{if .Content}}{{if .Content.ForkID}}disabled{{else if .Content.Published}}checked{{end}}{{end}}>
                         Published
                     </label>
+                    {{if .Content}}{{if .Content.ForkID}}<p class="help-text">This is a copy inside a fork. It goes live when the fork is merged, not by publishing it here.</p>{{end}}{{end}}
                 </div>
                 <div class="form-group checkbox-group">
                     <label class="checkbox-label">
@@ -1731,13 +1744,13 @@ var adminTemplates = map[string]string{
                     <button type="submit" class="btn btn-primary">{{if .IsNew}}Create{{else}}Update{{end}}</button>
                 </div>
                 {{if not .IsNew}}
-                <button type="submit" form="delete-page-form" class="btn btn-danger">Delete Page</button>
+                <button type="submit" form="delete-page-form" class="btn btn-danger">{{if .Content.ForkID}}Remove from Fork{{else}}Delete Page{{end}}</button>
                 {{end}}
             </div>
         </form>
         {{if not .IsNew}}
         <!-- Separate form (a form cannot nest inside the edit form); the Delete Page button points here with form= -->
-        <form id="delete-page-form" method="POST" action="/cm/content/{{.Content.ID.Hex}}/delete" onsubmit="return confirmDelete(this, 'Are you sure you want to delete this page? This cannot be undone.')">
+        <form id="delete-page-form" method="POST" action="/cm/content/{{.Content.ID.Hex}}/delete" onsubmit="return confirmDelete(this, {{if .Content.ForkID}}'Remove this copy from the fork? The live page is not affected.'{{else}}'Are you sure you want to delete this page? This cannot be undone.'{{end}})">
             {{$.CSRFField}}
         </form>
         {{end}}
@@ -5224,9 +5237,9 @@ var adminTemplates = map[string]string{
                 saveBtn.disabled = true;
                 saveBtn.textContent = 'Saving...';
 
-                fetch('/api/tools/fix-link', {
+                fetch('/cm/tools/broken-links/fix', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': '{{.CSRFToken}}' },
                     body: JSON.stringify({
                         contentId: currentFix.contentId,
                         field: currentFix.field,

@@ -773,8 +773,11 @@ func (s *ContentService) DeleteContent(ctx context.Context, id primitive.ObjectI
 		return fmt.Errorf("failed to delete content: %w", err)
 	}
 
-	// Remove static page
-	s.removeStaticPage(content.FullPath)
+	// Remove static page. A fork copy shares its full_path with the live
+	// page, whose file must stay.
+	if content.ForkID == nil {
+		s.removeStaticPage(content.FullPath)
+	}
 	s.NotifyLiveChange(ctx, &content, nil)
 
 	// Rebuild search keyword cache

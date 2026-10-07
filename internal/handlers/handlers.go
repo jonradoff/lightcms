@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -1353,6 +1354,15 @@ func (h *Handler) UpdateContent(w http.ResponseWriter, r *http.Request) {
 
 	published := r.FormValue("published") == "on"
 
+	// A fork copy shares its full_path with the live page. It is never
+	// published on its own (it reaches the site by merging the fork), and
+	// saving it must not touch the live page's static file, redirects, links
+	// in other pages or wikilinks.
+	isForkCopy := existingContent.ForkID != nil
+	if isForkCopy {
+		published = false
+	}
+
 	// A held draft cannot be published: refuse before anything is written.
 	// Holding a page that is already published leaves it published.
 	hold := r.FormValue("hold") == "on"
@@ -1409,9 +1419,12 @@ func (h *Handler) UpdateContent(w http.ResponseWriter, r *http.Request) {
 			createRedirectFromOld = true
 		}
 
-		// Delete old static file if path changed
-		oldStaticPath := h.getStaticFilePath(oldFullPath)
-		os.Remove(oldStaticPath)
+		// Delete old static file if path changed (the old path of a fork
+		// copy is the live page's path: leave its file alone)
+		if !isForkCopy {
+			oldStaticPath := h.getStaticFilePath(oldFullPath)
+			os.Remove(oldStaticPath)
+		}
 	}
 
 	// Check if checkboxes are checked
@@ -1539,8 +1552,9 @@ func (h *Handler) UpdateContent(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// If full path changed, update all dependent content links
-	if oldFullPath != fullPath {
+	// If full path changed, update all dependent content links (not for a
+	// fork copy: the live page has not moved)
+	if oldFullPath != fullPath && !isForkCopy {
 		if err := h.updateDependentContentByPath(ctx, oldFullPath, fullPath); err != nil {
 			// Log but don't fail the request
 			fmt.Printf("Warning: Failed to update dependent content: %v\n", err)
@@ -1591,6 +1605,13 @@ func (h *Handler) UpdateContent(w http.ResponseWriter, r *http.Request) {
 		fmt.Printf("Warning: Failed to save content version: %v\n", err)
 	}
 
+	if isForkCopy {
+		// Nothing on the live site changed: no static file, IndexNow,
+		// sitemap, index-page or wikilink work.
+		http.Redirect(w, r, "/cm/content", http.StatusSeeOther)
+		return
+	}
+
 	if published {
 		h.generateStaticPage(ctx, &existingContent, &tmpl)
 	} else {
@@ -1625,7 +1646,8 @@ func (h *Handler) UpdateContent(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) DeleteContent(w http.ResponseWriter, r *http.Request) {
-	if !h.auth.IsAuthenticated(r) {
+	user, ok := h.auth.GetCurrentUser(r)
+	if !ok {
 		http.Redirect(w, r, "/cm/login", http.StatusSeeOther)
 		return
 	}
@@ -1641,6 +1663,28 @@ func (h *Handler) DeleteContent(w http.ResponseWriter, r *http.Request) {
 	var content models.Content
 	if err := h.db.FindOne(ctx, "content", bson.M{"_id": id}, &content); err != nil {
 		http.Error(w, "Content not found", http.StatusNotFound)
+		return
+	}
+
+	// A fork copy shares its full_path with the live page: deleting it must
+	// never touch the live page's static file, redirects, sitemap or search
+	// index. Remove it from its fork instead, exactly as "Remove" on the fork
+	// page does (same permission, same service call, same landing page).
+	if content.ForkID != nil {
+		if !auth.HasPermission(user.Role, auth.PermForkCreate) {
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
+		}
+		if err := h.forkService.RemovePage(ctx, *content.ForkID, id); err != nil {
+			http.Error(w, fmt.Sprintf("Failed to remove page: %v", err), http.StatusInternalServerError)
+			return
+		}
+		http.Redirect(w, r, "/cm/forks/"+content.ForkID.Hex(), http.StatusSeeOther)
+		return
+	}
+
+	if !auth.HasPermission(user.Role, auth.PermContentDelete) {
+		http.Error(w, "Forbidden", http.StatusForbidden)
 		return
 	}
 
@@ -3846,6 +3890,11 @@ func (h *Handler) renderContent(content *models.Content, tmpl *models.Template) 
 }
 
 func (h *Handler) generateStaticPage(ctx context.Context, content *models.Content, tmpl *models.Template) error {
+	// Fork copies share full_path with their live counterpart — generating
+	// them would overwrite the live page's static file with fork content.
+	if content.ForkID != nil {
+		return nil
+	}
 	rendered := h.renderContent(content, tmpl)
 
 	// Use full path for file location, supporting folders
@@ -5604,10 +5653,13 @@ func (h *Handler) BrokenLinkScan(w http.ResponseWriter, r *http.Request) {
 
 // FixBrokenLink handles fixing a broken link in content
 func (h *Handler) FixBrokenLink(w http.ResponseWriter, r *http.Request) {
-	if !h.auth.IsAuthenticated(r) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(map[string]string{"error": "Unauthorized"})
+	user, ok := h.auth.GetCurrentUser(r)
+	if !ok {
+		adminJSONError(w, http.StatusUnauthorized, "Unauthorized")
+		return
+	}
+	if !auth.HasPermission(user.Role, auth.PermContentEdit) {
+		adminJSONError(w, http.StatusForbidden, "Fixing links requires permission to edit content.")
 		return
 	}
 
@@ -5997,10 +6049,33 @@ func (h *Handler) CheckSlug(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// requireSearchReplace gates the admin search-and-replace endpoints on the
+// permission the API endpoints require (search_replace.execute, admin only):
+// 401 without a session, 403 with a JSON error for any other role.
+func (h *Handler) requireSearchReplace(w http.ResponseWriter, r *http.Request) (*auth.SessionUser, bool) {
+	user, ok := h.auth.GetCurrentUser(r)
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return nil, false
+	}
+	if !auth.HasPermission(user.Role, auth.PermSearchReplace) {
+		adminJSONError(w, http.StatusForbidden, "Search and replace is limited to administrators.")
+		return nil, false
+	}
+	return user, true
+}
+
+// adminJSONError writes {"error": msg} with the given status, the shape the
+// admin UI's fetch() callers read.
+func adminJSONError(w http.ResponseWriter, status int, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(map[string]string{"error": msg})
+}
+
 // ReplacePreview returns a preview of search and replace results
 func (h *Handler) ReplacePreview(w http.ResponseWriter, r *http.Request) {
-	if !h.auth.IsAuthenticated(r) {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+	if _, ok := h.requireSearchReplace(w, r); !ok {
 		return
 	}
 
@@ -6014,8 +6089,8 @@ func (h *Handler) ReplacePreview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Find all non-deleted content
-	cursor, err := h.db.FindMany(ctx, "content", bson.M{"deleted": bson.M{"$ne": true}}, options.Find().SetSort(bson.D{{Key: "title", Value: 1}}))
+	// Live, non-deleted pages only: fork copies are never searched or rewritten.
+	cursor, err := h.contentService.StreamContent(ctx, false)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -6026,6 +6101,7 @@ func (h *Handler) ReplacePreview(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	sort.SliceStable(allContent, func(i, j int) bool { return allContent[i].Title < allContent[j].Title })
 
 	type MatchResult struct {
 		ID         string   `json:"id"`
@@ -6177,10 +6253,13 @@ func escapeHTMLForExcerpt(s string) string {
 	return s
 }
 
-// ReplaceExecute performs the actual search and replace on content
+// ReplaceExecute performs the actual search and replace on content. It runs
+// through the service layer like the API endpoint: live pages only, a saved
+// version per page, change provenance, and static regeneration for published
+// pages (which stay published).
 func (h *Handler) ReplaceExecute(w http.ResponseWriter, r *http.Request) {
-	if !h.auth.IsAuthenticated(r) {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+	user, ok := h.requireSearchReplace(w, r)
+	if !ok {
 		return
 	}
 
@@ -6206,10 +6285,11 @@ func (h *Handler) ReplaceExecute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx := r.Context()
+	ctx := services.WithEditorEmail(r.Context(), user.Email)
+	ctx = services.WithProvenance(ctx, services.Provenance{Actor: "human", Via: "ui"})
 
-	// Find all non-deleted content
-	cursor, err := h.db.FindMany(ctx, "content", bson.M{"deleted": bson.M{"$ne": true}}, nil)
+	// Live, non-deleted pages only: fork copies are never searched or rewritten.
+	cursor, err := h.contentService.StreamContent(ctx, false)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
@@ -6223,16 +6303,11 @@ func (h *Handler) ReplaceExecute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	versionComment := fmt.Sprintf("Bulk search and replace: '%s' → '%s'", request.Search, request.Replace)
 	updatedCount := 0
 
 	for _, content := range allContent {
 		needsUpdate := false
-		originalContent := content
-		// Deep copy the Data map for original
-		originalContent.Data = make(map[string]interface{})
-		for k, v := range content.Data {
-			originalContent.Data[k] = v
-		}
 
 		newData := make(map[string]interface{})
 		for k, v := range content.Data {
@@ -6257,34 +6332,15 @@ func (h *Handler) ReplaceExecute(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if needsUpdate {
-			// Update the content in database
-			update := bson.M{
-				"$set": bson.M{
-					"title":      newTitle,
-					"data":       newData,
-					"updated_at": time.Now(),
-				},
-			}
-
-			if err := h.db.UpdateOne(ctx, "content", bson.M{"_id": content.ID}, update); err != nil {
-				continue // Skip this one but continue with others
-			}
-
-			// Update content struct for versioning
 			content.Title = newTitle
 			content.Data = newData
 
-			// Save version with original content for first-time versioning
-			if err := h.saveContentVersionWithOriginal(ctx, &content, &originalContent, "Updated via bulk link replacement"); err != nil {
-				fmt.Printf("Warning: Failed to save content version for %s: %v\n", content.ID.Hex(), err)
-			}
-
-			// Regenerate static page if published
-			if content.Published {
-				var tmpl models.Template
-				if err := h.db.FindOne(ctx, "templates", bson.M{"_id": content.TemplateID}, &tmpl); err == nil {
-					h.generateStaticPage(ctx, &content, &tmpl)
-				}
+			unlock := lockContent(content.ID.Hex())
+			err := h.contentService.UpdateContent(ctx, &content, versionComment)
+			unlock()
+			if err != nil {
+				fmt.Printf("Warning: search and replace skipped %s: %v\n", content.ID.Hex(), err)
+				continue // Skip this one but continue with others
 			}
 
 			updatedCount++
