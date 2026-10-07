@@ -15,7 +15,8 @@ import (
 // ForkDamageReport is what RepairForkDamage found and, on a real run, fixed.
 type ForkDamageReport struct {
 	DryRun bool `json:"dry_run"`
-	// Fork copies carrying published=true. On a real run the flag is cleared.
+	// Fork copies carrying published=true. On a real run the flag is cleared
+	// on those that have a live page at the same path.
 	ForkCopiesPublished []ForkDamagePage `json:"fork_copies_published"`
 	ForkCopiesCleared   int64            `json:"fork_copies_cleared"`
 	// Live published pages whose generated HTML file is missing. On a real
@@ -77,19 +78,26 @@ func (s *ContentService) RepairForkDamage(ctx context.Context, dryRun bool) (*Fo
 	if err := cursor.All(ctx, &copies); err != nil {
 		return nil, fmt.Errorf("read published fork copies: %w", err)
 	}
+	// Only copies that shadow a live page are cleared. On a page that exists
+	// only inside a fork the flag means "publish on merge", so it is reported
+	// (has_live_page=false) and left as it is.
+	var clearIDs []primitive.ObjectID
 	for _, c := range copies {
 		live := bson.M{"full_path": c.FullPath, "deleted": bson.M{"$ne": true}}
 		liveOnly(live)
 		n, _ := s.db.Count(ctx, "content", live)
 		hasLive := n > 0
+		if hasLive {
+			clearIDs = append(clearIDs, c.ID)
+		}
 		page := ForkDamagePage{ID: c.ID.Hex(), Title: c.Title, Path: c.FullPath, HasLivePage: &hasLive}
 		if c.ForkID != nil {
 			page.ForkID = c.ForkID.Hex()
 		}
 		report.ForkCopiesPublished = append(report.ForkCopiesPublished, page)
 	}
-	if !dryRun && len(copies) > 0 {
-		res, err := s.db.Collection("content").UpdateMany(ctx, forkFilter, bson.M{"$set": bson.M{"published": false}})
+	if !dryRun && len(clearIDs) > 0 {
+		res, err := s.db.Collection("content").UpdateMany(ctx, bson.M{"_id": bson.M{"$in": clearIDs}, "fork_id": bson.M{"$exists": true, "$ne": nil}}, bson.M{"$set": bson.M{"published": false}})
 		if err != nil {
 			return nil, fmt.Errorf("clear published flag on fork copies: %w", err)
 		}

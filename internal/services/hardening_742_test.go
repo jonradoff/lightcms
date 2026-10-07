@@ -283,13 +283,16 @@ func TestRepairForkDamage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("repair: %v", err)
 	}
-	if rep.DryRun || rep.ForkCopiesCleared != 2 || rep.Regenerated != 3 || len(rep.RegenerateFailed) != 0 || len(rep.MissingStatic) != 3 {
+	if rep.DryRun || rep.ForkCopiesCleared != 1 || rep.Regenerated != 3 || len(rep.RegenerateFailed) != 0 || len(rep.MissingStatic) != 3 {
 		t.Errorf("repair report = %+v", rep)
 	}
+	// The copy shadowing a live page is cleared; the page that exists only
+	// in the fork keeps its flag, which there means "publish on merge".
 	for _, id := range []primitive.ObjectID{flagged, flaggedNew} {
 		c, _ := cs.GetContent(ctx, id)
-		if c.Published || c.ForkID == nil {
-			t.Errorf("fork copy %s: published=%v fork=%v after repair", c.Title, c.Published, c.ForkID)
+		wantPublished := id == flaggedNew
+		if c.Published != wantPublished || c.ForkID == nil {
+			t.Errorf("fork copy %s: published=%v (want %v) fork=%v after repair", c.Title, c.Published, wantPublished, c.ForkID)
 		}
 		if !c.UpdatedAt.Equal(updatedBefore[id]) {
 			t.Errorf("fork copy %s: updated_at moved", c.Title)
@@ -335,7 +338,8 @@ func TestRepairForkDamage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second repair: %v", err)
 	}
-	if len(rep.ForkCopiesPublished) != 0 || len(rep.MissingStatic) != 0 || rep.ForkCopiesCleared != 0 || rep.Regenerated != 0 {
+	// The fork-only page is still reported (has_live_page=false) and still left alone.
+	if len(rep.ForkCopiesPublished) != 1 || *rep.ForkCopiesPublished[0].HasLivePage || len(rep.MissingStatic) != 0 || rep.ForkCopiesCleared != 0 || rep.Regenerated != 0 {
 		t.Errorf("second repair found more to do: %+v", rep)
 	}
 }
