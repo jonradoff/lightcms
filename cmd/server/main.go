@@ -24,7 +24,6 @@ import (
 	"github.com/jonradoff/lightcms/v7/internal/oauth"
 	"github.com/jonradoff/lightcms/v7/internal/services"
 
-	"github.com/gorilla/csrf"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/sessions"
 	"go.mongodb.org/mongo-driver/bson"
@@ -65,13 +64,13 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	db, err := database.Connect(ctx, cfg.MongoURI, "lightcms")
+	db, err := database.Connect(ctx, cfg.MongoURI, cfg.DatabaseName)
 	if err != nil {
 		log.Fatalf("Failed to connect to MongoDB: %v", err)
 	}
 	defer db.Disconnect(context.Background())
 
-	log.Println("Connected to MongoDB successfully")
+	log.Printf("Connected to MongoDB successfully (database %q)", cfg.DatabaseName)
 
 	// Initialize session store with secure settings
 	sessionStore := sessions.NewCookieStore([]byte(cfg.SessionSecret))
@@ -237,16 +236,7 @@ func main() {
 	csrfHash := sha256.Sum256([]byte(cfg.SessionSecret))
 	csrfKey := csrfHash[:]
 
-	csrfMiddleware := csrf.Protect(
-		csrfKey,
-		csrf.Secure(cfg.SecureCookies),
-		csrf.Path("/cm"),
-		csrf.SameSite(csrf.SameSiteStrictMode),
-		csrf.ErrorHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			log.Printf("CSRF validation failed for %s %s", r.Method, r.URL.Path)
-			http.Error(w, "Invalid or missing CSRF token", http.StatusForbidden)
-		})),
-	)
+	csrfMiddleware := middleware.CSRFProtect(csrfKey, cfg.SecureCookies)
 
 	// Admin routes (under /cm)
 	admin := r.PathPrefix("/cm").Subrouter()

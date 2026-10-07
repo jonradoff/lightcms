@@ -13,8 +13,18 @@ All notable changes to LightCMS are documented here, organized by version.
 - `reindex_embeddings` and the embedding statistics no longer count fork copies.
 - Admin: merging or archiving a fork and removing a page from a fork now ask through the styled confirm dialog instead of a browser `confirm()`, and the empty-query warning in search-and-replace is a styled message instead of a browser `alert()`.
 
+### Fixed — admin UI
+- **The rich-text editor works again.** The admin Content-Security-Policy (`script-src 'self'`, added in v1.1) blocked the Quill editor, which was loaded from a CDN, so rich-text fields showed only the raw "Edit HTML" box. Quill 2.0.3 is now vendored in `static/admin/quill/` (byte-identical to upstream, with licence, source URLs and SHA-256 hashes in the README beside it) and served from the site itself. The policy is unchanged.
+- **Admin forms work over plain HTTP in local development.** With `secure_cookies: false`, every admin POST on `http://localhost` failed with "Invalid or missing CSRF token" because the CSRF library assumes HTTPS when it checks the request origin. Requests are now treated as plain HTTP when secure cookies are off and the connection has no TLS. Production (`secure_cookies: true`) keeps the strict HTTPS check. The log line for a rejected request now includes the reason.
+- **No more native browser dialogs in the admin.** Deleting a comment, reverting a theme version, deleting a webhook, regenerating a webhook secret, deleting an RSS source, approving a request and deleting an approval workflow now ask through the styled confirm dialog. Comment, approval and workflow errors, the "Comment required" and "Name is required" checks, and "URL copied" in the asset library are styled messages. Server error text in these messages is shown as text, never as HTML.
+- **Webhook edit page: "Regenerate Secret" and "Save Changes" do what they say.** The regenerate form was nested inside the edit form, which browsers do not allow: "Regenerate Secret" saved the webhook instead of regenerating, and the event checkboxes, the Active box and "Save Changes" were cut out of the form.
+
+### Added
+- **`DATABASE_NAME`** environment variable (and `database_name` in the JSON config) selects the MongoDB database for the server and the `cmd/` tools (`resetpw`, `addchat`, `addchat-spa`, `migrate-hourly-bots`). Default `lightcms`, so existing installs are unaffected. The server logs the database in use at startup.
+
 ### Changed
 - README tool counts corrected (129 tools, with the full category breakdown).
+- Tests fail the build if an admin template loads a script or stylesheet the admin CSP does not allow, if any served template or JS file calls `alert()`, `confirm()` or `prompt()`, or if the vendored Quill files differ from their recorded hashes.
 
 ---
 

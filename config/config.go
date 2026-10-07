@@ -6,13 +6,18 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
+
+// DefaultDatabaseName is the MongoDB database used when none is configured.
+const DefaultDatabaseName = "lightcms"
 
 // Config holds application configuration
 type Config struct {
 	Port            string `json:"port"`
 	MongoURI        string `json:"mongo_uri"`
-	Env             string `json:"env"` // "development" or "production"
+	DatabaseName    string `json:"database_name"` // MongoDB database name (default "lightcms"); DATABASE_NAME env overrides
+	Env             string `json:"env"`           // "development" or "production"
 	SessionSecret   string `json:"session_secret"`
 	BaseURL         string `json:"base_url"`          // Public URL of the site (e.g., "https://example.com")
 	SecureCookies   bool   `json:"secure_cookies"`    // Set to true in production (requires HTTPS)
@@ -46,10 +51,33 @@ func DefaultProd() *Config {
 	}
 }
 
+// ResolveDatabaseName returns the MongoDB database name to use.
+// Priority: DATABASE_NAME environment variable > configured value
+// (database_name in the config file) > DefaultDatabaseName.
+func ResolveDatabaseName(configured string) string {
+	if name := strings.TrimSpace(os.Getenv("DATABASE_NAME")); name != "" {
+		return name
+	}
+	if name := strings.TrimSpace(configured); name != "" {
+		return name
+	}
+	return DefaultDatabaseName
+}
+
 // Load loads configuration from JSON config file or environment variables
 // Priority: environment variables > config.prod.json > config.dev.json
 // Set LIGHTCMS_CONFIG_DIR to specify a custom config directory
 func Load() (*Config, error) {
+	cfg, err := load()
+	if err != nil {
+		return nil, err
+	}
+	// DATABASE_NAME applies in both modes, like the env-first priority above
+	cfg.DatabaseName = ResolveDatabaseName(cfg.DatabaseName)
+	return cfg, nil
+}
+
+func load() (*Config, error) {
 	// Check if running with environment variables (e.g., Fly.io)
 	if mongoURI := os.Getenv("MONGO_URI"); mongoURI != "" {
 		return loadFromEnv()

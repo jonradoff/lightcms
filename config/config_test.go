@@ -290,3 +290,90 @@ func TestSave(t *testing.T) {
 		t.Errorf("expected saved port, got %s", loaded.Port)
 	}
 }
+
+func TestResolveDatabaseName(t *testing.T) {
+	tests := []struct {
+		name       string
+		env        string
+		configured string
+		want       string
+	}{
+		{"default", "", "", "lightcms"},
+		{"config file value", "", "mysite", "mysite"},
+		{"env overrides default", "lightcms_test", "", "lightcms_test"},
+		{"env overrides config file", "lightcms_test", "mysite", "lightcms_test"},
+		{"blank env ignored", "   ", "mysite", "mysite"},
+		{"blank config ignored", "", "  ", "lightcms"},
+		{"whitespace trimmed", " lightcms_test\n", "", "lightcms_test"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("DATABASE_NAME", tt.env)
+			if got := ResolveDatabaseName(tt.configured); got != tt.want {
+				t.Errorf("ResolveDatabaseName(%q) with DATABASE_NAME=%q = %q, want %q", tt.configured, tt.env, got, tt.want)
+			}
+		})
+	}
+}
+
+// Load applies the database name in both the env-var and config-file modes.
+func TestLoad_DatabaseName(t *testing.T) {
+	t.Run("env mode defaults to lightcms", func(t *testing.T) {
+		t.Setenv("MONGO_URI", "mongodb://localhost/test")
+		t.Setenv("SESSION_SECRET", "secret-long-enough")
+		t.Setenv("DATABASE_NAME", "")
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load() failed: %v", err)
+		}
+		if cfg.DatabaseName != DefaultDatabaseName {
+			t.Errorf("DatabaseName = %q, want %q", cfg.DatabaseName, DefaultDatabaseName)
+		}
+	})
+	t.Run("env mode override", func(t *testing.T) {
+		t.Setenv("MONGO_URI", "mongodb://localhost/test")
+		t.Setenv("SESSION_SECRET", "secret-long-enough")
+		t.Setenv("DATABASE_NAME", "lightcms_test")
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load() failed: %v", err)
+		}
+		if cfg.DatabaseName != "lightcms_test" {
+			t.Errorf("DatabaseName = %q, want lightcms_test", cfg.DatabaseName)
+		}
+	})
+	t.Run("config file", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Setenv("MONGO_URI", "")
+		t.Setenv("LIGHTCMS_CONFIG_DIR", dir)
+		os.WriteFile(filepath.Join(dir, "config.dev.json"), []byte(`{"mongo_uri":"mongodb://dev:27017","database_name":"fromfile"}`), 0644)
+
+		t.Setenv("DATABASE_NAME", "")
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load() failed: %v", err)
+		}
+		if cfg.DatabaseName != "fromfile" {
+			t.Errorf("DatabaseName = %q, want fromfile", cfg.DatabaseName)
+		}
+
+		t.Setenv("DATABASE_NAME", "fromenv")
+		if cfg, _ = Load(); cfg.DatabaseName != "fromenv" {
+			t.Errorf("DatabaseName = %q, want fromenv (env overrides file)", cfg.DatabaseName)
+		}
+	})
+	t.Run("config file without database_name", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Setenv("MONGO_URI", "")
+		t.Setenv("DATABASE_NAME", "")
+		t.Setenv("LIGHTCMS_CONFIG_DIR", dir)
+		os.WriteFile(filepath.Join(dir, "config.prod.json"), []byte(`{"mongo_uri":"mongodb://prod:27017","session_secret":"x"}`), 0644)
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load() failed: %v", err)
+		}
+		if cfg.DatabaseName != DefaultDatabaseName {
+			t.Errorf("DatabaseName = %q, want %q", cfg.DatabaseName, DefaultDatabaseName)
+		}
+	})
+}

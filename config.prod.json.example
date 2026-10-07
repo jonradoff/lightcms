@@ -9,6 +9,9 @@
   "_mongo_uri_help": "MongoDB Atlas connection string - get this from Atlas Dashboard → Connect → Drivers",
   "mongo_uri": "mongodb+srv://USERNAME:PASSWORD@cluster.mongodb.net/lightcms?retryWrites=true&w=majority",
 
+  "_database_name_help": "MongoDB database name (optional, default 'lightcms'; the DATABASE_NAME env var overrides it)",
+  "database_name": "lightcms",
+
   "_env_help": "Environment mode - use 'production' for production deployments",
   "env": "production",
 

@@ -39,7 +39,9 @@ func main() {
 	}
 	defer client.Disconnect(ctx)
 
-	db := client.Database("lightcms")
+	dbName := dbutil.GetDatabaseName()
+	log.Printf("Using database %q", dbName)
+	db := client.Database(dbName)
 
 	// Generate bcrypt hash for admin123
 	hash, err := bcrypt.GenerateFromPassword([]byte("admin123"), 12)

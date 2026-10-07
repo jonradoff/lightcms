@@ -109,7 +109,7 @@ LightCMS is a Go-powered content management system built for the AI era. It's si
 - **`lc:query` Directives**: Embed live content queries directly in template layouts — at publish time they expand into rendered lists of matching pages
 - **Content Collections**: Auto-generated paginated listing pages filtered by category
 - **Folders & URL Organization**: Hierarchical content organization with clean URL paths
-- **Rich Text Editor**: TinyMCE integration for visual content editing
+- **Rich Text Editor**: Quill 2 for visual content editing (vendored in `static/admin/quill/`, served from the site itself)
 - **Regex Search & Replace**: Site-wide or scoped search-and-replace with RE2 regex support, capture groups, and mandatory preview step
 - **Bulk Operations**: Update or apply field operations across up to 100 pages in a single API call; export/transform/re-import pipelines
 - **Scheduled Publishing** (v4.5+): Set a future `publish_at` timestamp; a background scheduler auto-publishes at the right time
@@ -294,8 +294,17 @@ LightCMS uses JSON config files. Create either:
 |-------|-------------|
 | `port` | Server port (e.g., "8082" for dev, "80" for prod) |
 | `mongo_uri` | MongoDB Atlas connection string |
+| `database_name` | MongoDB database name. Optional, default `lightcms` |
 | `env` | Environment: "development" or "production" |
 | `session_secret` | Random string for session encryption |
+| `base_url` | Public URL of the site |
+| `secure_cookies` | `true` in production (HTTPS). `false` for local development over plain HTTP |
+
+When `MONGO_URI` is set, configuration comes from environment variables instead (`MONGO_URI`, `SESSION_SECRET`, `BASE_URL`, `PORT`, `ENV`, `SECURE_COOKIES`).
+
+**Database name.** The server and the `cmd/` tools use the database `lightcms` unless told otherwise. Set the `DATABASE_NAME` environment variable (it wins over `database_name` in the config file) to point an instance at another database on the same cluster, for example a staging or test copy. The server logs the database it connected to at startup.
+
+**Plain HTTP in development.** With `secure_cookies: false` the admin works over `http://localhost`: cookies are not marked Secure and the CSRF origin check compares against `http://`. With `secure_cookies: true` (the production default) the admin must be reached over HTTPS; the CSRF check rejects plain-HTTP origins.
 
 **Note:** Config files contain secrets and are excluded from git via `.gitignore`.
 
@@ -1497,6 +1506,7 @@ For production:
 
 Security features built in:
 - CSRF protection on all `/cm` routes
+- Admin Content-Security-Policy: scripts and stylesheets load from the site itself only (the editor's Quill files are vendored, not fetched from a CDN)
 - RBAC permission checks on all admin handlers and REST API endpoints
 - Session cookies: SameSite=Strict, 24-hour expiry, Secure in production
 - File uploads: extension whitelist + MIME validation + configurable size cap

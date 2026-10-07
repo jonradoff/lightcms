@@ -396,7 +396,10 @@ go run cmd/resetpw/main.go [email]  # Reset specific user, or first admin if no 
 
 ## Security Notes
 
-- CSRF protection on all `/cm` routes (Gorilla CSRF)
+- CSRF protection on all `/cm` routes (Gorilla CSRF, built in `middleware.CSRFProtect`). gorilla/csrf assumes HTTPS for its Origin/Referer check; requests are marked plaintext only when `secure_cookies` is false AND the connection has no TLS. Never key this on a request header.
+- Admin CSP (`middleware.SecurityHeaders`) is `script-src 'self' 'unsafe-inline'`: a script or stylesheet from another origin is silently blocked. Vendor third-party admin assets under `static/admin/` with a README recording version, source URL and SHA-256 (see `static/admin/quill/`); `TestAdminTemplates_ExternalAssetsAllowedByCSP` enforces it.
+- No native browser dialogs anywhere (`alert`/`confirm`/`prompt`): use `data-confirm` (+ `data-confirm-title`) on a form, or `showConfirm()` / `showAlert()` from `adminLayoutStart`. Both take HTML — wrap anything that is not a fixed string in `dialogText()`. `TestServedTemplatesAndJS_NoNativeDialogs` scans every served template and JS file.
+- HTML forms cannot nest: the parser drops the inner `<form>` and its `</form>` closes the outer one. Put the second form outside and point the button at it with `form="id"` (see the webhook edit page).
 - Session cookies: SameSite=Strict, 24-hour expiry, Secure in production
 - File uploads: Extension whitelist + MIME validation
 - Path traversal protection on all file operations
@@ -409,11 +412,12 @@ go run cmd/resetpw/main.go [email]  # Reset specific user, or first admin if no 
 
 **Environment Variables (Production):**
 - `MONGO_URI` - MongoDB connection string
+- `DATABASE_NAME` - MongoDB database name (default: `lightcms`; also `database_name` in the JSON config, env wins). Read by the server and every `cmd/` tool through `config.ResolveDatabaseName`; logged at startup
 - `SESSION_SECRET` - 32+ char secret
 - `BASE_URL` - Public URL (e.g., https://example.com)
 - `PORT` - Server port (default: 80)
 - `ENV` - "production" or "development"
-- `SECURE_COOKIES` - "true" for HTTPS
+- `SECURE_COOKIES` - "true" for HTTPS (default in env mode; set "false" only for plain-HTTP local runs)
 
 **JSON Config (Development):**
 `config.dev.json`:

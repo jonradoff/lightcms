@@ -275,21 +275,3 @@ func TestAPIBulkFieldOpAndExport_ReportForkCopies(t *testing.T) {
 		t.Errorf("export without copies: %d skipped=%v, want []", rr.Code, out["skipped"])
 	}
 }
-
-// The fork detail page (merge / archive / remove page) must ask through the
-// styled confirm modal, never a native browser dialog.
-func TestForkDetailTemplate_NoNativeDialogs(t *testing.T) {
-	tpl := adminTemplates["fork_detail"]
-	body := strings.TrimSuffix(strings.TrimPrefix(tpl, adminLayoutStart), adminLayoutEnd)
-	for _, native := range []string{"confirm(", "alert(", "prompt("} {
-		if strings.Contains(body, native) {
-			t.Errorf("fork_detail uses a native %s dialog", native)
-		}
-	}
-	if n := strings.Count(body, `data-confirm="`); n != 3 {
-		t.Errorf("fork_detail has %d data-confirm forms, want 3 (merge, archive, remove page)", n)
-	}
-	if !strings.Contains(adminLayoutStart, "getAttribute('data-confirm')") {
-		t.Error("admin layout is missing the data-confirm submit handler")
-	}
-}
