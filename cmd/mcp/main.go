@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/jonradoff/lightcms/v7/internal/apiclient"
@@ -16,8 +17,8 @@ import (
 
 func main() {
 	// Read configuration from environment variables
-	baseURL := os.Getenv("LIGHTCMS_URL")
-	apiKey := os.Getenv("LIGHTCMS_API_KEY")
+	baseURL := strings.TrimSpace(os.Getenv("LIGHTCMS_URL"))
+	apiKey := strings.TrimSpace(os.Getenv("LIGHTCMS_API_KEY"))
 
 	if baseURL == "" {
 		// Default to localhost

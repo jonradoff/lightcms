@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"context"
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -13,73 +12,24 @@ import (
 	"time"
 
 	"github.com/jonradoff/lightcms/v7/internal/auth"
+	"github.com/jonradoff/lightcms/v7/internal/netguard"
 
 	"github.com/gorilla/mux"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
-// ssrfBlockedCIDRs are IP ranges that must never be contacted via user-supplied URLs.
-var ssrfBlockedCIDRs = func() []*net.IPNet {
-	var blocks []*net.IPNet
-	for _, cidr := range []string{
-		"0.0.0.0/8",      // "this" network
-		"10.0.0.0/8",     // RFC1918 private
-		"100.64.0.0/10",  // CGNAT shared address space
-		"127.0.0.0/8",    // IPv4 loopback
-		"169.254.0.0/16", // link-local / AWS EC2 metadata
-		"172.16.0.0/12",  // RFC1918 private
-		"192.168.0.0/16", // RFC1918 private
-		"198.18.0.0/15",  // benchmarking
-		"240.0.0.0/4",    // reserved
-		"::1/128",        // IPv6 loopback
-		"fc00::/7",       // IPv6 ULA (includes fd00::/8)
-		"fe80::/10",      // IPv6 link-local
-	} {
-		_, block, err := net.ParseCIDR(cidr)
-		if err == nil {
-			blocks = append(blocks, block)
-		}
-	}
-	return blocks
-}()
+// The SSRF guard lives in internal/netguard so the service layer (webhook
+// delivery, the link checker) dials through the same check as the handlers.
 
 // isPrivateOrReservedIP returns true if ip falls in any SSRF-blocked range.
 func isPrivateOrReservedIP(ip net.IP) bool {
-	for _, block := range ssrfBlockedCIDRs {
-		if block.Contains(ip) {
-			return true
-		}
-	}
-	return false
+	return netguard.IsPrivateOrReservedIP(ip)
 }
 
 // ssrfSafeClient is an http.Client whose dialer rejects private/reserved IP ranges.
 // It resolves the destination hostname at dial time and checks every returned IP,
 // preventing SSRF and DNS-rebinding attacks.
-var ssrfSafeClient = &http.Client{
-	Timeout: 30 * time.Second,
-	Transport: &http.Transport{
-		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			host, port, err := net.SplitHostPort(addr)
-			if err != nil {
-				return nil, fmt.Errorf("invalid address")
-			}
-			ips, err := net.DefaultResolver.LookupHost(ctx, host)
-			if err != nil {
-				return nil, fmt.Errorf("could not resolve host")
-			}
-			for _, rawIP := range ips {
-				ip := net.ParseIP(rawIP)
-				if ip == nil || isPrivateOrReservedIP(ip) {
-					return nil, fmt.Errorf("URL resolves to a private or restricted address")
-				}
-			}
-			// Connect only to the first resolved public IP
-			dialer := &net.Dialer{Timeout: 10 * time.Second}
-			return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0], port))
-		},
-	},
-}
+var ssrfSafeClient = netguard.NewClient(30 * time.Second)
 
 // validAssetServePrefixes are the only path prefixes allowed for asset serve_path.
 // This prevents callers from writing assets to arbitrary locations (e.g. /static/css/).

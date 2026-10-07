@@ -77,9 +77,27 @@ func Load() (*Config, error) {
 	return cfg, nil
 }
 
+// env reads an environment variable with surrounding whitespace removed. A
+// value that comes from a .env file with CRLF line endings, or was pasted
+// with a trailing newline or space, otherwise carries it along: a MongoDB
+// URI ending in "\r" does not connect, and "false\r" is not "false".
+func env(key string) string {
+	return strings.TrimSpace(os.Getenv(key))
+}
+
+// trim removes surrounding whitespace from the values where it can never be
+// meant: connection string, URLs, port, environment name, API keys and the
+// from address. (Not the session secret — see loadFromEnv.)
+func (c *Config) trim() {
+	for _, v := range []*string{&c.Port, &c.MongoURI, &c.DatabaseName, &c.Env, &c.BaseURL,
+		&c.VoyageAPIKey, &c.AnthropicAPIKey, &c.ResendAPIKey, &c.EmailFrom} {
+		*v = strings.TrimSpace(*v)
+	}
+}
+
 func load() (*Config, error) {
 	// Check if running with environment variables (e.g., Fly.io)
-	if mongoURI := os.Getenv("MONGO_URI"); mongoURI != "" {
+	if mongoURI := env("MONGO_URI"); mongoURI != "" {
 		return loadFromEnv()
 	}
 
@@ -88,7 +106,7 @@ func load() (*Config, error) {
 	var cfg *Config
 
 	// Check for custom config directory
-	configDir := os.Getenv("LIGHTCMS_CONFIG_DIR")
+	configDir := env("LIGHTCMS_CONFIG_DIR")
 	if configDir == "" {
 		configDir = "."
 	}
@@ -110,6 +128,7 @@ func load() (*Config, error) {
 	if err := loadFromFile(configPath, cfg); err != nil {
 		return nil, fmt.Errorf("failed to load config from %s: %w", configPath, err)
 	}
+	cfg.trim()
 
 	return cfg, nil
 }
@@ -118,38 +137,41 @@ func load() (*Config, error) {
 func loadFromEnv() (*Config, error) {
 	cfg := DefaultProd()
 
-	cfg.MongoURI = os.Getenv("MONGO_URI")
+	cfg.MongoURI = env("MONGO_URI")
 	if cfg.MongoURI == "" {
 		return nil, fmt.Errorf("MONGO_URI environment variable is required")
 	}
 
+	// The session secret is used exactly as given: it keys the session and
+	// CSRF cookies, so trimming it would change them for a deployment whose
+	// secret happens to end in whitespace.
 	cfg.SessionSecret = os.Getenv("SESSION_SECRET")
 	if cfg.SessionSecret == "" {
 		return nil, fmt.Errorf("SESSION_SECRET environment variable is required")
 	}
 
-	cfg.BaseURL = os.Getenv("BASE_URL")
+	cfg.BaseURL = env("BASE_URL")
 	if cfg.BaseURL == "" {
 		cfg.BaseURL = "https://lightcms.fly.dev" // Default Fly.io URL
 	}
 
-	if port := os.Getenv("PORT"); port != "" {
+	if port := env("PORT"); port != "" {
 		cfg.Port = port
 	}
 
-	if env := os.Getenv("ENV"); env != "" {
-		cfg.Env = env
+	if e := env("ENV"); e != "" {
+		cfg.Env = e
 	}
 
 	// SecureCookies defaults to true in production
-	if secure := os.Getenv("SECURE_COOKIES"); secure == "false" {
+	if secure := env("SECURE_COOKIES"); secure == "false" {
 		cfg.SecureCookies = false
 	}
 
-	cfg.VoyageAPIKey = os.Getenv("VOYAGE_API_KEY")
-	cfg.ResendAPIKey = os.Getenv("RESEND_API_KEY")
-	cfg.EmailFrom = os.Getenv("EMAIL_FROM")
-	cfg.AnthropicAPIKey = os.Getenv("ANTHROPIC_API_KEY")
+	cfg.VoyageAPIKey = env("VOYAGE_API_KEY")
+	cfg.ResendAPIKey = env("RESEND_API_KEY")
+	cfg.EmailFrom = env("EMAIL_FROM")
+	cfg.AnthropicAPIKey = env("ANTHROPIC_API_KEY")
 
 	return cfg, nil
 }

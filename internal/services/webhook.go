@@ -7,12 +7,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"time"
 
 	"github.com/jonradoff/lightcms/v7/internal/database"
+	"github.com/jonradoff/lightcms/v7/internal/netguard"
 
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -54,11 +56,21 @@ type WebhookService struct {
 	retryDelays []time.Duration
 }
 
+// outboundTransport is the transport for requests to user-configured or
+// content-derived URLs (webhook targets, link checks). It is the SSRF guard:
+// a destination that resolves to a loopback, link-local or private address
+// is never contacted. A variable only so the package's tests, whose
+// receivers listen on 127.0.0.1, can swap it.
+var outboundTransport = netguard.Transport
+
 // NewWebhookService creates a WebhookService with a 10-second HTTP client that
-// does not follow redirects.
+// does not follow redirects and dials through the SSRF guard: webhook URLs
+// are user-configured, so a target on the server's own network is refused
+// (and the refusal is recorded in the delivery log).
 func NewWebhookService(db *database.DB) *WebhookService {
 	client := &http.Client{
-		Timeout: 10 * time.Second,
+		Timeout:   10 * time.Second,
+		Transport: outboundTransport,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
@@ -75,7 +87,12 @@ type webhookPayload struct {
 
 // FireEvent asynchronously fires event to all active matching webhooks.
 func (s *WebhookService) FireEvent(ctx context.Context, event string, data interface{}) {
+	// The caller's context is usually an HTTP request's, cancelled as soon
+	// as the handler returns — before this goroutine has looked up the
+	// webhooks. Delivery outlives the request, on its own deadline.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 60*time.Second)
 	go func() {
+		defer cancel()
 		// Build payload once.
 		p := webhookPayload{
 			Event:     event,
@@ -104,6 +121,11 @@ func (s *WebhookService) FireEvent(ctx context.Context, event string, data inter
 				continue
 			}
 			if err := s.deliver(ctx, wh, event, payload); err != nil {
+				// A blocked destination stays blocked: the refusal is in the
+				// delivery log, and retrying it would only repeat it.
+				if errors.Is(err, netguard.ErrBlockedAddress) {
+					continue
+				}
 				go s.retryWithBackoff(wh, event, payload)
 			}
 		}
@@ -124,7 +146,7 @@ func (s *WebhookService) deliver(ctx context.Context, wh WebhookDoc, event strin
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		s.logDelivery(wh.ID, event, 1, 0, false, err.Error())
+		s.logDelivery(wh.ID, event, 1, 0, false, deliveryError(err))
 		return err
 	}
 	defer resp.Body.Close()
@@ -140,6 +162,16 @@ func (s *WebhookService) deliver(ctx context.Context, wh WebhookDoc, event strin
 		return fmt.Errorf("webhook %s returned status %d", wh.URL, resp.StatusCode)
 	}
 	return nil
+}
+
+// deliveryError is the text recorded in the delivery log for a failed
+// request. A destination refused by the SSRF guard gets a message that says
+// so, instead of a bare dial error.
+func deliveryError(err error) string {
+	if errors.Is(err, netguard.ErrBlockedAddress) {
+		return "blocked: the webhook URL resolves to a private, loopback or link-local address, which LightCMS does not deliver to"
+	}
+	return err.Error()
 }
 
 // sign returns the HMAC-SHA256 signature in the form sha256=<hex>.

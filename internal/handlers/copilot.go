@@ -28,7 +28,7 @@ const copilotMaxTurns = 8
 const copilotMaxTokens = 2000
 
 func copilotModel() string {
-	if m := os.Getenv("LIGHTCMS_COPILOT_MODEL"); m != "" {
+	if m := strings.TrimSpace(os.Getenv("LIGHTCMS_COPILOT_MODEL")); m != "" {
 		return m
 	}
 	return "claude-sonnet-4-6"

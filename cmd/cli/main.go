@@ -4,6 +4,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/jonradoff/lightcms/v7/internal/apiclient"
 	"github.com/jonradoff/lightcms/v7/internal/cli"
@@ -42,10 +43,10 @@ func main() {
 
 	// Fall back to environment variables
 	if url == "" {
-		url = os.Getenv("LIGHTCMS_URL")
+		url = strings.TrimSpace(os.Getenv("LIGHTCMS_URL"))
 	}
 	if apiKey == "" {
-		apiKey = os.Getenv("LIGHTCMS_API_KEY")
+		apiKey = strings.TrimSpace(os.Getenv("LIGHTCMS_API_KEY"))
 	}
 	if url == "" {
 		url = "http://localhost:8082"

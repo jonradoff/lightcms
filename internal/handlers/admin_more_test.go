@@ -45,13 +45,6 @@ func TestAdminAudit_Actions(t *testing.T) {
 	if rr := postForm(t, h.ClearRateLimit, nil, map[string]string{"ip": "203.0.113.9"}); rr.Code >= 500 {
 		t.Errorf("ClearRateLimit: %d (%s)", rr.Code, rr.Body.String())
 	}
-	missing := "000000000000000000000abc"
-	if rr := postForm(t, h.ForceUnlock, nil, map[string]string{"id": missing}); rr.Code >= 500 {
-		t.Errorf("ForceUnlock: %d", rr.Code)
-	}
-	if rr := postForm(t, h.RefreshLock, nil, map[string]string{"id": missing}); rr.Code >= 500 {
-		t.Errorf("RefreshLock: %d", rr.Code)
-	}
 }
 
 func TestAdminMisc_Pages(t *testing.T) {

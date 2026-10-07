@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"encoding/json"
 	"net/http"
 	"strconv"
 	"time"
@@ -10,7 +9,6 @@ import (
 	"github.com/jonradoff/lightcms/v7/internal/services"
 
 	"github.com/gorilla/mux"
-	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 // AuditLogPage shows the audit log listing (admin only)
@@ -88,62 +86,4 @@ func (h *Handler) ClearRateLimit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Redirect(w, r, "/cm/audit", http.StatusSeeOther)
-}
-
-// ForceUnlock removes a content lock (admin only).
-func (h *Handler) ForceUnlock(w http.ResponseWriter, r *http.Request) {
-	user, ok := h.auth.GetCurrentUser(r)
-	if !ok || user.Role != "admin" {
-		http.Error(w, "Forbidden", http.StatusForbidden)
-		return
-	}
-	if h.lockService == nil {
-		http.Error(w, "Lock service unavailable", http.StatusServiceUnavailable)
-		return
-	}
-
-	contentIDStr := mux.Vars(r)["id"]
-	contentID, err := primitive.ObjectIDFromHex(contentIDStr)
-	if err != nil {
-		http.Error(w, "Invalid content ID", http.StatusBadRequest)
-		return
-	}
-
-	if err := h.lockService.ForceUnlock(r.Context(), contentID); err != nil {
-		http.Error(w, "Failed to force unlock", http.StatusInternalServerError)
-		return
-	}
-
-	http.Redirect(w, r, "/cm/content/"+contentIDStr, http.StatusSeeOther)
-}
-
-// RefreshLock extends the expiry of an existing content lock (heartbeat endpoint).
-func (h *Handler) RefreshLock(w http.ResponseWriter, r *http.Request) {
-	user, ok := h.auth.GetCurrentUser(r)
-	if !ok {
-		w.WriteHeader(http.StatusUnauthorized)
-		return
-	}
-	if h.lockService == nil {
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-
-	contentIDStr := mux.Vars(r)["id"]
-	contentID, err := primitive.ObjectIDFromHex(contentIDStr)
-	if err != nil {
-		http.Error(w, "Invalid content ID", http.StatusBadRequest)
-		return
-	}
-
-	userID, _ := primitive.ObjectIDFromHex(user.ID)
-	if err := h.lockService.RefreshLock(r.Context(), contentID, userID); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK) // Non-fatal — just log
-		json.NewEncoder(w).Encode(map[string]interface{}{"ok": false, "error": err.Error()})
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"ok": true})
 }

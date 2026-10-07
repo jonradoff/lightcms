@@ -117,7 +117,7 @@ func NewSearchService(db *database.DB, voyageAPIKey string) *SearchService {
 	return &SearchService{
 		db:            db,
 		voyageAPIKey:  voyageAPIKey,
-		embedProvider: strings.ToLower(os.Getenv("LIGHTCMS_EMBEDDINGS_PROVIDER")),
+		embedProvider: strings.ToLower(strings.TrimSpace(os.Getenv("LIGHTCMS_EMBEDDINGS_PROVIDER"))),
 		ollamaURL:     strings.TrimRight(getenvDefault("OLLAMA_URL", "http://localhost:11434"), "/"),
 		ollamaModel:   getenvDefault("OLLAMA_EMBED_MODEL", "nomic-embed-text"),
 		httpClient:    httpClient,
@@ -142,7 +142,7 @@ func (s *SearchService) EmbeddingsEnabled() bool {
 
 // getenvDefault returns the env var value or a default when unset.
 func getenvDefault(key, def string) string {
-	if v := os.Getenv(key); v != "" {
+	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
 		return v
 	}
 	return def

@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/jonradoff/lightcms/v7/internal/database"
 	"github.com/jonradoff/lightcms/v7/internal/middleware"
@@ -80,7 +81,7 @@ func (m *Manager) MigrateToMultiUser(ctx context.Context) error {
 	}
 
 	// Determine admin email from environment or use default
-	adminEmail := os.Getenv("LIGHTCMS_ADMIN_EMAIL")
+	adminEmail := strings.TrimSpace(os.Getenv("LIGHTCMS_ADMIN_EMAIL"))
 	if adminEmail == "" {
 		adminEmail = "admin@localhost"
 	}

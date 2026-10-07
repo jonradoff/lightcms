@@ -42,8 +42,11 @@ type LinkCheckerService struct {
 func NewLinkCheckerService(db *database.DB) *LinkCheckerService {
 	return &LinkCheckerService{
 		db: db,
+		// Any request this service makes is to a URL taken from page content,
+		// so its client dials through the SSRF guard.
 		httpClient: &http.Client{
-			Timeout: 10 * time.Second,
+			Timeout:   10 * time.Second,
+			Transport: outboundTransport,
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
 				return http.ErrUseLastResponse
 			},
@@ -90,6 +93,7 @@ func (s *LinkCheckerService) runJob(jobID primitive.ObjectID) {
 	cursor, err := s.db.FindMany(ctx, "content", bson.M{
 		"published": true,
 		"deleted":   bson.M{"$ne": true},
+		"fork_id":   nil, // live pages only
 	}, options.Find().SetProjection(bson.M{"full_path": 1, "title": 1, "data": 1}))
 	if err != nil {
 		s.markFailed(jobID, err)
@@ -190,6 +194,7 @@ func (s *LinkCheckerService) runJob(jobID primitive.ObjectID) {
 	allContent, err := s.db.FindMany(ctx, "content", bson.M{
 		"published":      true,
 		"deleted":        bson.M{"$ne": true},
+		"fork_id":        nil,
 		"internal_links": bson.M{"$exists": true, "$ne": []interface{}{}},
 	}, options.Find().SetProjection(bson.M{"full_path": 1, "internal_links": 1}))
 	if err == nil {

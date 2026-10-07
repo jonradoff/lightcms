@@ -3,6 +3,7 @@ package handlers
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -108,6 +109,7 @@ func (h *Handler) CreateFork(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	auditResource(r, fork.ID.Hex())
 	http.Redirect(w, r, "/cm/forks/"+fork.ID.Hex(), http.StatusSeeOther)
 }
 
@@ -265,12 +267,39 @@ func (h *Handler) ExitForkPreview(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   -1,
 		HttpOnly: true,
 	})
-	// Return to where they came from, or forks list
-	referer := r.Header.Get("Referer")
-	if referer == "" {
-		referer = "/cm/forks"
+	// Return to where they came from when that is a page of this site,
+	// otherwise the forks list. The Referer header is whatever the linking
+	// page was: redirecting to it as-is would be an open redirect.
+	http.Redirect(w, r, sameSitePath(r, r.Header.Get("Referer"), "/cm/forks"), http.StatusSeeOther)
+}
+
+// sameSitePath turns a URL taken from the request (a Referer header, a
+// return parameter) into a path on this site that is safe to redirect to,
+// or returns fallback. It accepts a relative path, or an absolute URL whose
+// host is the one the request was sent to, and keeps only path and query —
+// never a scheme or host. "//host" and "/\host" (which browsers read as
+// another origin) and anything unparsable fall back.
+func sameSitePath(r *http.Request, raw, fallback string) string {
+	if raw == "" || strings.ContainsAny(raw, "\\\r\n\t") {
+		return fallback
 	}
-	http.Redirect(w, r, referer, http.StatusSeeOther)
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fallback
+	}
+	if u.Scheme != "" || u.Host != "" {
+		if (u.Scheme != "http" && u.Scheme != "https") || !strings.EqualFold(u.Host, r.Host) {
+			return fallback
+		}
+	}
+	p := u.EscapedPath()
+	if !strings.HasPrefix(p, "/") || strings.HasPrefix(p, "//") || p == "/cm/forks/exit-preview" {
+		return fallback
+	}
+	if u.RawQuery != "" {
+		p += "?" + u.RawQuery
+	}
+	return p
 }
 
 // ---------------------------------------------------------------------------

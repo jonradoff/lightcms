@@ -122,7 +122,6 @@ func TestAdminRoutes_RefusalIsStyledAndChangesNothing(t *testing.T) {
 		{"contributor", "POST", "/cm/assets/000000000000000000000009/delete", nil, nil},
 		{"viewer", "POST", "/cm/api-keys/new", url.Values{"name": {"Viewer key"}}, none("api_keys", bson.M{"name": "Viewer key"})},
 		{"editor", "POST", "/cm/snippets/new", url.Values{"name": {"editor-snip"}, "html": {"<i>x</i>"}}, none("snippets", bson.M{"name": "editor-snip"})},
-		{"editor", "POST", "/cm/content/" + page.Hex() + "/lock/force", nil, nil},
 		// Pages that held something a low role should not see
 		{"viewer", "GET", "/cm/api-keys", nil, nil},
 		{"viewer", "GET", "/cm/approvals", nil, nil},
@@ -139,8 +138,6 @@ func TestAdminRoutes_RefusalIsStyledAndChangesNothing(t *testing.T) {
 
 	// Fetch endpoints answer in JSON
 	for _, a := range []attempt{
-		{"viewer", "POST", "/cm/upload", nil, nil},
-		{"viewer", "POST", "/cm/content/" + page.Hex() + "/lock/refresh", nil, nil},
 		{"editor", "POST", "/cm/tools/search/reindex", nil, nil},
 		{"contributor", "POST", "/cm/copilot/chat", nil, nil},
 	} {

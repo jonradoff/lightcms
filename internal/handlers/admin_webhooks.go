@@ -90,6 +90,7 @@ func (h *Handler) CreateWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	auditResource(r, wh.ID.Hex())
 	h.renderAdmin(w, r, "webhook_form", map[string]interface{}{
 		"IsNew":         false,
 		"Webhook":       wh,

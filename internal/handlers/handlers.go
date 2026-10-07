@@ -84,7 +84,6 @@ type Handler struct {
 	analyticsService *services.AnalyticsService
 	forkService      *services.ForkService
 	webhookService   *services.WebhookService
-	lockService      *services.LockService
 	importService    *services.ImportService
 	cfService        *services.CloudflareService
 	proxyConfig      *middleware.TrustedProxyConfig
@@ -132,11 +131,6 @@ func (h *Handler) SetContentService(cs *services.ContentService) {
 // SetWebhookService sets the webhook service
 func (h *Handler) SetWebhookService(ws *services.WebhookService) {
 	h.webhookService = ws
-}
-
-// SetLockService sets the lock service
-func (h *Handler) SetLockService(ls *services.LockService) {
-	h.lockService = ls
 }
 
 // SetCommentService sets the comment service
@@ -591,10 +585,12 @@ func (h *Handler) CreateTemplate(w http.ResponseWriter, r *http.Request) {
 	tmpl.UpdatedAt = time.Now()
 
 	ctx := r.Context()
-	if _, err := h.db.InsertOne(ctx, "templates", tmpl); err != nil {
+	newID, err := h.db.InsertOne(ctx, "templates", tmpl)
+	if err != nil {
 		h.renderAdmin(w, r, "template_form", map[string]interface{}{"IsNew": true, "Error": err.Error(), "Template": tmpl})
 		return
 	}
+	auditResource(r, newID.Hex())
 
 	http.Redirect(w, r, "/cm/templates", http.StatusSeeOther)
 }
@@ -1099,6 +1095,7 @@ func (h *Handler) CreateContent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	content.ID = id
+	auditResource(r, id.Hex())
 
 	// Save the initial version (v1)
 	if err := h.saveContentVersion(ctx, &content); err != nil {
@@ -1422,6 +1419,7 @@ func (h *Handler) UpdateContent(w http.ResponseWriter, r *http.Request) {
 			"full_path": fullPath,
 			"_id":       bson.M{"$ne": existingContent.ID},
 			"deleted":   bson.M{"$ne": true},
+			"fork_id":   pathScope(existingContent.ForkID),
 		}, &existingAtPath)
 		if err == nil {
 			// Found existing content at this path - redirect back with error
@@ -1784,10 +1782,12 @@ func (h *Handler) UndeleteContent(w http.ResponseWriter, r *http.Request) {
 
 	// Check if another content exists at this path
 	var existingContent models.Content
+	// (among live pages for a live page, within its fork for a fork copy)
 	err = h.db.FindOne(ctx, "content", bson.M{
 		"full_path": fullPath,
 		"deleted":   bson.M{"$ne": true},
 		"_id":       bson.M{"$ne": id},
+		"fork_id":   pathScope(content.ForkID),
 	}, &existingContent)
 	if err == nil {
 		// Another content exists at this path - redirect with error
@@ -2372,7 +2372,8 @@ func (h *Handler) CreateCollection(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	if _, err := h.db.InsertOne(ctx, "collections", collection); err != nil {
+	newID, err := h.db.InsertOne(ctx, "collections", collection)
+	if err != nil {
 		h.renderAdmin(w, r, "collection_form", map[string]interface{}{
 			"IsNew":      true,
 			"Collection": collection,
@@ -2380,6 +2381,7 @@ func (h *Handler) CreateCollection(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	auditResource(r, newID.Hex())
 
 	http.Redirect(w, r, "/cm/collections", http.StatusSeeOther)
 }
@@ -2554,7 +2556,8 @@ func (h *Handler) CreateFolder(w http.ResponseWriter, r *http.Request) {
 		UpdatedAt: time.Now(),
 	}
 
-	if _, err := h.db.InsertOne(ctx, "folders", folder); err != nil {
+	newID, err := h.db.InsertOne(ctx, "folders", folder)
+	if err != nil {
 		folders := h.getAllFolders(ctx)
 		h.renderAdmin(w, r, "folder_form", map[string]interface{}{
 			"IsNew":   true,
@@ -2564,6 +2567,7 @@ func (h *Handler) CreateFolder(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	auditResource(r, newID.Hex())
 
 	http.Redirect(w, r, "/cm/folders", http.StatusSeeOther)
 }
@@ -2808,9 +2812,12 @@ func (h *Handler) updateContentFolderPaths(ctx context.Context, oldFolderPath, n
 			updatedFullPath = updatedFolderPath + "/" + c.Slug
 		}
 
-		// Delete old static file
-		oldStaticPath := h.getStaticFilePath(c.FullPath)
-		os.Remove(oldStaticPath)
+		// Delete the old static file: a live page's only (a fork copy has
+		// none, and its path is the live page's), and never for an empty
+		// full_path, which getStaticFilePath maps to the homepage's file.
+		if c.ForkID == nil {
+			h.removeStaticPage(c.FullPath)
+		}
 
 		h.db.UpdateOne(ctx, "content", bson.M{"_id": c.ID}, bson.M{
 			"$set": bson.M{
@@ -3086,6 +3093,7 @@ func (h *Handler) RevertThemeVersion(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	version, err := h.db.GetThemeVersion(ctx, versionNum)
 	if err != nil {
+		auditSkip(r) // no such version: nothing was reverted
 		http.Redirect(w, r, "/cm/theme/versions", http.StatusSeeOther)
 		return
 	}
@@ -3343,6 +3351,7 @@ func (h *Handler) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	auditResource(r, apiKey.ID.Hex())
 	h.renderAdmin(w, r, "api_key_created", map[string]interface{}{
 		"RawKey": rawKey,
 		"APIKey": apiKey,
@@ -3359,6 +3368,7 @@ func (h *Handler) DeleteAPIKey(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id, err := primitive.ObjectIDFromHex(vars["id"])
 	if err != nil {
+		auditSkip(r) // nothing was revoked
 		http.Redirect(w, r, "/cm/api-keys", http.StatusSeeOther)
 		return
 	}
@@ -3369,6 +3379,7 @@ func (h *Handler) DeleteAPIKey(w http.ResponseWriter, r *http.Request) {
 	if user != nil && auth.HasPermission(user.Role, auth.PermAPIKeyManageAll) {
 		if err := h.apiKeyService.DeleteAPIKey(r.Context(), id); err != nil {
 			log.Printf("Failed to delete API key: %v", err)
+			auditSkip(r) // nothing was revoked
 		}
 	} else {
 		// DeleteAPIKeyForUser deletes nothing for a key that is not the
@@ -3491,60 +3502,6 @@ func (h *Handler) UpdateSiteConfiguration(w http.ResponseWriter, r *http.Request
 		"SiteName": theme.SiteName,
 		"Success":  "Configuration saved successfully!",
 	})
-}
-
-// File upload handler
-func (h *Handler) UploadFile(w http.ResponseWriter, r *http.Request) {
-	if !h.auth.IsAuthenticated(r) {
-		http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		return
-	}
-
-	maxBytes := h.uploadMaxBytes(r.Context())
-	r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
-	r.ParseMultipartForm(maxBytes)
-	file, header, err := r.FormFile("file")
-	if err != nil {
-		http.Error(w, "No file uploaded", http.StatusBadRequest)
-		return
-	}
-	defer file.Close()
-
-	// Validate file extension
-	ext := strings.ToLower(filepath.Ext(header.Filename))
-	if !middleware.IsAllowedFileType(ext) {
-		http.Error(w, "File type not allowed", http.StatusBadRequest)
-		return
-	}
-
-	// Read file data (bounded to configured max upload size)
-	data, err := io.ReadAll(io.LimitReader(file, maxBytes))
-	if err != nil {
-		h.errors.HTTPError(w, err, http.StatusInternalServerError)
-		return
-	}
-
-	// Validate MIME type matches extension
-	detectedMIME := http.DetectContentType(data)
-	if !middleware.ValidateMIMEType(ext, detectedMIME) {
-		log.Printf("MIME type mismatch in upload: extension=%s, detected=%s", ext, detectedMIME)
-		http.Error(w, "File content does not match its extension", http.StatusBadRequest)
-		return
-	}
-
-	// Sanitize the original filename (remove any path components)
-	safeFilename := filepath.Base(header.Filename)
-	// Generate unique filename with timestamp
-	filename := fmt.Sprintf("%d_%s", time.Now().UnixNano(), safeFilename)
-	uploadPath := filepath.Join("static/uploads", filename)
-
-	if err := os.WriteFile(uploadPath, data, 0644); err != nil {
-		h.errors.HTTPError(w, err, http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	fmt.Fprintf(w, `{"location": "/uploads/%s"}`, filename)
 }
 
 // API handler for template fields
@@ -3708,17 +3665,20 @@ func (h *Handler) ServePage(w http.ResponseWriter, r *http.Request) {
 
 	// Look up content from database - try full_path first, fall back to slug for legacy
 	var content models.Content
-	filter := bson.M{"published": true, "full_path": fullPath, "fork_id": bson.M{"$exists": false}}
+	// Live pages only: never a fork copy, never a soft-deleted page (a page
+	// deleted through the API keeps its published flag and its path).
+	filter := bson.M{"published": true, "full_path": fullPath, "fork_id": nil, "deleted": bson.M{"$ne": true}}
 	if err := h.db.FindOne(ctx, "content", filter, &content); err != nil {
 		// Fall back to legacy slug lookup
-		legacyFilter := bson.M{"published": true, "slug": slug, "fork_id": bson.M{"$exists": false}}
+		legacyFilter := bson.M{"published": true, "slug": slug, "fork_id": nil, "deleted": bson.M{"$ne": true}}
 		if err := h.db.FindOne(ctx, "content", legacyFilter, &content); err != nil {
 			// Paths are case-insensitive: try a case-insensitive match and
 			// 301 to the canonical casing (e.g. /claude.md -> /CLAUDE.md).
 			ciFilter := bson.M{
 				"published": true,
 				"full_path": bson.M{"$regex": "^" + regexp.QuoteMeta(fullPath) + "$", "$options": "i"},
-				"fork_id":   bson.M{"$exists": false},
+				"fork_id":   nil,
+				"deleted":   bson.M{"$ne": true},
 			}
 			if err := h.db.FindOne(ctx, "content", ciFilter, &content); err == nil && content.FullPath != fullPath {
 				w.Header().Set("Cache-Control", "public, max-age=3600")
@@ -3782,6 +3742,7 @@ func (h *Handler) servePageContent(w http.ResponseWriter, r *http.Request, conte
 			htmlContent = injectHead(htmlContent, head)
 		}
 		if activeFork != nil {
+			w.Header().Set("Cache-Control", "private, no-store")
 			htmlContent = forkPreviewBar(activeFork) + htmlContent
 		}
 		w.Write([]byte(htmlContent))
@@ -3845,7 +3806,14 @@ func (h *Handler) serveCollection(w http.ResponseWriter, r *http.Request, collec
 	}
 
 	opts := options.Find().SetSort(bson.D{{Key: sortField, Value: sortOrder}})
-	cursor, err := h.db.FindMany(ctx, "content", bson.M{"category": collection.Category, "published": true}, opts)
+	// Live pages only: a fork copy flagged published and a soft-deleted page
+	// are not on the site and must not be listed on a public collection page.
+	cursor, err := h.db.FindMany(ctx, "content", bson.M{
+		"category":  collection.Category,
+		"published": true,
+		"deleted":   bson.M{"$ne": true},
+		"fork_id":   nil,
+	}, opts)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -3897,7 +3865,7 @@ func (h *Handler) serve404(w http.ResponseWriter, r *http.Request, theme *databa
 
 	// Try to serve 404 content page
 	var content404 models.Content
-	if err := h.db.FindOne(ctx, "content", bson.M{"slug": "404", "published": true}, &content404); err == nil {
+	if err := h.db.FindOne(ctx, "content", bson.M{"slug": "404", "published": true, "deleted": bson.M{"$ne": true}, "fork_id": nil}, &content404); err == nil {
 		// Try static file first
 		staticPath := "content/generated/404.html"
 		if _, err := os.Stat(staticPath); err == nil {
@@ -3979,7 +3947,7 @@ func (h *Handler) generateStaticPage(ctx context.Context, content *models.Conten
 // regenerateAllContent regenerates all published content (used when header/footer/templates change)
 func (h *Handler) regenerateAllContent(ctx context.Context) {
 	// Regenerate all published content items
-	cursor, err := h.db.FindMany(ctx, "content", bson.M{"published": true})
+	cursor, err := h.db.FindMany(ctx, "content", bson.M{"published": true, "deleted": bson.M{"$ne": true}, "fork_id": nil})
 	if err != nil {
 		return
 	}
@@ -4000,7 +3968,7 @@ func (h *Handler) regenerateAllContent(ctx context.Context) {
 
 // regenerateContentByTemplate regenerates all content using a specific template
 func (h *Handler) regenerateContentByTemplate(ctx context.Context, templateID primitive.ObjectID) {
-	cursor, err := h.db.FindMany(ctx, "content", bson.M{"template_id": templateID, "published": true})
+	cursor, err := h.db.FindMany(ctx, "content", bson.M{"template_id": templateID, "published": true, "deleted": bson.M{"$ne": true}, "fork_id": nil})
 	if err != nil {
 		return
 	}
@@ -4079,6 +4047,16 @@ func (h *Handler) renderPublicWithSEO(w http.ResponseWriter, r *http.Request, th
 	head += h.feedLinks(r, h.seoConfig(ctx), theme.SiteName)
 	if head != "" {
 		data["StructuredData"] = template.HTML(head)
+	}
+
+	// A fork preview is one editor's view of unpublished work: it is never
+	// cached, by the browser (Exit Preview would keep showing the copy) or by
+	// a CDN (which would serve it to everyone).
+	if h.getActiveForkPreview(r) != nil {
+		w.Header().Set("Cache-Control", "private, no-store")
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		tmpl.Execute(w, data)
+		return
 	}
 
 	// ETag and caching headers for public pages
@@ -4171,6 +4149,11 @@ func (h *Handler) renderAdmin(w http.ResponseWriter, r *http.Request, name strin
 func (h *Handler) renderAdminStatus(w http.ResponseWriter, r *http.Request, status int, name string, data map[string]interface{}) {
 	if data == nil {
 		data = make(map[string]interface{})
+	}
+	// A page rendered with an Error is a request that did not go through:
+	// an audited route writes no audit entry for it (admin_audit_wrap.go).
+	if e, ok := data["Error"]; ok && e != nil && e != "" {
+		auditSkip(r)
 	}
 	data["IsAuthenticated"] = h.auth.IsAuthenticated(r)
 
@@ -4678,7 +4661,8 @@ func (h *Handler) CreateRedirect(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
-	if _, err := h.db.InsertOne(ctx, "redirects", redirect); err != nil {
+	newID, err := h.db.InsertOne(ctx, "redirects", redirect)
+	if err != nil {
 		h.renderAdmin(w, r, "redirect_form", map[string]interface{}{
 			"IsNew":    true,
 			"Error":    "Failed to create redirect: " + err.Error(),
@@ -4686,6 +4670,7 @@ func (h *Handler) CreateRedirect(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	auditResource(r, newID.Hex())
 
 	http.Redirect(w, r, "/cm/redirects", http.StatusSeeOther)
 }
@@ -5183,6 +5168,9 @@ func (h *Handler) AssetUpload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	// SaveAsset upserts by path and does not return the id: the path
+	// identifies the asset in the audit entry.
+	auditDetail(r, "serve_path", servePath)
 
 	http.Redirect(w, r, "/cm/assets", http.StatusSeeOther)
 }
@@ -5786,6 +5774,7 @@ func (h *Handler) FixBrokenLink(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"error": "Content not found"})
 		return
 	}
+	auditResource(r, objectID.Hex())
 
 	// Store original content for versioning
 	originalContent := content
@@ -6111,16 +6100,23 @@ func (h *Handler) CheckSlug(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Build filter to find content at this path
+	// Build filter to find content at this path. Live pages only: a fork
+	// copy shares its live page's path and is not "a page at this path".
 	filter := bson.M{
 		"full_path": path,
 		"deleted":   bson.M{"$ne": true},
+		"fork_id":   nil,
 	}
 
-	// Exclude specific content ID if provided (for editing)
+	// Exclude specific content ID if provided (for editing). When the page
+	// being edited is a fork copy, the question is asked inside its fork.
 	if excludeID != "" {
 		if oid, err := primitive.ObjectIDFromHex(excludeID); err == nil {
 			filter["_id"] = bson.M{"$ne": oid}
+			var editing models.Content
+			if err := h.db.FindOne(ctx, "content", bson.M{"_id": oid}, &editing); err == nil {
+				filter["fork_id"] = pathScope(editing.ForkID)
+			}
 		}
 	}
 
@@ -6138,6 +6134,18 @@ func (h *Handler) CheckSlug(w http.ResponseWriter, r *http.Request) {
 			"title":  existingContent.Title,
 		})
 	}
+}
+
+// pathScope is the fork_id condition for "is there another page at this
+// path": among live pages when the page being saved is live (nil matches a
+// missing or null fork_id), inside its own fork when it is a fork copy. A
+// fork copy shares its live page's path, so an unscoped check lets a copy
+// block a live page's slug and a live page block a copy's.
+func pathScope(forkID *primitive.ObjectID) interface{} {
+	if forkID == nil {
+		return nil
+	}
+	return *forkID
 }
 
 // requireSearchReplace gates the admin search-and-replace endpoints on the
@@ -6583,13 +6591,15 @@ func (h *Handler) CreateSnippet(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	if _, err := h.snippetService.CreateSnippet(r.Context(), name, html); err != nil {
+	snip, err := h.snippetService.CreateSnippet(r.Context(), name, html)
+	if err != nil {
 		h.renderAdmin(w, r, "snippet_form", map[string]interface{}{
 			"Title": "New Snippet",
 			"Error": err.Error(),
 		})
 		return
 	}
+	auditResource(r, snip.ID.Hex())
 	http.Redirect(w, r, "/cm/snippets", http.StatusFound)
 }
 
