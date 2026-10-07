@@ -18,6 +18,9 @@ All notable changes to LightCMS are documented here, organized by version.
 - **Admin forms work over plain HTTP in local development.** With `secure_cookies: false`, every admin POST on `http://localhost` failed with "Invalid or missing CSRF token" because the CSRF library assumes HTTPS when it checks the request origin. Requests are now treated as plain HTTP when secure cookies are off and the connection has no TLS. Production (`secure_cookies: true`) keeps the strict HTTPS check. The log line for a rejected request now includes the reason.
 - **No more native browser dialogs in the admin.** Deleting a comment, reverting a theme version, deleting a webhook, regenerating a webhook secret, deleting an RSS source, approving a request and deleting an approval workflow now ask through the styled confirm dialog. Comment, approval and workflow errors, the "Comment required" and "Name is required" checks, and "URL copied" in the asset library are styled messages. Server error text in these messages is shown as text, never as HTML.
 - **Webhook edit page: "Regenerate Secret" and "Save Changes" do what they say.** The regenerate form was nested inside the edit form, which browsers do not allow: "Regenerate Secret" saved the webhook instead of regenerating, and the event checkboxes, the Active box and "Save Changes" were cut out of the form.
+- **"Delete Page" in the content editor deletes the page.** Its form was nested inside the edit form, which browsers do not allow, so the button submitted Update and the page was saved instead of deleted. The delete form now sits outside the edit form, with the button still beside Update and the same styled confirmation.
+- **A comment you just posted has its Delete button straight away** (admins). The role was double-quoted on its way into the page script, so the button appeared only after a reload.
+- **Search-and-replace messages show server text as text.** The "Replace Failed" and "Replace Complete" dialogs put the server's error message, the exception text and the page count into the dialog as HTML; they are now escaped like the other dialogs.
 
 ### Added
 - **`DATABASE_NAME`** environment variable (and `database_name` in the JSON config) selects the MongoDB database for the server and the `cmd/` tools (`resetpw`, `addchat`, `addchat-spa`, `migrate-hourly-bots`). Default `lightcms`, so existing installs are unaffected. The server logs the database in use at startup.
@@ -25,6 +28,7 @@ All notable changes to LightCMS are documented here, organized by version.
 ### Changed
 - README tool counts corrected (129 tools, with the full category breakdown).
 - Tests fail the build if an admin template loads a script or stylesheet the admin CSP does not allow, if any served template or JS file calls `alert()`, `confirm()` or `prompt()`, or if the vendored Quill files differ from their recorded hashes.
+- Tests also fail the build if a form is nested inside another form in any served template, if a template pre-quotes a value with `printf "%q"`, or if a `showAlert`/`showConfirm` message is neither a fixed string nor wrapped in `dialogText()`.
 
 ---
 

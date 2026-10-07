@@ -1060,20 +1060,20 @@ var adminTemplates = map[string]string{
                     .then(function(response) { return response.json(); })
                     .then(function(data) {
                         if (data.error) {
-                            showAlert('Error: ' + data.error, 'Replace Failed');
+                            showAlert(dialogText('Error: ' + data.error), 'Replace Failed');
                             executeBtn.disabled = false;
                             executeBtn.textContent = 'Accept Replacements';
                         } else {
                             closeReplacePreview();
                             closeSearchModal();
-                            showAlert('Successfully updated ' + data.updated_count + ' page(s).', 'Replace Complete', function() {
+                            showAlert(dialogText('Successfully updated ' + data.updated_count + ' page(s).'), 'Replace Complete', function() {
                                 // Reload the page to see changes
                                 window.location.reload();
                             });
                         }
                     })
                     .catch(function(err) {
-                        showAlert('Failed to execute replace: ' + err.message, 'Replace Failed');
+                        showAlert(dialogText('Failed to execute replace: ' + err.message), 'Replace Failed');
                         executeBtn.disabled = false;
                         executeBtn.textContent = 'Accept Replacements';
                     });
@@ -1731,13 +1731,16 @@ var adminTemplates = map[string]string{
                     <button type="submit" class="btn btn-primary">{{if .IsNew}}Create{{else}}Update{{end}}</button>
                 </div>
                 {{if not .IsNew}}
-                <form method="POST" action="/cm/content/{{.Content.ID.Hex}}/delete" onsubmit="return confirmDelete(this, 'Are you sure you want to delete this page? This cannot be undone.')">
-                    {{$.CSRFField}}
-                    <button type="submit" class="btn btn-danger">Delete Page</button>
-                </form>
+                <button type="submit" form="delete-page-form" class="btn btn-danger">Delete Page</button>
                 {{end}}
             </div>
         </form>
+        {{if not .IsNew}}
+        <!-- Separate form (a form cannot nest inside the edit form); the Delete Page button points here with form= -->
+        <form id="delete-page-form" method="POST" action="/cm/content/{{.Content.ID.Hex}}/delete" onsubmit="return confirmDelete(this, 'Are you sure you want to delete this page? This cannot be undone.')">
+            {{$.CSRFField}}
+        </form>
+        {{end}}
 
         <!-- Redirect confirmation modal -->
         <div id="redirect-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.7); z-index: 10000; align-items: center; justify-content: center;">
@@ -2170,7 +2173,8 @@ var adminTemplates = map[string]string{
             return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
         }
 
-        const currentUserRole = {{printf "%q" .CurrentUserRole}};
+        // html/template quotes and escapes the value in script context; do not pre-quote it
+        const currentUserRole = {{.CurrentUserRole}};
         </script>
         {{end}}
 
