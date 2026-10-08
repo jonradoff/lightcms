@@ -126,6 +126,7 @@ func (a *APIHandler) APICreateImportSource(w http.ResponseWriter, r *http.Reques
 		a.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	a.auditLog(r, "import_source.create", "import_source", src.ID.Hex(), map[string]interface{}{"name": src.Name, "url": src.URL})
 	a.jsonResponse(w, http.StatusCreated, src)
 }
 
@@ -206,6 +207,8 @@ func (a *APIHandler) APIUpdateImportSource(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	a.auditLog(r, "import_source.update", "import_source", id.Hex(), nil)
+
 	src, err := a.importService.GetSource(r.Context(), id)
 	if err != nil {
 		a.jsonError(w, http.StatusInternalServerError, err.Error())
@@ -237,6 +240,7 @@ func (a *APIHandler) APIDeleteImportSource(w http.ResponseWriter, r *http.Reques
 		a.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	a.auditLog(r, "import_source.delete", "import_source", id.Hex(), nil)
 	a.jsonResponse(w, http.StatusOK, map[string]interface{}{"success": true})
 }
 
@@ -269,6 +273,7 @@ func (a *APIHandler) APITriggerImportSource(w http.ResponseWriter, r *http.Reque
 		a.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	a.auditLog(r, "import_source.trigger", "import_source", id.Hex(), map[string]interface{}{"job_id": job.ID.Hex()})
 	a.jsonResponse(w, http.StatusOK, map[string]interface{}{
 		"job_id":  job.ID.Hex(),
 		"message": "Import started",
@@ -334,6 +339,7 @@ func (a *APIHandler) APIImportMarkdown(w http.ResponseWriter, r *http.Request) {
 		a.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	a.auditLog(r, "import.markdown", "import", job.ID.Hex(), map[string]interface{}{"pages": len(pages)})
 	a.jsonResponse(w, http.StatusOK, map[string]interface{}{
 		"job_id":  job.ID.Hex(),
 		"message": "Markdown import started",
@@ -419,6 +425,7 @@ func (a *APIHandler) APIImportCSV(w http.ResponseWriter, r *http.Request) {
 		a.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	a.auditLog(r, "import.csv", "import", job.ID.Hex(), map[string]interface{}{"rows": len(records)})
 	a.jsonResponse(w, http.StatusOK, map[string]interface{}{
 		"job_id":  job.ID.Hex(),
 		"message": "CSV import started",

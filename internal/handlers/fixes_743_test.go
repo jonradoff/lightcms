@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -609,8 +610,19 @@ func TestUpdateContentFolderPaths_LeavesHomepageAndLiveFilesAlone(t *testing.T) 
 	// A normal published page in the folder
 	writeStatic(t, "/f10-old/page", "<p>OLD</p>")
 	page := seedPage(t, h.db, models.Content{TemplateID: tmplID, Title: "Page", Slug: "page", FolderPath: "/f10-old", FullPath: "/f10-old/page", Published: true})
+	// Pages below the folder move with it; a sibling folder whose name
+	// merely starts the same way does not.
+	nested := seedPage(t, h.db, models.Content{TemplateID: tmplID, Title: "Nested", Slug: "deep", FolderPath: "/f10-old/sub", FullPath: "/f10-old/sub/deep"})
+	sibling := seedPage(t, h.db, models.Content{TemplateID: tmplID, Title: "Sibling", Slug: "page", FolderPath: "/f10-older", FullPath: "/f10-older/page"})
 
 	h.updateContentFolderPaths(ctx, "/f10-old", "/f10-new")
+
+	if c := loadPage(t, h.db, nested); c.FullPath != "/f10-new/sub/deep" || c.FolderPath != "/f10-new/sub" {
+		t.Errorf("nested page not moved: %q in %q", c.FullPath, c.FolderPath)
+	}
+	if c := loadPage(t, h.db, sibling); c.FullPath != "/f10-older/page" || c.FolderPath != "/f10-older" {
+		t.Errorf("page in sibling folder /f10-older was moved: %q in %q", c.FullPath, c.FolderPath)
+	}
 
 	assertStatic(t, "folder rename with a legacy empty-path row", "/index", home)
 	assertStatic(t, "folder rename with a fork copy in the folder", "/f10-elsewhere", live)
@@ -662,7 +674,8 @@ func TestForkPreview_ResponsesAreNotCacheable(t *testing.T) {
 	defer cleanup()
 
 	tmplID := seedTemplate(t, h.db, "Page", "page")
-	forkID := createTestFork(t, h.db, "fpc")
+	forkName := "fpc-" + primitive.NewObjectID().Hex() // the preview token is derived from the name
+	forkID := createTestFork(t, h.db, forkName)
 	seedPage(t, h.db, models.Content{TemplateID: tmplID, Title: "FPC Live", Slug: "fpc-page", FullPath: "/fpc-page", Published: true})
 	seedPage(t, h.db, models.Content{TemplateID: tmplID, Title: "FPC Fork Copy", Slug: "fpc-page", FullPath: "/fpc-page", ForkID: &forkID})
 
@@ -670,7 +683,7 @@ func TestForkPreview_ResponsesAreNotCacheable(t *testing.T) {
 		req := httptest.NewRequest("GET", "/fpc-page", nil)
 		req = mux.SetURLVars(req, map[string]string{"slug": "fpc-page"})
 		if preview {
-			req.AddCookie(&http.Cookie{Name: forkPreviewCookie, Value: "tok-fpc"})
+			req.AddCookie(&http.Cookie{Name: forkPreviewCookie, Value: "tok-" + forkName})
 		}
 		rr := httptest.NewRecorder()
 		h.ServePage(rr, req)
@@ -694,5 +707,33 @@ func TestForkPreview_ResponsesAreNotCacheable(t *testing.T) {
 	}
 	if cc := rr.Header().Get("Cache-Control"); !strings.Contains(cc, "public") {
 		t.Errorf("live: Cache-Control %q, want the public cache headers", cc)
+	}
+}
+
+// Webhook changes made through the API are audit-logged under the action
+// names the admin UI routes use.
+func TestAPIWebhooks_AreAuditLogged(t *testing.T) {
+	ah, db, cleanup := newTestAPIHandler(t)
+	defer cleanup()
+
+	rr := doJSON(t, ah.APICreateWebhook, http.MethodPost, map[string]interface{}{
+		"name": "audited-hook", "url": "https://example.com/h", "events": []string{"content.create"}, "active": true,
+	}, nil)
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("APICreateWebhook: %d (%s)", rr.Code, rr.Body.String())
+	}
+	var created map[string]interface{}
+	json.Unmarshal(rr.Body.Bytes(), &created)
+	id, _ := created["id"].(string)
+	vars := map[string]string{"id": id}
+
+	doJSON(t, ah.APIUpdateWebhook, http.MethodPut, map[string]interface{}{"name": "audited-hook-2"}, vars)
+	doJSON(t, ah.APIRegenerateWebhookSecret, http.MethodPost, nil, vars)
+	doJSON(t, ah.APIDeleteWebhook, http.MethodDelete, nil, vars)
+
+	for _, action := range []string{"webhook.create", "webhook.update", "webhook.regenerate_secret", "webhook.delete"} {
+		if _, ok := waitAudit(t, db, bson.M{"action": action, "resource_id": id}); !ok {
+			t.Errorf("no %s audit entry for webhook %s", action, id)
+		}
 	}
 }

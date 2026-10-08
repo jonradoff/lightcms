@@ -871,7 +871,7 @@ var adminTemplates = map[string]string{
                         displaySearchResults(results, query, includeDeleted);
                     })
                     .catch(function(err) {
-                        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 2rem; color: var(--danger);">Search failed: ' + err.message + '</td></tr>';
+                        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 2rem; color: var(--danger);">Search failed: ' + escapeHtml(err.message) + '</td></tr>';
                     });
             }
 
@@ -6647,11 +6647,11 @@ async function doSearch(q) {
             <div style="margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid rgba(99, 102, 241, 0.2);">
                 <h3 style="margin-bottom: 1rem;">Account Actions</h3>
                 <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
-                    <form method="POST" action="/cm/users/{{.EditUser.ID.Hex}}/toggle-disabled" style="display:inline;">
+                    <form method="POST" action="/cm/users/{{.EditUser.ID.Hex}}/toggle-disabled" style="display:inline;"{{if not .EditUser.Disabled}} data-confirm="Disable the account {{.EditUser.Email}}? They will be signed out and unable to sign in until it is enabled again." data-confirm-title="Disable Account"{{end}}>
                         {{.CSRFField}}
                         <button type="submit" class="btn btn-outline">{{if .EditUser.Disabled}}Enable Account{{else}}Disable Account{{end}}</button>
                     </form>
-                    <form method="POST" action="/cm/users/{{.EditUser.ID.Hex}}/reset-password" style="display:inline;">
+                    <form method="POST" action="/cm/users/{{.EditUser.ID.Hex}}/reset-password" style="display:inline;" data-confirm="Reset the password for {{.EditUser.Email}}? Their current password stops working and they get a temporary one." data-confirm-title="Reset Password">
                         {{.CSRFField}}
                         <button type="submit" class="btn btn-outline">Reset Password</button>
                     </form>

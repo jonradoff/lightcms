@@ -10,6 +10,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -1423,7 +1424,7 @@ func (h *Handler) UpdateContent(w http.ResponseWriter, r *http.Request) {
 		}, &existingAtPath)
 		if err == nil {
 			// Found existing content at this path - redirect back with error
-			http.Redirect(w, r, fmt.Sprintf("/cm/content/%s?error=slug_exists&path=%s", existingContent.ID.Hex(), fullPath), http.StatusSeeOther)
+			http.Redirect(w, r, fmt.Sprintf("/cm/content/%s?error=slug_exists&path=%s", existingContent.ID.Hex(), url.QueryEscape(fullPath)), http.StatusSeeOther)
 			return
 		}
 
@@ -2797,16 +2798,17 @@ func (h *Handler) updateFolderPaths(ctx context.Context, oldPath, newPath string
 
 // Update content folder paths and full paths when folder path changes
 func (h *Handler) updateContentFolderPaths(ctx context.Context, oldFolderPath, newFolderPath string) {
-	// Find all content with folder_path starting with old path
+	// Find all content in the folder or below it: the folder's own path or
+	// one that continues with "/" (renaming /blog must not touch /blogging).
 	cursor, _ := h.db.FindMany(ctx, "content", bson.M{
-		"folder_path": bson.M{"$regex": "^" + regexp.QuoteMeta(oldFolderPath)},
+		"folder_path": bson.M{"$regex": "^" + regexp.QuoteMeta(oldFolderPath) + "(/|$)"},
 	})
 
 	var contents []models.Content
 	cursor.All(ctx, &contents)
 
 	for _, c := range contents {
-		updatedFolderPath := strings.Replace(c.FolderPath, oldFolderPath, newFolderPath, 1)
+		updatedFolderPath := newFolderPath + strings.TrimPrefix(c.FolderPath, oldFolderPath)
 		updatedFullPath := updatedFolderPath
 		if c.Slug != "" {
 			updatedFullPath = updatedFolderPath + "/" + c.Slug
