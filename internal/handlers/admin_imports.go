@@ -261,6 +261,7 @@ func (h *Handler) CreateRSSSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	auditResource(r, src.ID.Hex())
 	http.Redirect(w, r, "/cm/imports", http.StatusSeeOther)
 }
 
@@ -412,6 +413,7 @@ func (h *Handler) TriggerRSSSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	auditDetail(r, "job_id", job.ID.Hex())
 	http.Redirect(w, r, "/cm/imports/"+job.ID.Hex(), http.StatusSeeOther)
 }
 
@@ -487,6 +489,7 @@ func (h *Handler) DoImportMarkdown(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	auditDetail(r, "job_id", job.ID.Hex())
 	http.Redirect(w, r, "/cm/imports/"+job.ID.Hex(), http.StatusSeeOther)
 }
 
@@ -573,5 +576,6 @@ func (h *Handler) DoImportCSV(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	auditDetail(r, "job_id", job.ID.Hex())
 	http.Redirect(w, r, "/cm/imports/"+job.ID.Hex(), http.StatusSeeOther)
 }

@@ -96,6 +96,8 @@ func (a *APIHandler) APICreateWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	a.auditLog(r, "webhook.create", "webhook", wh.ID.Hex(), map[string]interface{}{"name": wh.Name, "url": wh.URL})
+
 	// Return secret ONCE in create response
 	a.jsonResponse(w, http.StatusCreated, map[string]interface{}{
 		"id":         wh.ID.Hex(),
@@ -163,6 +165,8 @@ func (a *APIHandler) APIUpdateWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	a.auditLog(r, "webhook.update", "webhook", id.Hex(), map[string]interface{}{"name": name, "url": url})
+
 	updated, _ := a.webhookService.Get(r.Context(), id)
 	a.jsonResponse(w, http.StatusOK, map[string]interface{}{
 		"id":         updated.ID.Hex(),
@@ -194,6 +198,7 @@ func (a *APIHandler) APIDeleteWebhook(w http.ResponseWriter, r *http.Request) {
 		a.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	a.auditLog(r, "webhook.delete", "webhook", id.Hex(), nil)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -224,6 +229,8 @@ func (a *APIHandler) APIRegenerateWebhookSecret(w http.ResponseWriter, r *http.R
 		a.jsonError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+
+	a.auditLog(r, "webhook.regenerate_secret", "webhook", id.Hex(), nil)
 
 	// Return new secret ONCE
 	a.jsonResponse(w, http.StatusOK, map[string]interface{}{

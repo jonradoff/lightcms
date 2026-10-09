@@ -30,8 +30,19 @@ type AdminRoute struct {
 	// (401 without a session, 403 without the permission). Other routes are
 	// refused with a redirect to the login page or the styled 403 page.
 	JSON bool
+	// Audit is the audit-log action written after the handler succeeds
+	// ("template.update"; the part before the dot is the resource). It is the
+	// name the /api/v1 equivalent logs. Every non-GET route has one, or is
+	// listed with its reason in writeRoutesNotAudited (the guard test).
+	Audit string
 
 	handler http.HandlerFunc
+}
+
+// audited returns the route with its audit action set (see admin_audit_wrap.go).
+func (rt AdminRoute) audited(action string) AdminRoute {
+	rt.Audit = action
+	return rt
 }
 
 // AdminRoutes returns the /cm route table in registration order (gorilla/mux
@@ -63,10 +74,10 @@ func (h *Handler) AdminRoutes() []AdminRoute {
 		// Templates
 		perm("GET", "/templates", h.ListTemplates, auth.PermTemplateView),
 		perm("GET", "/templates/new", h.NewTemplate, auth.PermTemplateCreate),
-		perm("POST", "/templates/new", h.CreateTemplate, auth.PermTemplateCreate),
+		perm("POST", "/templates/new", h.CreateTemplate, auth.PermTemplateCreate).audited("template.create"),
 		perm("GET", "/templates/{id}", h.EditTemplate, auth.PermTemplateView),
-		perm("POST", "/templates/{id}", h.UpdateTemplate, auth.PermTemplateEdit),
-		perm("POST", "/templates/{id}/delete", h.DeleteTemplate, auth.PermTemplateDelete),
+		perm("POST", "/templates/{id}", h.UpdateTemplate, auth.PermTemplateEdit).audited("template.update"),
+		perm("POST", "/templates/{id}/delete", h.DeleteTemplate, auth.PermTemplateDelete).audited("template.delete"),
 
 		// Content. Saving a page needs content.edit; a contributor
 		// (content.create only) may save a draft, which UpdateContent enforces.
@@ -75,33 +86,33 @@ func (h *Handler) AdminRoutes() []AdminRoute {
 		perm("GET", "/content", h.ListContent, auth.PermContentView),
 		perm("GET", "/content/new", h.NewContent, auth.PermContentCreate),
 		perm("GET", "/content/new/{templateID}", h.NewContentWithTemplate, auth.PermContentCreate),
-		perm("POST", "/content/create", h.CreateContent, auth.PermContentCreate),
+		perm("POST", "/content/create", h.CreateContent, auth.PermContentCreate).audited("content.create"),
 		perm("GET", "/content/{id}", h.EditContent, auth.PermContentView),
-		perm("POST", "/content/{id}", h.UpdateContent, auth.PermContentEdit, auth.PermContentCreate),
-		perm("POST", "/content/{id}/delete", h.DeleteContent, auth.PermContentDelete, auth.PermForkCreate),
-		perm("POST", "/content/{id}/undelete", h.UndeleteContent, auth.PermContentEdit),
-		perm("POST", "/content/{id}/regenerate", h.RegenerateContent, auth.PermContentPublish),
+		perm("POST", "/content/{id}", h.UpdateContent, auth.PermContentEdit, auth.PermContentCreate).audited("content.update"),
+		perm("POST", "/content/{id}/delete", h.DeleteContent, auth.PermContentDelete, auth.PermForkCreate).audited("content.delete"),
+		perm("POST", "/content/{id}/undelete", h.UndeleteContent, auth.PermContentEdit).audited("content.restore"),
+		perm("POST", "/content/{id}/regenerate", h.RegenerateContent, auth.PermContentPublish).audited("content.regenerate"),
 		perm("GET", "/content/{id}/change-template/{template_id}", h.ChangeTemplatePreview, auth.PermContentEdit),
-		perm("POST", "/content/{id}/change-template/{template_id}/confirm", h.ConfirmChangeTemplate, auth.PermContentEdit),
+		perm("POST", "/content/{id}/change-template/{template_id}/confirm", h.ConfirmChangeTemplate, auth.PermContentEdit).audited("content.change_template"),
 		perm("GET", "/content/{id}/versions", h.ListContentVersions, auth.PermContentView),
 		perm("GET", "/content/{id}/versions/{version}/view", h.ViewContentVersion, auth.PermContentView),
 		perm("GET", "/content/{id}/versions/{version}/diff", h.DiffContentVersion, auth.PermContentView),
-		perm("POST", "/content/{id}/versions/{version}/revert", h.RevertContentVersion, auth.PermContentEdit),
+		perm("POST", "/content/{id}/versions/{version}/revert", h.RevertContentVersion, auth.PermContentEdit).audited("content.revert"),
 
 		// Collections
 		perm("GET", "/collections", h.ListCollections, auth.PermSettingsView),
 		perm("GET", "/collections/new", h.NewCollection, auth.PermSettingsEdit),
-		perm("POST", "/collections/new", h.CreateCollection, auth.PermSettingsEdit),
+		perm("POST", "/collections/new", h.CreateCollection, auth.PermSettingsEdit).audited("collection.create"),
 		perm("GET", "/collections/{id}", h.EditCollection, auth.PermSettingsView),
-		perm("POST", "/collections/{id}", h.UpdateCollection, auth.PermSettingsEdit),
-		perm("POST", "/collections/{id}/delete", h.DeleteCollection, auth.PermSettingsEdit),
+		perm("POST", "/collections/{id}", h.UpdateCollection, auth.PermSettingsEdit).audited("collection.update"),
+		perm("POST", "/collections/{id}/delete", h.DeleteCollection, auth.PermSettingsEdit).audited("collection.delete"),
 
 		// Theme
 		perm("GET", "/theme", h.ThemeSettings, auth.PermSettingsView),
-		perm("POST", "/theme", h.UpdateTheme, auth.PermSettingsEdit),
+		perm("POST", "/theme", h.UpdateTheme, auth.PermSettingsEdit).audited("theme.update"),
 		perm("GET", "/theme/versions", h.ThemeVersions, auth.PermSettingsView),
 		perm("GET", "/theme/versions/{version}", h.ThemeVersionDiff, auth.PermSettingsView),
-		perm("POST", "/theme/versions/{version}/revert", h.RevertThemeVersion, auth.PermSettingsEdit),
+		perm("POST", "/theme/versions/{version}/revert", h.RevertThemeVersion, auth.PermSettingsEdit).audited("theme.revert"),
 
 		// The user's own password
 		session("GET", "/security", h.SecuritySettings, "the user's own password form"),
@@ -109,43 +120,41 @@ func (h *Handler) AdminRoutes() []AdminRoute {
 
 		// Site configuration (the page shows the Cloudflare token only to settings.edit)
 		perm("GET", "/config", h.SiteConfiguration, auth.PermSettingsView),
-		perm("POST", "/config", h.UpdateSiteConfiguration, auth.PermSettingsEdit),
-
-		jsonPerm("POST", "/upload", h.UploadFile, auth.PermAssetUpload),
+		perm("POST", "/config", h.UpdateSiteConfiguration, auth.PermSettingsEdit).audited("config.update"),
 
 		// Folders
 		perm("GET", "/folders", h.ListFolders, auth.PermSettingsView),
 		perm("GET", "/folders/new", h.NewFolder, auth.PermSettingsEdit),
-		perm("POST", "/folders/new", h.CreateFolder, auth.PermSettingsEdit),
+		perm("POST", "/folders/new", h.CreateFolder, auth.PermSettingsEdit).audited("folder.create"),
 		perm("GET", "/folders/{id}", h.EditFolder, auth.PermSettingsView),
-		perm("POST", "/folders/{id}", h.UpdateFolder, auth.PermSettingsEdit),
-		perm("POST", "/folders/{id}/delete", h.DeleteFolder, auth.PermSettingsEdit),
+		perm("POST", "/folders/{id}", h.UpdateFolder, auth.PermSettingsEdit).audited("folder.update"),
+		perm("POST", "/folders/{id}/delete", h.DeleteFolder, auth.PermSettingsEdit).audited("folder.delete"),
 
 		// Redirects
 		perm("GET", "/redirects", h.ListRedirects, auth.PermSettingsView),
 		perm("GET", "/redirects/new", h.NewRedirect, auth.PermSettingsEdit),
-		perm("POST", "/redirects/new", h.CreateRedirect, auth.PermSettingsEdit),
+		perm("POST", "/redirects/new", h.CreateRedirect, auth.PermSettingsEdit).audited("redirect.create"),
 		perm("GET", "/redirects/{id}", h.EditRedirect, auth.PermSettingsView),
-		perm("POST", "/redirects/{id}", h.UpdateRedirect, auth.PermSettingsEdit),
-		perm("POST", "/redirects/{id}/delete", h.DeleteRedirect, auth.PermSettingsEdit),
+		perm("POST", "/redirects/{id}", h.UpdateRedirect, auth.PermSettingsEdit).audited("redirect.update"),
+		perm("POST", "/redirects/{id}/delete", h.DeleteRedirect, auth.PermSettingsEdit).audited("redirect.delete"),
 
 		// Contact-form inbox (no /api/v1 equivalent)
 		perm("GET", "/messages", h.ListContactMessages, auth.PermContentView),
-		perm("POST", "/messages/mark-all-read", h.MarkAllMessagesRead, auth.PermContentEdit),
+		perm("POST", "/messages/mark-all-read", h.MarkAllMessagesRead, auth.PermContentEdit).audited("message.mark_all_read"),
 		perm("GET", "/messages/{id}", h.ViewContactMessage, auth.PermContentView),
-		perm("POST", "/messages/{id}/delete", h.DeleteContactMessage, auth.PermContentDelete),
+		perm("POST", "/messages/{id}/delete", h.DeleteContactMessage, auth.PermContentDelete).audited("message.delete"),
 
 		// Assets
 		perm("GET", "/assets", h.AssetLibrary, auth.PermAssetView),
 		perm("GET", "/assets/upload", h.AssetUploadForm, auth.PermAssetUpload),
-		perm("POST", "/assets/upload", h.AssetUpload, auth.PermAssetUpload),
-		perm("POST", "/assets/{id}/delete", h.DeleteAsset, auth.PermAssetDelete),
+		perm("POST", "/assets/upload", h.AssetUpload, auth.PermAssetUpload).audited("asset.upload"),
+		perm("POST", "/assets/{id}/delete", h.DeleteAsset, auth.PermAssetDelete).audited("asset.delete"),
 
 		// API keys (own keys; DeleteAPIKey checks ownership below apikey.manage_all)
 		perm("GET", "/api-keys", h.APIKeysPage, auth.PermAPIKeyManage),
 		perm("GET", "/api-keys/new", h.NewAPIKeyPage, auth.PermAPIKeyManage),
-		perm("POST", "/api-keys/new", h.CreateAPIKey, auth.PermAPIKeyManage),
-		perm("POST", "/api-keys/{id}/delete", h.DeleteAPIKey, auth.PermAPIKeyManage),
+		perm("POST", "/api-keys/new", h.CreateAPIKey, auth.PermAPIKeyManage).audited("apikey.create"),
+		perm("POST", "/api-keys/{id}/delete", h.DeleteAPIKey, auth.PermAPIKeyManage).audited("apikey.delete"),
 
 		// Approvals dashboard
 		perm("GET", "/approvals", h.ApprovalsPage, auth.PermApprovalView),
@@ -164,56 +173,51 @@ func (h *Handler) AdminRoutes() []AdminRoute {
 		perm("GET", "/analytics", h.AnalyticsPage, auth.PermAuditView),
 		perm("GET", "/analytics/page", h.AnalyticsPageDetail, auth.PermAuditView),
 		perm("GET", "/analytics/referrer", h.AnalyticsReferrerReport, auth.PermAuditView),
-		perm("POST", "/audit/ratelimits/{ip}/clear", h.ClearRateLimit, auth.PermAuditView),
+		perm("POST", "/audit/ratelimits/{ip}/clear", h.ClearRateLimit, auth.PermAuditView).audited("ratelimit.clear"),
 
 		// Webhooks
 		perm("GET", "/webhooks/docs", h.WebhookDocsPage, auth.PermContentEdit),
 		perm("GET", "/webhooks/new", h.NewWebhookPage, auth.PermContentEdit),
 		perm("GET", "/webhooks", h.WebhooksPage, auth.PermContentEdit),
-		perm("POST", "/webhooks", h.CreateWebhook, auth.PermContentEdit),
+		perm("POST", "/webhooks", h.CreateWebhook, auth.PermContentEdit).audited("webhook.create"),
 		perm("GET", "/webhooks/{id}/edit", h.EditWebhookPage, auth.PermContentEdit),
 		perm("GET", "/webhooks/{id}/deliveries", h.WebhookDeliveriesPage, auth.PermContentEdit),
-		perm("POST", "/webhooks/{id}/regenerate-secret", h.RegenerateWebhookSecret, auth.PermContentEdit),
-		perm("POST", "/webhooks/{id}", h.UpdateWebhook, auth.PermContentEdit),
-		perm("POST", "/webhooks/{id}/delete", h.DeleteWebhook, auth.PermContentEdit),
+		perm("POST", "/webhooks/{id}/regenerate-secret", h.RegenerateWebhookSecret, auth.PermContentEdit).audited("webhook.regenerate_secret"),
+		perm("POST", "/webhooks/{id}", h.UpdateWebhook, auth.PermContentEdit).audited("webhook.update"),
+		perm("POST", "/webhooks/{id}/delete", h.DeleteWebhook, auth.PermContentEdit).audited("webhook.delete"),
 
 		// Import pipeline
 		perm("GET", "/imports", h.ImportsPage, auth.PermContentEdit),
 		perm("GET", "/imports/sources/new", h.NewRSSSourcePage, auth.PermContentEdit),
-		perm("POST", "/imports/sources", h.CreateRSSSource, auth.PermContentEdit),
+		perm("POST", "/imports/sources", h.CreateRSSSource, auth.PermContentEdit).audited("import_source.create"),
 		perm("GET", "/imports/sources/{id}/edit", h.EditRSSSourcePage, auth.PermContentEdit),
-		perm("POST", "/imports/sources/{id}", h.UpdateRSSSource, auth.PermContentEdit),
-		perm("POST", "/imports/sources/{id}/delete", h.DeleteRSSSource, auth.PermContentEdit),
-		perm("POST", "/imports/sources/{id}/trigger", h.TriggerRSSSource, auth.PermContentEdit),
+		perm("POST", "/imports/sources/{id}", h.UpdateRSSSource, auth.PermContentEdit).audited("import_source.update"),
+		perm("POST", "/imports/sources/{id}/delete", h.DeleteRSSSource, auth.PermContentEdit).audited("import_source.delete"),
+		perm("POST", "/imports/sources/{id}/trigger", h.TriggerRSSSource, auth.PermContentEdit).audited("import_source.trigger"),
 		perm("GET", "/imports/markdown", h.ImportMarkdownPage, auth.PermContentEdit),
-		perm("POST", "/imports/markdown", h.DoImportMarkdown, auth.PermContentEdit),
+		perm("POST", "/imports/markdown", h.DoImportMarkdown, auth.PermContentEdit).audited("import.markdown"),
 		perm("GET", "/imports/csv", h.ImportCSVPage, auth.PermContentEdit),
-		perm("POST", "/imports/csv", h.DoImportCSV, auth.PermContentEdit),
+		perm("POST", "/imports/csv", h.DoImportCSV, auth.PermContentEdit).audited("import.csv"),
 		perm("GET", "/imports/{id}/stream", h.ImportJobSSE, auth.PermContentEdit),
 		perm("GET", "/imports/{id}", h.ImportJobPage, auth.PermContentEdit),
-
-		// Content locks. The editor heartbeat is open to anyone who may save
-		// the page (a contributor saves drafts); breaking a lock is admin only.
-		jsonPerm("POST", "/content/{id}/lock/refresh", h.RefreshLock, auth.PermContentEdit, auth.PermContentCreate),
-		perm("POST", "/content/{id}/lock/force", h.ForceUnlock, auth.PermUserManage),
 
 		// Snippets (the API files them under the template permissions)
 		perm("GET", "/snippets", h.ListSnippets, auth.PermTemplateView),
 		perm("GET", "/snippets/new", h.NewSnippet, auth.PermTemplateEdit),
-		perm("POST", "/snippets/new", h.CreateSnippet, auth.PermTemplateEdit),
+		perm("POST", "/snippets/new", h.CreateSnippet, auth.PermTemplateEdit).audited("snippet.create"),
 		perm("GET", "/snippets/{id}", h.EditSnippet, auth.PermTemplateView),
-		perm("POST", "/snippets/{id}", h.UpdateSnippet, auth.PermTemplateEdit),
-		perm("POST", "/snippets/{id}/delete", h.DeleteSnippet, auth.PermTemplateEdit),
+		perm("POST", "/snippets/{id}", h.UpdateSnippet, auth.PermTemplateEdit).audited("snippet.update"),
+		perm("POST", "/snippets/{id}/delete", h.DeleteSnippet, auth.PermTemplateEdit).audited("snippet.delete"),
 
 		// Tools
 		jsonPerm("GET", "/replace/preview", h.ReplacePreview, auth.PermSearchReplace),
 		jsonPerm("POST", "/replace/execute", h.ReplaceExecute, auth.PermSearchReplace),
 		perm("GET", "/tools/broken-links", h.BrokenLinkFinder, auth.PermContentEdit),
-		jsonPerm("POST", "/tools/broken-links/fix", h.FixBrokenLink, auth.PermContentEdit),
+		jsonPerm("POST", "/tools/broken-links/fix", h.FixBrokenLink, auth.PermContentEdit).audited("content.fix_link"),
 		perm("GET", "/tools/search", h.SearchToolPage, auth.PermSettingsView),
 		jsonPerm("GET", "/tools/search/test", h.SearchToolTest, auth.PermSettingsView),
-		jsonPerm("POST", "/tools/search/reindex", h.SearchToolReindex, auth.PermSettingsEdit),
-		perm("POST", "/tools/search/config", h.SearchToolSaveConfig, auth.PermSettingsEdit),
+		jsonPerm("POST", "/tools/search/reindex", h.SearchToolReindex, auth.PermSettingsEdit).audited("search.reindex"),
+		perm("POST", "/tools/search/config", h.SearchToolSaveConfig, auth.PermSettingsEdit).audited("search.config_update"),
 		perm("GET", "/copilot", h.CopilotPage, auth.PermContentEdit),
 		perm("GET", "/tools/agent", h.AgentToolPage, auth.PermSettingsEdit),
 		perm("GET", "/tools/indexnow", h.IndexNowToolPage, auth.PermSettingsEdit),
@@ -225,20 +229,20 @@ func (h *Handler) AdminRoutes() []AdminRoute {
 		perm("POST", "/tools/agent/test", h.AgentToolSendTest, auth.PermSettingsEdit),
 		jsonPerm("POST", "/copilot/chat", h.CopilotChat, auth.PermContentEdit),
 		perm("GET", "/tools/chat", h.ChatWidgetPage, auth.PermSettingsView),
-		perm("POST", "/tools/chat/config", h.ChatWidgetSaveConfig, auth.PermSettingsEdit),
+		perm("POST", "/tools/chat/config", h.ChatWidgetSaveConfig, auth.PermSettingsEdit).audited("chat.config_update"),
 
 		// Content forks (editor+: create/preview; admin: merge/archive/delete)
 		perm("GET", "/forks", h.ListForks, auth.PermForkCreate),
 		perm("GET", "/forks/new", h.NewFork, auth.PermForkCreate),
-		perm("POST", "/forks/new", h.CreateFork, auth.PermForkCreate),
+		perm("POST", "/forks/new", h.CreateFork, auth.PermForkCreate).audited("fork.create"),
 		public("GET", "/forks/exit-preview", h.ExitForkPreview, "only clears the caller's own preview cookie (the link sits on previewed public pages)"),
 		perm("GET", "/forks/{id}", h.ViewFork, auth.PermForkCreate),
-		perm("POST", "/forks/{id}/fork-page", h.ForkPageHandler, auth.PermForkCreate),
-		perm("POST", "/forks/{id}/pages/{pageID}/remove", h.RemoveForkPage, auth.PermForkCreate),
+		perm("POST", "/forks/{id}/fork-page", h.ForkPageHandler, auth.PermForkCreate).audited("fork.add_page"),
+		perm("POST", "/forks/{id}/pages/{pageID}/remove", h.RemoveForkPage, auth.PermForkCreate).audited("fork.remove_page"),
 		perm("GET", "/forks/{id}/preview", h.StartForkPreview, auth.PermForkCreate),
 		perm("POST", "/forks/{id}/merge", h.MergeFork, auth.PermForkMerge),
-		perm("POST", "/forks/{id}/archive", h.ArchiveFork, auth.PermForkMerge),
-		perm("POST", "/forks/{id}/delete", h.DeleteForkHandler, auth.PermForkMerge),
+		perm("POST", "/forks/{id}/archive", h.ArchiveFork, auth.PermForkMerge).audited("fork.archive"),
+		perm("POST", "/forks/{id}/delete", h.DeleteForkHandler, auth.PermForkMerge).audited("fork.delete"),
 	}
 }
 
@@ -269,6 +273,10 @@ func (h *Handler) guardAdminRoute(rt AdminRoute) http.HandlerFunc {
 		}
 		if rt.Session == "" && !roleHasAny(user.Role, rt.Perms) {
 			h.refuseAdmin(w, r, rt.JSON, rt.Perms)
+			return
+		}
+		if rt.Audit != "" {
+			h.withAdminAudit(rt, user, w, r)
 			return
 		}
 		rt.handler(w, r)

@@ -157,6 +157,11 @@ func cleanupCollections(t *testing.T, db *database.DB) {
 		"settings", "theme_versions", "assets", "api_keys", "redirects",
 		"snippets", "users", "audit_logs", "contact_messages", "login_attempts",
 		"oauth_clients", "user_activity",
+		// Forks carry a preview token and webhooks fire on content events:
+		// leftovers from an earlier test (or run) change what a later one sees.
+		"content_forks", "webhooks", "webhook_deliveries", "content_comments",
+		"content_locks", "approval_workflows", "approval_requests",
+		"import_sources", "import_jobs",
 	}
 	var wg sync.WaitGroup
 	for _, name := range collections {
@@ -208,7 +213,6 @@ func newTestHandler(t *testing.T) (*Handler, func()) {
 	h.SetImportService(services.NewImportService(db, contentService))
 	h.SetWebhookService(webhookService)
 	h.SetCommentService(commentService)
-	h.SetLockService(services.NewLockService(db))
 	h.SetForkService(services.NewForkService(db, contentService))
 	h.SetApprovalService(services.NewApprovalService(db, contentService, commentService, webhookService))
 	h.SetAnalyticsService(services.NewAnalyticsService(context.Background(), db, "http://localhost:8082"))
@@ -304,7 +308,6 @@ func newBrokenHandler(t *testing.T) *Handler {
 	h.SetImportService(services.NewImportService(db, contentService))
 	h.SetWebhookService(webhookService)
 	h.SetCommentService(commentService)
-	h.SetLockService(services.NewLockService(db))
 	h.SetForkService(services.NewForkService(db, contentService))
 	h.SetApprovalService(services.NewApprovalService(db, contentService, commentService, webhookService))
 	h.SetAnalyticsService(services.NewAnalyticsService(context.Background(), db, "http://localhost:8082"))

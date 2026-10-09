@@ -364,8 +364,9 @@ func (s *ContentService) CreateContent(ctx context.Context, content *models.Cont
 		s.triggerEmbedding(content.ID)
 	}
 
-	// Fire webhook event
-	if s.webhookService != nil {
+	// Fire webhook event. A fork copy is not a page on the site: creating
+	// one announces nothing (the merge that brings it live does).
+	if s.webhookService != nil && content.ForkID == nil {
 		s.webhookService.FireEvent(ctx, "content.create", map[string]interface{}{
 			"id":    content.ID.Hex(),
 			"title": content.Title,
@@ -522,7 +523,7 @@ func (s *ContentService) BulkCreateContent(ctx context.Context, items []*models.
 	sem := make(chan struct{}, 10)
 	var wg sync.WaitGroup
 	for i, c := range items {
-		if !results[i].Success || !c.Published {
+		if !results[i].Success || !c.Published || c.ForkID != nil {
 			continue
 		}
 		wg.Add(1)
@@ -541,7 +542,7 @@ func (s *ContentService) BulkCreateContent(ctx context.Context, items []*models.
 	// Fire webhook events and trigger index rebuild once
 	if s.webhookService != nil {
 		for i, c := range items {
-			if results[i].Success {
+			if results[i].Success && c.ForkID == nil {
 				s.webhookService.FireEvent(ctx, "content.create", map[string]interface{}{
 					"id": c.ID.Hex(), "title": c.Title, "path": c.FullPath,
 				})
@@ -642,12 +643,18 @@ func (s *ContentService) UpdateContent(ctx context.Context, content *models.Cont
 		s.invalidateWikilinkCache()
 	}
 
+	// A fork copy shares its full_path with the live page and exists only
+	// inside its fork. Saving one has no effect outside the fork: no static
+	// file, embedding, IndexNow ping, keyword rebuild, wikilink rewrite of
+	// other pages, index-page regeneration or content.update webhook. The
+	// decision is made on the stored row as well as on what the caller
+	// passed, so a caller that dropped ForkID cannot turn a copy live.
+	if original.ForkID != nil || content.ForkID != nil {
+		return nil
+	}
+
 	// Generate or remove static page based on publish status.
-	// Fork copies share full_path with live pages — never touch static
-	// files or the embedding index on their behalf.
-	if content.ForkID != nil {
-		// no static/embedding side effects for sandboxed content
-	} else if content.Published {
+	if content.Published {
 		if err := s.GenerateStaticPage(ctx, content); err != nil {
 			fmt.Printf("Warning: failed to generate static page: %v\n", err)
 		}
@@ -918,6 +925,7 @@ func (s *ContentService) GetBacklinks(ctx context.Context, targetPath string) ([
 		"internal_links": targetPath,
 		"deleted":        bson.M{"$ne": true},
 		"published":      true,
+		"fork_id":        nil, // live pages only
 	}
 	cursor, err := s.db.FindMany(ctx, "content", filter, options.Find().SetSort(bson.D{{Key: "title", Value: 1}}))
 	if err != nil {
@@ -1553,7 +1561,9 @@ func (s *ContentService) extractInternalLinks(content *models.Content) []string 
 // filter: map of field->value (supported keys: tag, category, template, folder)
 // sortField: "title", "created_at", "published_at" — sortDir: "asc" or "desc"
 func (s *ContentService) QueryContentForDirective(ctx context.Context, filter map[string]string, sortField, sortDir string) ([]models.Content, error) {
-	q := bson.M{"published": true, "deleted": bson.M{"$ne": true}}
+	// Live pages only: lc:query output is written into public index pages,
+	// so a fork copy must never be a result, whatever its published flag says.
+	q := bson.M{"published": true, "deleted": bson.M{"$ne": true}, "fork_id": nil}
 
 	if v, ok := filter["tag"]; ok && v != "" {
 		q["tags"] = v
@@ -1901,9 +1911,12 @@ func (s *ContentService) buildWikilinkIndex(ctx context.Context) *wikilinkIndex 
 		titleToPath: make(map[string]string),
 		pathToTitle: make(map[string]string),
 	}
+	// Live pages only: a fork copy flagged published must not become the
+	// target a [[wikilink]] on the live site resolves to.
 	cursor, err := s.db.FindMany(ctx, "content", bson.M{
 		"published": true,
 		"deleted":   bson.M{"$ne": true},
+		"fork_id":   nil,
 	}, options.Find().SetProjection(bson.D{
 		{Key: "title", Value: 1},
 		{Key: "full_path", Value: 1},
@@ -2183,6 +2196,7 @@ func (s *ContentService) RegenerateIndexPages(ctx context.Context) {
 		"template_id": bson.M{"$in": indexTemplateIDs},
 		"published":   true,
 		"deleted":     bson.M{"$ne": true},
+		"fork_id":     nil,
 	}, &pages); err != nil {
 		return
 	}
@@ -2212,7 +2226,7 @@ func (s *ContentService) RegenerateAllContent(ctx context.Context) error {
 	)
 
 	cursor, err := s.db.FindMany(ctx, "content",
-		bson.M{"published": true, "deleted": bson.M{"$ne": true}}, nil)
+		bson.M{"published": true, "deleted": bson.M{"$ne": true}, "fork_id": nil}, nil)
 	if err != nil {
 		return fmt.Errorf("failed to list content: %w", err)
 	}

@@ -8,7 +8,14 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/jonradoff/lightcms/v7/internal/netguard"
 )
+
+// FeedClient fetches feeds. Feed URLs are user-configured, so it dials
+// through the SSRF guard: a URL that resolves to a loopback, link-local or
+// private address is refused. // feeds are served from 127.0.0.1, can swap it.
+var FeedClient = netguard.NewClient(60 * time.Second)
 
 // FeedItem is a parsed RSS/Atom item
 type FeedItem struct {
@@ -28,7 +35,7 @@ func ParseFeed(ctx context.Context, feedURL string) ([]FeedItem, error) {
 	}
 	req.Header.Set("User-Agent", "LightCMS-Importer/5.0")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := FeedClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("fetching feed: %w", err)
 	}

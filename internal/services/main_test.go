@@ -2,10 +2,13 @@ package services
 
 import (
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/jonradoff/lightcms/v7/internal/services/importer"
 	"github.com/jonradoff/lightcms/v7/internal/testutil"
 )
 
@@ -21,6 +24,12 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	ThemeCSSFile = filepath.Join(tmp, "css", "theme-vars.css")
+	// The package's webhook receivers are httptest servers on 127.0.0.1,
+	// which the SSRF guard refuses. Tests of the guard itself put it back
+	// (see useGuardedTransport).
+	outboundTransport = http.DefaultTransport
+	// The same for the feed server the RSS import tests fetch from.
+	importer.FeedClient = &http.Client{Timeout: 30 * time.Second}
 	changed := testutil.SnapshotTrackedFiles()
 
 	code := m.Run()

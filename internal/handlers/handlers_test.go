@@ -3321,22 +3321,6 @@ func TestConfirmChangeTemplate_Valid(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// UploadFile — unauthenticated
-// ---------------------------------------------------------------------------
-
-func TestUploadFile_Unauthenticated(t *testing.T) {
-	h, cleanup := newTestHandler(t)
-	defer cleanup()
-
-	req := httptest.NewRequest(http.MethodPost, "/cm/upload", nil)
-	rr := httptest.NewRecorder()
-	h.UploadFile(rr, req)
-	if rr.Code != http.StatusUnauthorized {
-		t.Fatalf("expected 401, got %d", rr.Code)
-	}
-}
-
-// ---------------------------------------------------------------------------
 // AssetUpload — unauthenticated
 // ---------------------------------------------------------------------------
 
@@ -3734,29 +3718,6 @@ func TestRevertThemeVersion_Success(t *testing.T) {
 		h.RevertThemeVersion, form)
 	if rr.Code != http.StatusSeeOther && rr.Code != http.StatusFound && rr.Code != http.StatusOK {
 		t.Fatalf("expected redirect or 200, got %d; body: %s", rr.Code, rr.Body.String())
-	}
-}
-
-// ---------------------------------------------------------------------------
-// UploadFile — authenticated, no file (covers multipart parsing path)
-// ---------------------------------------------------------------------------
-
-func TestUploadFile_NoFile(t *testing.T) {
-	h, cleanup := newTestHandler(t)
-	defer cleanup()
-
-	cookies := getAuthCookies(t, h)
-	// Send a multipart body without a file field
-	body := strings.NewReader("")
-	req := httptest.NewRequest(http.MethodPost, "/cm/upload", body)
-	req.Header.Set("Content-Type", "multipart/form-data; boundary=----boundary")
-	for _, c := range cookies {
-		req.AddCookie(c)
-	}
-	rr := httptest.NewRecorder()
-	h.UploadFile(rr, req)
-	if rr.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 (no file), got %d", rr.Code)
 	}
 }
 

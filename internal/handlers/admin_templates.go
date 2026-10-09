@@ -871,7 +871,7 @@ var adminTemplates = map[string]string{
                         displaySearchResults(results, query, includeDeleted);
                     })
                     .catch(function(err) {
-                        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 2rem; color: var(--danger);">Search failed: ' + err.message + '</td></tr>';
+                        tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 2rem; color: var(--danger);">Search failed: ' + escapeHtml(err.message) + '</td></tr>';
                     });
             }
 
@@ -2170,7 +2170,7 @@ var adminTemplates = map[string]string{
                 div.className = 'comment-item';
                 div.dataset.commentId = comment.id;
                 div.style.cssText = 'display:flex;gap:0.75rem;align-items:flex-start;';
-                var adminBtn = currentUserRole === 'admin' ? '<button type="button" class="btn btn-sm" style="margin-left:auto;padding:0.1rem 0.5rem;font-size:0.75rem;background:transparent;color:var(--danger);border:1px solid rgba(239,68,68,0.3);" onclick="deleteComment(\'' + contentId + '\',\'' + comment.id + '\',this)">Delete</button>' : '';
+                var adminBtn = currentUserRole === 'admin' ? '<button type="button" class="btn btn-sm" style="margin-left:auto;padding:0.1rem 0.5rem;font-size:0.75rem;background:transparent;color:var(--danger);border:1px solid rgba(239,68,68,0.3);" data-delete-comment>Delete</button>' : '';
                 var displayName = escHtml(comment.user_display_name || comment.user_email || '?');
                 div.innerHTML = '<div style="width:32px;height:32px;border-radius:50%;background:var(--bg-tertiary);display:flex;align-items:center;justify-content:center;font-size:0.8rem;color:var(--muted);flex-shrink:0;">' + displayName[0] + '</div>' +
                 '<div style="flex:1;min-width:0;"><div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.25rem;flex-wrap:wrap;">' +
@@ -2178,6 +2178,9 @@ var adminTemplates = map[string]string{
                 '<span style="color:var(--muted);font-size:0.8rem;">Just now</span>' +
                 adminBtn +
                 '</div><p style="margin:0;color:var(--text);font-size:0.95rem;white-space:pre-wrap;word-break:break-word;">' + escHtml(comment.text) + '</p></div>';
+                // The delete button gets a listener, not an inline handler built from the ids
+                var delBtn = div.querySelector('[data-delete-comment]');
+                if (delBtn) delBtn.addEventListener('click', function() { deleteComment(contentId, comment.id, delBtn); });
                 thread.appendChild(div);
                 // update badge
                 const tabBtn = document.querySelector('[data-tab="discussion"]');
@@ -3219,7 +3222,7 @@ var adminTemplates = map[string]string{
             if (fullPath === currentFullPath) return true;
 
             try {
-                var response = await fetch('/api/content/check-slug?path=' + encodeURIComponent(fullPath));
+                var response = await fetch('/api/content/check-slug?path=' + encodeURIComponent(fullPath) + '{{if .Content}}&exclude={{.Content.ID.Hex}}{{end}}');
                 var data = await response.json();
 
                 if (data.exists) {
@@ -5466,9 +5469,9 @@ var adminTemplates = map[string]string{
                         <td>{{.CreatedAt.Format "Jan 2, 2006"}}</td>
                         <td>{{if .LastUsedAt}}{{.LastUsedAt.Format "Jan 2, 2006 3:04 PM"}}{{else}}<em>Never</em>{{end}}</td>
                         <td>
-                            <form method="POST" action="/cm/api-keys/{{.ID.Hex}}/delete" style="display:inline;">
+                            <form method="POST" action="/cm/api-keys/{{.ID.Hex}}/delete" style="display:inline;" data-confirm="Are you sure you want to delete the API key '{{.Name}}'? Any integrations using this key will stop working." data-confirm-title="Delete API Key">
                                 {{$.CSRFField}}
-                                <button type="submit" class="btn btn-danger btn-sm delete-btn" data-message="Are you sure you want to delete the API key '{{.Name}}'? Any integrations using this key will stop working.">Delete</button>
+                                <button type="submit" class="btn btn-danger btn-sm delete-btn">Delete</button>
                             </form>
                         </td>
                     </tr>
@@ -6331,10 +6334,15 @@ async function doSearch(q) {
                 results.forEach(function(r) {
                     html += '<a href="' + escHtml(r.url) + '" target="_blank" style="font-size:0.8125rem;text-decoration:none;display:flex;align-items:center;gap:0.375rem;padding:0.3rem 0;border-bottom:1px solid #f1f5f9;line-height:1.3;">' +
                         '<span style="opacity:0.5;flex-shrink:0;font-size:0.7rem;">&#8599;</span>' +
-                        '<span style="font-weight:500;color:#1e293b;" onmouseover="this.style.color=\'' + color + '\'" onmouseout="this.style.color=\'#1e293b\'">' + escHtml(r.title) + '</span>' +
+                        '<span class="acq-source-title" style="font-weight:500;color:#1e293b;">' + escHtml(r.title) + '</span>' +
                         '</a>';
                 });
                 el.innerHTML = html;
+                // Hover colour through listeners: the configured colour is never written into an inline handler
+                el.querySelectorAll('.acq-source-title').forEach(function(t) {
+                    t.addEventListener('mouseover', function() { t.style.color = color; });
+                    t.addEventListener('mouseout', function() { t.style.color = '#1e293b'; });
+                });
                 el.lastElementChild && (el.lastElementChild.style.borderBottom = 'none');
                 return el;
             }
@@ -6639,11 +6647,11 @@ async function doSearch(q) {
             <div style="margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid rgba(99, 102, 241, 0.2);">
                 <h3 style="margin-bottom: 1rem;">Account Actions</h3>
                 <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
-                    <form method="POST" action="/cm/users/{{.EditUser.ID.Hex}}/toggle-disabled" style="display:inline;">
+                    <form method="POST" action="/cm/users/{{.EditUser.ID.Hex}}/toggle-disabled" style="display:inline;"{{if not .EditUser.Disabled}} data-confirm="Disable the account {{.EditUser.Email}}? They will be signed out and unable to sign in until it is enabled again." data-confirm-title="Disable Account"{{end}}>
                         {{.CSRFField}}
                         <button type="submit" class="btn btn-outline">{{if .EditUser.Disabled}}Enable Account{{else}}Disable Account{{end}}</button>
                     </form>
-                    <form method="POST" action="/cm/users/{{.EditUser.ID.Hex}}/reset-password" style="display:inline;">
+                    <form method="POST" action="/cm/users/{{.EditUser.ID.Hex}}/reset-password" style="display:inline;" data-confirm="Reset the password for {{.EditUser.Email}}? Their current password stops working and they get a temporary one." data-confirm-title="Reset Password">
                         {{.CSRFField}}
                         <button type="submit" class="btn btn-outline">Reset Password</button>
                     </form>
@@ -7641,9 +7649,9 @@ async function doSearch(q) {
                         <td>{{.UpdatedAt.Format "Jan 2, 2006"}}</td>
                         <td style="display:flex; gap:0.5rem; justify-content:flex-end;">
                             <a href="/cm/snippets/{{.ID.Hex}}" class="btn btn-outline btn-sm">Edit</a>
-                            <form method="POST" action="/cm/snippets/{{.ID.Hex}}/delete" style="display:inline;">
+                            <form method="POST" action="/cm/snippets/{{.ID.Hex}}/delete" style="display:inline;" data-confirm="Delete snippet '{{.Name}}'? Pages that include it will render without it." data-confirm-title="Delete Snippet">
                                 {{$.CSRFField}}
-                                <button type="submit" class="btn btn-danger btn-sm delete-btn" data-message="Delete snippet '{{.Name}}'?">Delete</button>
+                                <button type="submit" class="btn btn-danger btn-sm delete-btn">Delete</button>
                             </form>
                         </td>
                     </tr>
@@ -8750,9 +8758,20 @@ function verify(secret, signature, body) {
             var matches = (users.users||users||[]).filter(u => (u.email||'').toLowerCase().includes(q) && !wfApprovers.find(a=>a.user_id===u.id));
             if (!matches.length) { res.style.display='none'; return; }
             res.style.display='block';
-            res.innerHTML = matches.slice(0,5).map(u =>
-                '<div onclick="addApprover(\''+u.id+'\',\''+u.email+'\')" style="padding:0.5rem 0.75rem;cursor:pointer;font-size:0.9rem;" onmouseover="this.style.background=\'var(--bg-tertiary)\'" onmouseout="this.style.background=\'\'">'+u.email+'</div>'
-            ).join('');
+            // Built as DOM nodes: the email is shown as text and travels in a
+            // data attribute, never inside an inline handler or HTML string.
+            res.textContent = '';
+            matches.slice(0,5).forEach(function(u) {
+                var row = document.createElement('div');
+                row.className = 'wf-approver-option';
+                row.setAttribute('role', 'button');
+                row.tabIndex = 0;
+                row.dataset.userId = u.id || '';
+                row.dataset.email = u.email || '';
+                row.style.cssText = 'padding:0.5rem 0.75rem;cursor:pointer;font-size:0.9rem;';
+                row.textContent = u.email || '';
+                res.appendChild(row);
+            });
         }
         function addApprover(id, email) {
             if (wfApprovers.find(a=>a.user_id===id)) return;
@@ -8766,10 +8785,42 @@ function verify(secret, signature, body) {
             renderApprovers();
         }
         function renderApprovers() {
-            document.getElementById('wf-approvers-list').innerHTML = wfApprovers.map(a =>
-                '<span style="display:inline-flex;align-items:center;gap:0.3rem;background:var(--bg-card);border:1px solid var(--border);border-radius:9999px;padding:0.2rem 0.6rem;font-size:0.85rem;">'+a.email+'<button type="button" onclick="removeApprover(\''+a.user_id+'\')" style="background:none;border:none;color:var(--muted);cursor:pointer;padding:0;font-size:1rem;line-height:1;">&times;</button></span>'
-            ).join('');
+            var list = document.getElementById('wf-approvers-list');
+            list.textContent = '';
+            wfApprovers.forEach(function(a) {
+                var chip = document.createElement('span');
+                chip.className = 'wf-approver-chip';
+                chip.style.cssText = 'display:inline-flex;align-items:center;gap:0.3rem;background:var(--bg-card);border:1px solid var(--border);border-radius:9999px;padding:0.2rem 0.6rem;font-size:0.85rem;';
+                chip.appendChild(document.createTextNode(a.email));
+                var x = document.createElement('button');
+                x.type = 'button';
+                x.className = 'wf-approver-remove';
+                x.dataset.userId = a.user_id;
+                x.setAttribute('aria-label', 'Remove approver');
+                x.style.cssText = 'background:none;border:none;color:var(--muted);cursor:pointer;padding:0;font-size:1rem;line-height:1;';
+                x.textContent = '\u00d7';
+                chip.appendChild(x);
+                list.appendChild(chip);
+            });
         }
+        // One listener for the approver picker (results and chips are rebuilt often)
+        (function() {
+            var res = document.getElementById('wf-approver-results');
+            var list = document.getElementById('wf-approvers-list');
+            if (!res || !list) return; // the workflow form is admin-only
+            function pick(e) {
+                var row = e.target.closest ? e.target.closest('.wf-approver-option') : null;
+                if (row) addApprover(row.dataset.userId, row.dataset.email);
+            }
+            res.addEventListener('click', pick);
+            res.addEventListener('keydown', function(e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(e); } });
+            res.addEventListener('mouseover', function(e) { var row = e.target.closest('.wf-approver-option'); if (row) row.style.background = 'var(--bg-tertiary)'; });
+            res.addEventListener('mouseout', function(e) { var row = e.target.closest('.wf-approver-option'); if (row) row.style.background = ''; });
+            list.addEventListener('click', function(e) {
+                var x = e.target.closest ? e.target.closest('.wf-approver-remove') : null;
+                if (x) removeApprover(x.dataset.userId);
+            });
+        })();
         async function createWorkflow() {
             var name = document.getElementById('wf-name').value.trim();
             if (!name) { showAlert('Name is required', 'New Workflow'); return; }

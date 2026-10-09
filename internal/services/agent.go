@@ -401,7 +401,7 @@ func (s *AgentService) SendDigest(ctx context.Context, cfg AgentConfig) (string,
 // generateCommentary asks Claude for a short executive summary of the digest.
 func (s *AgentService) generateCommentary(ctx context.Context, d *DigestData) (string, error) {
 	raw, _ := json.Marshal(d)
-	model := os.Getenv("LIGHTCMS_COPILOT_MODEL")
+	model := strings.TrimSpace(os.Getenv("LIGHTCMS_COPILOT_MODEL"))
 	if model == "" {
 		model = "claude-sonnet-4-6"
 	}

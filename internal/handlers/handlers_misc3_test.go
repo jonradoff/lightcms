@@ -5,17 +5,6 @@ import (
 	"testing"
 )
 
-func TestUploadFileHandler(t *testing.T) {
-	h, cleanup := newTestHandler(t)
-	defer cleanup()
-	// UploadFile exercises the admin uploader; in the test env the file store /
-	// MIME validation may reject the payload, which is itself a covered path.
-	rr := postMultipart(t, h.UploadFile, "file", "note.txt", "hello", url.Values{}, nil)
-	if rr.Code == 0 {
-		t.Error("UploadFile wrote no response")
-	}
-}
-
 func TestGetAllSlugsHandler(t *testing.T) {
 	h, cleanup := newTestHandler(t)
 	defer cleanup()

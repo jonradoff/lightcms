@@ -1,9 +1,11 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/jonradoff/lightcms/v7/internal/auth"
+	"github.com/jonradoff/lightcms/v7/internal/services"
 
 	"github.com/gorilla/mux"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -117,6 +119,10 @@ func (a *APIHandler) APIDeleteAPIKey(w http.ResponseWriter, r *http.Request) {
 	if isAdmin {
 		// Admins can delete any key
 		if err := a.apiKeyService.DeleteAPIKey(r.Context(), id); err != nil {
+			if errors.Is(err, services.ErrAPIKeyNotFound) {
+				a.jsonError(w, http.StatusNotFound, "API key not found")
+				return
+			}
 			a.jsonError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
@@ -128,7 +134,8 @@ func (a *APIHandler) APIDeleteAPIKey(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := a.apiKeyService.DeleteAPIKeyForUser(r.Context(), id, ownerID); err != nil {
-			// DeleteOne returns an error or 0 matched — surface as 403
+			// Nothing was deleted: the key does not exist or is someone
+			// else's. 403, as the admin UI route answers, without saying which.
 			a.jsonError(w, http.StatusForbidden, "API key not found or not owned by you")
 			return
 		}

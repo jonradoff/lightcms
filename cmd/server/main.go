@@ -174,7 +174,6 @@ func main() {
 
 	// Inject new services into handler
 	h.SetWebhookService(webhookService)
-	h.SetLockService(lockService)
 	h.SetImportService(importService)
 	h.SetCloudflareService(cfService)
 	h.SetIndexNowService(indexNowService)

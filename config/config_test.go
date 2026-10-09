@@ -377,3 +377,64 @@ func TestLoad_DatabaseName(t *testing.T) {
 		}
 	})
 }
+
+// Values read from the environment or the config file lose surrounding
+// whitespace: a .env file with CRLF line endings leaves a trailing "\r" on
+// every value, which broke the MongoDB URI and made SECURE_COOKIES=false
+// read as true. The session secret is the one value left exactly as given.
+func TestLoad_TrimsWhitespace(t *testing.T) {
+	for _, k := range []string{"MONGO_URI", "SESSION_SECRET", "BASE_URL", "PORT", "ENV", "SECURE_COOKIES", "DATABASE_NAME",
+		"VOYAGE_API_KEY", "ANTHROPIC_API_KEY", "RESEND_API_KEY", "EMAIL_FROM", "LIGHTCMS_CONFIG_DIR"} {
+		t.Setenv(k, "")
+	}
+	t.Setenv("MONGO_URI", " mongodb://localhost:27017/?retryWrites=true\r")
+	t.Setenv("SESSION_SECRET", "secret with a trailing space ")
+	t.Setenv("BASE_URL", "http://localhost:8082\r\n")
+	t.Setenv("PORT", "8082\r")
+	t.Setenv("ENV", "development\r")
+	t.Setenv("SECURE_COOKIES", "false\r")
+	t.Setenv("DATABASE_NAME", "lightcms-test\r")
+	t.Setenv("ANTHROPIC_API_KEY", "\tkey-123 \r")
+	t.Setenv("EMAIL_FROM", " LightCMS <agent@example.com> \r")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	for name, got := range map[string][2]string{
+		"MongoURI":        {cfg.MongoURI, "mongodb://localhost:27017/?retryWrites=true"},
+		"BaseURL":         {cfg.BaseURL, "http://localhost:8082"},
+		"Port":            {cfg.Port, "8082"},
+		"Env":             {cfg.Env, "development"},
+		"DatabaseName":    {cfg.DatabaseName, "lightcms-test"},
+		"AnthropicAPIKey": {cfg.AnthropicAPIKey, "key-123"},
+		"EmailFrom":       {cfg.EmailFrom, "LightCMS <agent@example.com>"},
+		"SessionSecret":   {cfg.SessionSecret, "secret with a trailing space "},
+	} {
+		if got[0] != got[1] {
+			t.Errorf("%s = %q, want %q", name, got[0], got[1])
+		}
+	}
+	if cfg.SecureCookies {
+		t.Error(`SECURE_COOKIES="false\r" left secure cookies on`)
+	}
+	if !cfg.IsDev() {
+		t.Errorf(`ENV="development\r" is not development: %q`, cfg.Env)
+	}
+
+	// The JSON config file gets the same treatment
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "config.dev.json"), []byte(`{"mongo_uri":" mongodb://file-host/ \r","base_url":"http://localhost:9000 ","port":" 9000","session_secret":" s "}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("MONGO_URI", " \r") // whitespace only is not "set"
+	t.Setenv("DATABASE_NAME", "")
+	t.Setenv("LIGHTCMS_CONFIG_DIR", dir+"\r")
+	cfg, err = Load()
+	if err != nil {
+		t.Fatalf("Load from file: %v", err)
+	}
+	if cfg.MongoURI != "mongodb://file-host/" || cfg.BaseURL != "http://localhost:9000" || cfg.Port != "9000" || cfg.SessionSecret != " s " {
+		t.Errorf("file config = %+v", cfg)
+	}
+}

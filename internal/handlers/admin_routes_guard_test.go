@@ -128,7 +128,8 @@ func TestAdminRoutes_EveryWriteRouteIsGuarded(t *testing.T) {
 			t.Errorf("AdminRoutes entry %s was not registered", key)
 		}
 	}
-	if len(table) < 140 {
+	// (139 routes as of 7.4.3, which removed /upload and the two lock routes)
+	if len(table) < 135 {
 		t.Fatalf("only %d admin routes declared; the table looks truncated", len(table))
 	}
 
@@ -193,8 +194,6 @@ var adminRoleMatrix = map[string]string{
 	"GET /cm/content/{id}/versions/{version}/view":                "vcea",
 	"GET /cm/content/{id}/versions/{version}/diff":                "vcea",
 	"POST /cm/content/{id}/versions/{version}/revert":             "--ea",
-	"POST /cm/content/{id}/lock/refresh":                          "-cea",
-	"POST /cm/content/{id}/lock/force":                            "---a",
 
 	// Settings: collections, theme, config, folders, redirects
 	"GET /cm/collections":                      "vcea",
@@ -223,8 +222,7 @@ var adminRoleMatrix = map[string]string{
 	"POST /cm/redirects/{id}":                  "---a",
 	"POST /cm/redirects/{id}/delete":           "---a",
 
-	// Uploads and assets
-	"POST /cm/upload":             "-cea",
+	// Assets
 	"GET /cm/assets":              "vcea",
 	"GET /cm/assets/upload":       "-cea",
 	"POST /cm/assets/upload":      "-cea",

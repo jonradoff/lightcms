@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"time"
 
@@ -113,13 +114,33 @@ func (s *APIKeyService) ListAPIKeysForUser(ctx context.Context, userID primitive
 
 // DeleteAPIKey deletes an API key by ID. Admins may delete any key.
 func (s *APIKeyService) DeleteAPIKey(ctx context.Context, id primitive.ObjectID) error {
-	return s.db.DeleteOne(ctx, "api_keys", bson.M{"_id": id})
+	return s.deleteKey(ctx, bson.M{"_id": id})
 }
 
+// ErrAPIKeyNotFound is returned when a delete matched no key: the key does
+// not exist, or (DeleteAPIKeyForUser) it belongs to another user.
+var ErrAPIKeyNotFound = errors.New("API key not found")
+
 // DeleteAPIKeyForUser deletes an API key only if it is owned by the given user.
-// Returns an error if the key does not exist or belongs to a different user.
+// Returns ErrAPIKeyNotFound if the key does not exist or belongs to a different user.
 func (s *APIKeyService) DeleteAPIKeyForUser(ctx context.Context, id primitive.ObjectID, ownerID primitive.ObjectID) error {
-	return s.db.DeleteOne(ctx, "api_keys", bson.M{"_id": id, "user_id": ownerID})
+	return s.deleteKey(ctx, bson.M{"_id": id, "user_id": ownerID})
+}
+
+// deleteKey deletes the key the filter selects and reports when there was
+// none: a delete that matches nothing is not an error to MongoDB, and
+// callers were reporting it as a successful revocation.
+func (s *APIKeyService) deleteKey(ctx context.Context, filter bson.M) error {
+	// DeleteMany because it reports the count (the filter is by _id, so it
+	// matches at most one key)
+	n, err := s.db.DeleteMany(ctx, "api_keys", filter)
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrAPIKeyNotFound
+	}
+	return nil
 }
 
 // ValidateAPIKey checks a raw API key, returns the key record if valid, and updates last_used_at
