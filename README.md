@@ -117,7 +117,7 @@ LightCMS is a Go-powered content management system built for the AI era. It's si
 - **Incremental Static Regeneration** (v4.5+): Template layout changes regenerate pages in 20-page batches to prevent server overload on large sites
 
 ### Import Pipeline (v5.0+)
-- **RSS/Atom Feed Sources**: Configure recurring import sources with configurable schedule (hourly/daily/weekly), template mapping, folder targeting, and auto-publish. Manage sources and run history from `/cm/imports`.
+- **RSS/Atom Feed Sources**: Configure recurring import sources with configurable schedule (hourly/daily/weekly), template mapping, folder targeting, and auto-publish. Manage sources and run history from `/cm/imports`. Feed URLs must be publicly reachable (private and loopback addresses are refused, v7.4.3).
 - **Markdown + ZIP Import**: Upload `.md` files or `.zip` archives of Markdown. YAML frontmatter in each file controls title, slug, folder, template, tags, and scheduled publish time. Supports Notion exports, Obsidian vaults, Hugo/Jekyll site migrations, and AI-generated content.
 - **CSV Bulk Import**: Upload a CSV and specify which column is the title; all other columns are stored as content fields automatically.
 - **Real-time SSE Job Status**: Live log stream at `/cm/imports/{jobID}` — watch imports happen line-by-line or review full history after the fact.
@@ -181,7 +181,7 @@ Recommended agent pattern for large updates: `list_content` → transform in par
 - **OAuth 2.1**: Authorization code flow with PKCE for remote MCP clients — no embedded passwords
 - **CLI Tool**: Command-line interface for all content management operations
 - **URL Redirects**: 301/302 redirect rules managed from the admin panel
-- **Webhooks** (v4.5+): HMAC-SHA256 signed event delivery for 6 event types (`content.create`, `content.update`, `content.publish`, `content.unpublish`, `content.delete`, and more); per-webhook secrets; delivery history with retry visibility; admin UI at `/cm/webhooks`
+- **Webhooks** (v4.5+): HMAC-SHA256 signed event delivery for 6 event types (`content.create`, `content.update`, `content.publish`, `content.unpublish`, `content.delete`, and more); per-webhook secrets; delivery history with retry visibility; admin UI at `/cm/webhooks`. Webhook URLs must be publicly reachable: a URL that resolves to a loopback, private or link-local address is refused and logged as "blocked" (v7.4.3)
 - **Cloudflare Integration** (v4.5+): Auto-purge Cloudflare cache on publish/unpublish via Zone ID + API Token
 - **Edge Caching Headers** (v4.5+): ETag, Cache-Control, Last-Modified, Vary, and 304 Not Modified on all public pages
 - **Structured JSON Logging** (v4.5+): All server logs emit structured JSON with timestamp, level, message, and context fields

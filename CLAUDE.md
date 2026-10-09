@@ -223,6 +223,8 @@ Hard-won rules from building v7. Violating these has bitten us before:
 
 ### Testing
 - DB tests need `.env.test` with MONGODB_URI; the database name MUST contain "test" (safety guard). Run DB packages with `-p 1`.
+- The handlers package has its OWN cleanup list (`cleanupCollections` in `internal/handlers/testhelper_test.go`), separate from `testutil.CleanupCollections`: add a new collection to both. It did not drop `content_forks` until 7.4.3, and `createTestFork` derives the preview token from the fork name, so a test that looks a fork up by token should use a unique name.
+- When the Atlas test cluster is flaky a full `go test ./...` can fail a different handful of tests on each run (stalls of 15–100s, "i/o timeout", "server selection"). Read the failure text before debugging; a test that fails fast and repeatably on its own is real, the rest are the network.
 - New MongoDB collections MUST be added to `CleanupCollections` in `internal/testutil/testutil.go`, or leftover data makes tests flake across runs (bit us with `maintenance_reports`).
 - Tests must not write tracked files. The handlers and services write `static/sitemap.xml` and `static/css/theme-vars.css` relative to the working directory, which under `go test` is the package directory, where copies of both are checked in. `TestMain` in `internal/handlers` and `internal/services` points them at a temp directory (`sitemapFile`, `services.ThemeCSSFile`) and fails the run if any tracked file under the package changed (`testutil.SnapshotTrackedFiles`). Give any new file the server writes the same kind of variable.
 - Tests asserting on collection contents should match by seeded paths/IDs, not exact counts — background goroutines (index regen, keyword rebuild) can insert content mid-test.
