@@ -60,7 +60,9 @@ type Content struct {
 	PublishAt       *time.Time             `bson:"publish_at,omitempty" json:"publish_at,omitempty"`         // Scheduled publish time
 	Deleted         bool                   `bson:"deleted" json:"deleted"`                                   // Soft delete flag
 	DeletedAt       *time.Time             `bson:"deleted_at,omitempty" json:"deleted_at,omitempty"`
-	SourceURL       string                 `bson:"source_url,omitempty" json:"source_url,omitempty"` // Original URL for imported content (RSS dedup key)
+	// Set by the service's DeleteContent when it unpublishes a published page, so RestoreContent can publish it again (v7.4.4)
+	PublishedBeforeDelete bool   `bson:"published_before_delete,omitempty" json:"-"`
+	SourceURL             string `bson:"source_url,omitempty" json:"source_url,omitempty"` // Original URL for imported content (RSS dedup key)
 	// SEO (v7.3): per-page search/AI visibility and authorship
 	NoIndex           bool       `bson:"noindex,omitempty" json:"noindex,omitempty"`                         // Hide from search engines & AI: noindex meta, excluded from sitemap/llms.txt/feeds/IndexNow
 	AuthorName        string     `bson:"author_name,omitempty" json:"author_name,omitempty"`                 // Overrides the site default author in structured data and feeds

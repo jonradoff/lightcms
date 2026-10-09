@@ -53,7 +53,7 @@ func publishedFilter() bson.M {
 	return bson.M{
 		"published": true,
 		"deleted":   bson.M{"$ne": true},
-		"fork_id":   bson.M{"$exists": false},
+		"fork_id":   nil,
 	}
 }
 

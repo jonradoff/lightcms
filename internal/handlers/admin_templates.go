@@ -5799,28 +5799,48 @@ let timer;
 input.addEventListener('input', () => {
   clearTimeout(timer);
   const q = input.value.trim();
-  if (q.length &lt; 2) { suggest.innerHTML = ''; return; }
+  if (q.length &lt; 2) { suggest.replaceChildren(); return; }
   timer = setTimeout(async () => {
     const r = await fetch('/api/search/suggest?q=' + encodeURIComponent(q) + '&amp;limit=8');
     const d = await r.json();
-    suggest.innerHTML = [
-      ...(d.pages  || []).map(p =&gt; '&lt;li&gt;&lt;a href="' + p.path + '"&gt;&#x1F4C4; ' + p.title + '&lt;/a&gt;&lt;/li&gt;'),
-      ...(d.keywords || []).map(k =&gt; '&lt;li&gt;&lt;a onclick="doSearch(\'' + k + '\')"&gt;&#x1F50D; ' + k + '&lt;/a&gt;&lt;/li&gt;'),
-    ].join('');
+    suggest.replaceChildren(
+      ...(d.pages || []).map(p =&gt; item('&#x1F4C4; ' + p.title, p.path)),
+      ...(d.keywords || []).map(k =&gt; item('&#x1F50D; ' + k, '#', e =&gt; { e.preventDefault(); doSearch(k); })),
+    );
   }, 200);
 });
+
+// Titles and keywords are text, never markup: build elements, set textContent
+function item(text, href, onClick) {
+  const li = document.createElement('li');
+  const a = document.createElement('a');
+  a.textContent = text;
+  a.href = href;
+  if (onClick) a.addEventListener('click', onClick);
+  li.appendChild(a);
+  return li;
+}
 
 // Full search on Enter
 input.addEventListener('keydown', e =&gt; { if (e.key === 'Enter') doSearch(input.value); });
 
 async function doSearch(q) {
-  suggest.innerHTML = '';
+  suggest.replaceChildren();
   const r = await fetch('/api/search?q=' + encodeURIComponent(q) + '&amp;mode=hybrid&amp;limit=10');
   const d = await r.json();
-  results.innerHTML = (d.results || []).map(function(r) {
-    return '&lt;div&gt;&lt;a href="' + r.full_path + '"&gt;&lt;strong&gt;' + r.title + '&lt;/strong&gt;&lt;/a&gt;' +
-           '&lt;p&gt;' + r.snippet + '&lt;/p&gt;&lt;/div&gt;';
-  }).join('') || '&lt;p&gt;No results.&lt;/p&gt;';
+  results.replaceChildren(...(d.results || []).map(function(r) {
+    const div = document.createElement('div');
+    const a = document.createElement('a');
+    const strong = document.createElement('strong');
+    const p = document.createElement('p');
+    a.href = r.full_path;
+    strong.textContent = r.title;
+    p.textContent = r.snippet;
+    a.appendChild(strong);
+    div.append(a, p);
+    return div;
+  }));
+  if (!results.firstChild) results.textContent = 'No results.';
 }
 &lt;/script&gt;</code></pre>
 

@@ -767,7 +767,7 @@ func (h *Handler) ListContent(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Always exclude fork copies from the main content list
-	conditions = append(conditions, bson.M{"fork_id": bson.M{"$exists": false}})
+	conditions = append(conditions, bson.M{"fork_id": nil})
 
 	// Combine all conditions with $and
 	filter := bson.M{}
@@ -1804,7 +1804,8 @@ func (h *Handler) UndeleteContent(w http.ResponseWriter, r *http.Request) {
 			"updated_at": time.Now(),
 		},
 		"$unset": bson.M{
-			"deleted_at": "",
+			"deleted_at":              "",
+			"published_before_delete": "", // an undeleted page comes back as a draft here
 		},
 	}
 
@@ -5987,7 +5988,7 @@ func (h *Handler) SearchContent(w http.ResponseWriter, r *http.Request) {
 	// we need to do a manual search through Data fields
 	if query != "" && searchType == "fulltext" && len(results) == 0 {
 		// Fallback: get all content and search manually
-		fallbackFilter := bson.M{"fork_id": bson.M{"$exists": false}}
+		fallbackFilter := bson.M{"fork_id": nil}
 		if !includeDeleted {
 			fallbackFilter["deleted"] = bson.M{"$ne": true}
 		}
@@ -6040,7 +6041,7 @@ func (h *Handler) SearchContent(w http.ResponseWriter, r *http.Request) {
 		if !found {
 			// Homepage wasn't returned by the query — fetch it directly.
 			var homepage models.Content
-			hpFilter := bson.M{"full_path": "", "slug": "", "deleted": bson.M{"$ne": true}, "fork_id": bson.M{"$exists": false}}
+			hpFilter := bson.M{"full_path": "", "slug": "", "deleted": bson.M{"$ne": true}, "fork_id": nil}
 			if err := h.db.FindOne(ctx, "content", hpFilter, &homepage); err == nil {
 				results = append([]models.Content{homepage}, results...)
 			}

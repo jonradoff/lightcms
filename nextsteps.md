@@ -21,6 +21,7 @@ Handoff written 2026-10-09. Repo `~/lightcms` (GitHub `jonradoff/lightcms`), pro
 - **Not verified:** whether metavert.io has active webhooks (the read was blocked). After 7.4.3 deploys, any that exist will start receiving events they were silently missing.
 - `bin/lightcms-mcp` was last rebuilt at 7.4.2. 7.4.3 adds no MCP tools.
 - `server.json` still pins 7.3.4 release assets and hashes.
+- Purge dry-runs done 2026-10-09: 6 + 69 + 14 + 77 = 166 copies across the four forks; `repair_fork_damage` dry-run found nothing to repair (2,627 pages checked). Nothing deleted yet — waiting on Jon's word.
 - 166 leftover fork copies (drafts) still sit in production from the four merged forks: `6ac54b4bb1ffd9b2689435ce`, `6ac554e29dee2061a1d173b2`, `6ac5784e9dee2061a1d1748d`, `6ac596189dee2061a1d174d4`. They are hidden from listings and harmless, but should be purged.
 
 ## How we continue
@@ -31,7 +32,7 @@ Handoff written 2026-10-09. Repo `~/lightcms` (GitHub `jonradoff/lightcms`), pro
    - Verify (there is no version endpoint): `curl -s -o /dev/null -w '%{http_code}' -X POST https://metavert.io/cm/upload` should be 404 or 405 (the route is removed in 7.4.3); a few public pages return 200; the admin sidebar shows v7.4.3.
    - Rebuild the MCP binary: `go build -o bin/lightcms-mcp ./cmd/mcp`.
 2. **Purge the leftover fork copies** (needs a session started after the MCP binary was rebuilt, so `purge_fork_copies` and `repair_fork_damage` are loaded). For each of the four fork IDs above: `purge_fork_copies` with `dry_run: true`, show Jon the list, then purge on his word. Then `repair_fork_damage` with `dry_run: true` and show the result. One caller, sequential — never parallel agents against this CMS.
-3. **Remaining small fixes** (a 7.4.4 branch): OAuth `ValidateClient` skips the redirect check when `redirect_uri` is empty; service `DeleteContent` leaves `published: true` on soft-deleted rows; the Search tool page's sample script builds `innerHTML` from unescaped titles; older queries still use `fork_id: {$exists: false}` instead of `nil`.
+3. **7.4.4 is written** on branch `fixes-7.4.4` (stacked on `fixes-7.4.3`; its PR targets that branch, so merge #7 first, then retarget or merge it). It holds the four small fixes: OAuth `redirect_uri` is required; service `DeleteContent` clears `published` and `RestoreContent` publishes again (`published_before_delete`); the Search tool sample script builds elements; `fork_id: nil` everywhere. One clean full `go test -p 1 ./...` run on the final tree (2026-10-09). The sample script was not checked in a browser. Deploy and tag it the same way as 7.4.3 (verify with the admin sidebar version).
 4. **LLM Optimizer product update** (`~/llmopt`), deferred since the start of the session: update `research.md`, the Research Citations page in `frontend/src/App.tsx`, and the scoring prompts/weights in `backend/main.go` from the research refresh. Present as a numbered plan for approval first.
 
 ### Blocked on Jon

@@ -35,7 +35,7 @@ func (h *Handler) listLLMContent(ctx context.Context, includeText bool) ([]model
 	filter := bson.M{
 		"published": true,
 		"deleted":   bson.M{"$ne": true},
-		"fork_id":   bson.M{"$exists": false},
+		"fork_id":   nil,
 		"noindex":   bson.M{"$ne": true},
 	}
 	projection := bson.M{
