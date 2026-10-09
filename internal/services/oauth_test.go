@@ -159,10 +159,10 @@ func TestValidateClient(t *testing.T) {
 		t.Error("expected same client ID")
 	}
 
-	// Valid client, empty redirect (should pass — redirect not checked)
+	// Valid client, empty redirect: refused, the registered list is always checked
 	_, err = svc.ValidateClient(ctx, client.ClientID, "")
-	if err != nil {
-		t.Fatalf("ValidateClient with empty redirect should pass: %v", err)
+	if err == nil {
+		t.Error("expected error for an empty redirect URI")
 	}
 
 	// Invalid client ID

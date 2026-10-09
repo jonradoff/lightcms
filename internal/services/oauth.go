@@ -78,17 +78,20 @@ func (s *OAuthService) ValidateClient(ctx context.Context, clientID, redirectURI
 		return nil, fmt.Errorf("unknown client_id")
 	}
 
-	if redirectURI != "" {
-		found := false
-		for _, uri := range client.RedirectURIs {
-			if uri == redirectURI {
-				found = true
-				break
-			}
+	// An authorization request always names its redirect_uri: an empty one
+	// would skip the comparison with the registered list.
+	if redirectURI == "" {
+		return nil, fmt.Errorf("redirect_uri is required")
+	}
+	found := false
+	for _, uri := range client.RedirectURIs {
+		if uri == redirectURI {
+			found = true
+			break
 		}
-		if !found {
-			return nil, fmt.Errorf("redirect_uri not registered")
-		}
+	}
+	if !found {
+		return nil, fmt.Errorf("redirect_uri not registered")
 	}
 
 	return &client, nil

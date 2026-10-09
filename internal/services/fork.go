@@ -140,7 +140,7 @@ func (s *ForkService) ForkPage(ctx context.Context, forkID primitive.ObjectID, c
 
 	// Load live content
 	var live models.Content
-	if err := s.db.FindOne(ctx, "content", bson.M{"_id": contentID, "deleted": bson.M{"$ne": true}, "fork_id": bson.M{"$exists": false}}, &live); err != nil {
+	if err := s.db.FindOne(ctx, "content", bson.M{"_id": contentID, "deleted": bson.M{"$ne": true}, "fork_id": nil}, &live); err != nil {
 		return nil, fmt.Errorf("content not found: %w", err)
 	}
 
@@ -240,7 +240,7 @@ func (s *ForkService) Merge(ctx context.Context, forkID primitive.ObjectID, merg
 		var livePage models.Content
 		liveErr := s.db.FindOne(ctx, "content", bson.M{
 			"full_path": forkPage.FullPath,
-			"fork_id":   bson.M{"$exists": false},
+			"fork_id":   nil,
 			"deleted":   bson.M{"$ne": true},
 		}, &livePage)
 
@@ -489,7 +489,7 @@ func (s *ForkService) Diff(ctx context.Context, forkID primitive.ObjectID) ([]Fo
 		err := s.db.FindOne(ctx, "content", bson.M{
 			"full_path": fp.FullPath,
 			"deleted":   bson.M{"$ne": true},
-			"fork_id":   bson.M{"$exists": false},
+			"fork_id":   nil,
 		}, &live)
 		if err != nil {
 			d.Status = "added"

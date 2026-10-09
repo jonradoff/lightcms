@@ -81,7 +81,7 @@ func TestForkService_Merge_CreateUpdateConflict(t *testing.T) {
 	// The fork-only page now exists as a live page.
 	var created models.Content
 	if err := db.FindOne(ctx, "content", bson.M{
-		"full_path": "/merge-new", "fork_id": bson.M{"$exists": false},
+		"full_path": "/merge-new", "fork_id": nil,
 	}, &created); err != nil {
 		t.Fatalf("created live page not found: %v", err)
 	}

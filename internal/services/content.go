@@ -202,7 +202,7 @@ func (s *ContentService) BackfillPublishedDates(ctx context.Context, dryRun bool
 	filter := bson.M{
 		"published": true,
 		"deleted":   bson.M{"$ne": true},
-		"fork_id":   bson.M{"$exists": false},
+		"fork_id":   nil,
 		"$or":       bson.A{bson.M{"published_at": bson.M{"$exists": false}}, bson.M{"published_at": nil}},
 	}
 	col := s.db.Collection("content")
@@ -773,12 +773,16 @@ func (s *ContentService) DeleteContent(ctx context.Context, id primitive.ObjectI
 		return fmt.Errorf("content not found: %w", err)
 	}
 
+	// A deleted row is never left flagged published: a query that forgets
+	// the deleted filter must not find it. RestoreContent publishes it again.
 	now := time.Now()
 	update := bson.M{
 		"$set": bson.M{
-			"deleted":    true,
-			"deleted_at": now,
-			"updated_at": now,
+			"deleted":                 true,
+			"deleted_at":              now,
+			"updated_at":              now,
+			"published":               false,
+			"published_before_delete": content.Published,
 		},
 	}
 
@@ -822,13 +826,22 @@ func (s *ContentService) DeleteContent(ctx context.Context, id primitive.ObjectI
 
 // RestoreContent restores soft-deleted content
 func (s *ContentService) RestoreContent(ctx context.Context, id primitive.ObjectID) error {
+	set := bson.M{
+		"deleted":    false,
+		"updated_at": time.Now(),
+	}
+	// A page DeleteContent unpublished comes back published, unless it is a
+	// fork copy or was put on hold in the meantime.
+	var deleted models.Content
+	if err := s.db.FindOne(ctx, "content", bson.M{"_id": id}, &deleted); err == nil &&
+		deleted.PublishedBeforeDelete && deleted.ForkID == nil && !deleted.Hold {
+		set["published"] = true
+	}
 	update := bson.M{
-		"$set": bson.M{
-			"deleted":    false,
-			"updated_at": time.Now(),
-		},
+		"$set": set,
 		"$unset": bson.M{
-			"deleted_at": "",
+			"deleted_at":              "",
+			"published_before_delete": "",
 		},
 	}
 
@@ -882,7 +895,7 @@ func (s *ContentService) GetContentByPath(ctx context.Context, path string) (*mo
 	ciFilter := bson.M{
 		"full_path": caseInsensitivePathRegex(path),
 		"deleted":   bson.M{"$ne": true},
-		"fork_id":   bson.M{"$exists": false},
+		"fork_id":   nil,
 	}
 	if err := s.db.FindOne(ctx, "content", ciFilter, &content); err != nil {
 		return nil, fmt.Errorf("content not found: %w", err)
@@ -904,7 +917,7 @@ func (s *ContentService) findPathCaseConflict(ctx context.Context, fullPath stri
 	filter := bson.M{
 		"full_path": caseInsensitivePathRegex(fullPath),
 		"deleted":   bson.M{"$ne": true},
-		"fork_id":   bson.M{"$exists": false},
+		"fork_id":   nil,
 	}
 	if !excludeID.IsZero() {
 		filter["_id"] = bson.M{"$ne": excludeID}

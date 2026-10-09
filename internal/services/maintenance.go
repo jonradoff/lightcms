@@ -106,7 +106,7 @@ func (s *MaintenanceService) RunScan(ctx context.Context, withLinkCheck bool) (*
 
 	cursor, err := s.db.FindMany(ctx, "content", bson.M{
 		"deleted": bson.M{"$ne": true},
-		"fork_id": bson.M{"$exists": false},
+		"fork_id": nil,
 	})
 	if err != nil {
 		return nil, err

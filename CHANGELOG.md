@@ -4,6 +4,20 @@ All notable changes to LightCMS are documented here, organized by version.
 
 ---
 
+## [7.4.4] - 2026-10-09
+
+### Security
+- **An OAuth authorization request must name its `redirect_uri`.** `/oauth/authorize` compared `redirect_uri` with the client's registered list only when the parameter was present; a request without one passed the client check. A missing `redirect_uri` is now refused with `invalid_client` ("redirect_uri is required").
+- **The sample script on the Search tool page builds its results as elements.** The copy-and-paste example wrote titles, keywords and snippets into `innerHTML` (and a keyword into an inline `onclick`), so a site that pasted it would run markup from a page title. The example now creates the elements and sets their text. Sites that copied the earlier example should copy it again.
+
+### Changed
+- **A page deleted through the API or MCP is unpublished in the database, and restoring it publishes it again.** `DELETE /api/v1/content/{id}` (`delete_content`) used to leave `published: true` on the deleted row; 7.4.3 made every public query skip deleted rows, and the row itself now says the same. The delete records that the page was published, and `restore_content` (and an agent-session rollback) brings it back published as before — unless it was put on hold in the meantime, in which case it comes back as a draft. Pages deleted before 7.4.4 restore as they always did.
+
+### Internal
+- The remaining live-content queries that matched `fork_id: {$exists: false}` now match `fork_id: nil` (a missing or null field), the form the rest of the code uses.
+
+---
+
 ## [7.4.3] - 2026-10-07
 
 ### Security

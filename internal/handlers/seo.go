@@ -64,7 +64,7 @@ func markdownPath(fullPath string) string {
 // falling back to a case-insensitive match.
 func (h *Handler) findLivePage(ctx context.Context, fullPath string) (*models.Content, error) {
 	var c models.Content
-	base := bson.M{"published": true, "deleted": bson.M{"$ne": true}, "fork_id": bson.M{"$exists": false}}
+	base := bson.M{"published": true, "deleted": bson.M{"$ne": true}, "fork_id": nil}
 	f := bson.M{"full_path": fullPath}
 	for k, v := range base {
 		f[k] = v
@@ -220,7 +220,7 @@ func (h *Handler) feedItems(ctx context.Context, r *http.Request, cfg services.S
 	filter := bson.M{
 		"published": true,
 		"deleted":   bson.M{"$ne": true},
-		"fork_id":   bson.M{"$exists": false},
+		"fork_id":   nil,
 		"noindex":   bson.M{"$ne": true},
 	}
 	if category != "" {

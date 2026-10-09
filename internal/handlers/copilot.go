@@ -159,7 +159,7 @@ func (h *Handler) executeCopilotTool(ctx context.Context, role, sessionID string
 			return deny(auth.PermContentView)
 		}
 		cursor, err := h.db.FindMany(ctx, "content",
-			bson.M{"deleted": bson.M{"$ne": true}, "fork_id": bson.M{"$exists": false}},
+			bson.M{"deleted": bson.M{"$ne": true}, "fork_id": nil},
 			options.Find().SetSort(bson.D{{Key: "updated_at", Value: -1}}).SetLimit(20))
 		if err != nil {
 			return fail(err)
